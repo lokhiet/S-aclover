@@ -1,0 +1,8 @@
+{
+  "name": "Remix: SéaClover Note - credit by Nhi Séa",
+  "description": "web quản lý ghi chú, prompt và nhân vật tối giản.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
