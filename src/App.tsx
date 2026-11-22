@@ -38,6 +38,10 @@ import StarRain from './components/StarRain';
 import { Note, Idea, Character, AppState, LibraryPrompt } from './types';
 import { CharacterForm, NoteForm, IdeaForm } from './components/RepositoryForms';
 import Toast from './components/Toast';
+import AccountButton from './components/auth/AccountButton';
+import AuthModal from './components/auth/AuthModal';
+import { useAuth } from './contexts/AuthContext';
+import type { AuthModalMode } from './types/auth';
 import { defaultLibraryPrompts } from './promptsData';
 import { authorsList } from './authorsData';
 import { 
@@ -503,6 +507,32 @@ export default function App() {
   // Toast alert system
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
 
+  // Auth modal UI state (delegating all auth logic to AuthContext)
+  const { isRecoveryMode, authError, clearAuthError } = useAuth();
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authModalMode, setAuthModalMode] = useState<AuthModalMode>('login');
+
+  const openAuthModal = (mode: AuthModalMode = 'login') => {
+    setAuthModalMode(mode);
+    setIsAuthModalOpen(true);
+  };
+
+  // Tự động mở hộp thoại đặt lại mật khẩu khi quay về từ liên kết email khôi phục
+  useEffect(() => {
+    if (isRecoveryMode) {
+      setAuthModalMode('reset-password');
+      setIsAuthModalOpen(true);
+    }
+  }, [isRecoveryMode]);
+
+  // Hiển thị thông báo khi có lỗi phiên/liên kết hết hạn ngoài hộp thoại
+  useEffect(() => {
+    if (authError && !isAuthModalOpen) {
+      setToast({ message: authError, type: 'error' });
+      clearAuthError();
+    }
+  }, [authError, isAuthModalOpen, clearAuthError]);
+
   // File picker reference for JSON Import
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -903,6 +933,15 @@ export default function App() {
               <h1 className="text-base font-bold text-emerald-800 dark:text-emerald-400 font-sans tracking-tight leading-none group-hover:text-emerald-600 dark:group-hover:text-emerald-300 transition-colors">SéaClover</h1>
               <p className="text-[9px] text-emerald-600/70 dark:text-emerald-500/60 font-mono tracking-widest mt-0.5">credit by Nhi Séa</p>
             </div>
+          </div>
+
+          {/* Mobile quick access to Account / Login from Sidebar */}
+          <div className="md:hidden">
+            <AccountButton
+              compact
+              onOpenAuth={openAuthModal}
+              onToast={showToast}
+            />
           </div>
         </div>
 
@@ -1441,6 +1480,9 @@ export default function App() {
             >
               {theme === 'light' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4 text-amber-500" />}
             </button>
+
+            {/* Account / Login trigger */}
+            <AccountButton onOpenAuth={openAuthModal} onToast={showToast} />
 
             {isWelcomeScreen && (
               <>
@@ -2602,6 +2644,15 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* AUTHENTICATION MODAL */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        mode={authModalMode}
+        onModeChange={setAuthModalMode}
+        onClose={() => setIsAuthModalOpen(false)}
+        onToast={showToast}
+      />
 
       {/* Floating dynamic Toast Notifications */}
       {toast && (
