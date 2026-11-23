@@ -1,16 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { Character, Note, Idea } from '../types';
-import { Plus, Check, X, Sparkles } from 'lucide-react';
+import { Plus, Check, X, Sparkles, Loader2 } from 'lucide-react';
 
 interface CharacterFormProps {
   initialData?: Character;
-  onSave: (data: Omit<Character, 'id' | 'createdAt'> & { id?: string }) => void;
+  onSave: (data: Omit<Character, 'id' | 'createdAt'> & { id?: string }) => void | Promise<void>;
   onCancel: () => void;
+  isSaving?: boolean;
 }
 
 const PRESET_EMOJIS = ['☘️', '🍀', '✍️', '💻', '🎨', '🌱', '🧙', '🦾', '🎓', '💼', '🚀', '🦊', '🦉', '🦁', '🌟', '🧩'];
 
-export function CharacterForm({ initialData, onSave, onCancel }: CharacterFormProps) {
+export function CharacterForm({ initialData, onSave, onCancel, isSaving = false }: CharacterFormProps) {
   const [name, setName] = useState(initialData?.name || '');
   const [role, setRole] = useState(initialData?.role || '');
   const [avatar, setAvatar] = useState(initialData?.avatar || '🍀');
@@ -48,6 +49,7 @@ export function CharacterForm({ initialData, onSave, onCancel }: CharacterFormPr
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSaving) return;
     if (!name.trim()) return setError('Vui lòng nhập tên nhân vật');
 
     let finalRole = role.trim();
@@ -310,17 +312,19 @@ export function CharacterForm({ initialData, onSave, onCancel }: CharacterFormPr
       <div className="flex gap-3 justify-end pt-2 border-t border-emerald-50 dark:border-emerald-900/20">
         <button
           type="button"
+          disabled={isSaving}
           onClick={onCancel}
-          className="px-4 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 text-zinc-700 dark:text-zinc-300 font-medium transition"
+          className="px-4 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 text-zinc-700 dark:text-zinc-300 font-medium transition disabled:opacity-50"
         >
           Hủy bỏ
         </button>
         <button
           type="submit"
-          className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-medium flex items-center gap-2 shadow-md shadow-emerald-600/10 hover:shadow-emerald-500/20 active:scale-[0.98] transition"
+          disabled={isSaving}
+          className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-medium flex items-center gap-2 shadow-md shadow-emerald-600/10 hover:shadow-emerald-500/20 active:scale-[0.98] transition disabled:opacity-60"
         >
-          <Check className="w-4 h-4" />
-          Lưu Lại
+          {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+          {isSaving ? 'Đang lưu...' : 'Lưu Lại'}
         </button>
       </div>
     </form>
@@ -332,11 +336,12 @@ export function CharacterForm({ initialData, onSave, onCancel }: CharacterFormPr
 interface NoteFormProps {
   initialData?: Note;
   characters: Character[];
-  onSave: (data: Omit<Note, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) => void;
+  onSave: (data: Omit<Note, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) => void | Promise<void>;
   onCancel: () => void;
+  isSaving?: boolean;
 }
 
-export function NoteForm({ initialData, characters, onSave, onCancel }: NoteFormProps) {
+export function NoteForm({ initialData, characters, onSave, onCancel, isSaving = false }: NoteFormProps) {
   const [title, setTitle] = useState(initialData?.title || '');
   const [command, setCommand] = useState(initialData?.command || '');
   const [content, setContent] = useState(initialData?.content || '');
@@ -353,6 +358,7 @@ export function NoteForm({ initialData, characters, onSave, onCancel }: NoteForm
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSaving) return;
     if (!title.trim()) return setError('Vui lòng nhập tiêu đề ghi chú');
     if (!command.trim()) return setError('Vui lòng điền nội dung câu lệnh (Prompt)');
     if (!content.trim()) return setError('Vui lòng cung cấp nội dung ghi chú');
@@ -471,17 +477,19 @@ export function NoteForm({ initialData, characters, onSave, onCancel }: NoteForm
       <div className="flex gap-3 justify-end pt-2 border-t border-emerald-50 dark:border-emerald-900/20">
         <button
           type="button"
+          disabled={isSaving}
           onClick={onCancel}
-          className="px-4 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 text-zinc-700 dark:text-zinc-300 font-medium transition"
+          className="px-4 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 text-zinc-700 dark:text-zinc-300 font-medium transition disabled:opacity-50"
         >
           Hủy bỏ
         </button>
         <button
           type="submit"
-          className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-medium flex items-center gap-2 shadow-md shadow-emerald-600/10 hover:shadow-emerald-500/20 active:scale-[0.98] transition"
+          disabled={isSaving}
+          className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-medium flex items-center gap-2 shadow-md shadow-emerald-600/10 hover:shadow-emerald-500/20 active:scale-[0.98] transition disabled:opacity-60"
         >
-          <Check className="w-4 h-4" />
-          Lưu Lại
+          {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+          {isSaving ? 'Đang lưu...' : 'Lưu Lại'}
         </button>
       </div>
     </form>
@@ -492,17 +500,19 @@ export function NoteForm({ initialData, characters, onSave, onCancel }: NoteForm
 
 interface IdeaFormProps {
   initialData?: Idea;
-  onSave: (data: Omit<Idea, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) => void;
+  onSave: (data: Omit<Idea, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) => void | Promise<void>;
   onCancel: () => void;
+  isSaving?: boolean;
 }
 
-export function IdeaForm({ initialData, onSave, onCancel }: IdeaFormProps) {
+export function IdeaForm({ initialData, onSave, onCancel, isSaving = false }: IdeaFormProps) {
   const [title, setTitle] = useState(initialData?.title || '');
   const [content, setContent] = useState(initialData?.content || '');
   const [error, setError] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSaving) return;
     if (!title.trim()) return setError('Vui lòng cung cấp tiêu đề ý tưởng');
     if (!content.trim()) return setError('Vui lòng viết chi tiết ý tưởng');
 
@@ -557,17 +567,19 @@ export function IdeaForm({ initialData, onSave, onCancel }: IdeaFormProps) {
       <div className="flex gap-3 justify-end pt-2 border-t border-emerald-50 dark:border-emerald-900/20">
         <button
           type="button"
+          disabled={isSaving}
           onClick={onCancel}
-          className="px-4 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 text-zinc-700 dark:text-zinc-300 font-medium transition"
+          className="px-4 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 text-zinc-700 dark:text-zinc-300 font-medium transition disabled:opacity-50"
         >
           Hủy bỏ
         </button>
         <button
           type="submit"
-          className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-medium flex items-center gap-2 shadow-md shadow-emerald-600/10 hover:shadow-emerald-500/20 active:scale-[0.98] transition"
+          disabled={isSaving}
+          className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-medium flex items-center gap-2 shadow-md shadow-emerald-600/10 hover:shadow-emerald-500/20 active:scale-[0.98] transition disabled:opacity-60"
         >
-          <Check className="w-4 h-4" />
-          Lưu Ý Tưởng
+          {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+          {isSaving ? 'Đang lưu...' : 'Lưu Ý Tưởng'}
         </button>
       </div>
     </form>

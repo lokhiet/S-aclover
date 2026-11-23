@@ -2,11 +2,13 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   CheckCircle2,
   ChevronDown,
+  CloudUpload,
   KeyRound,
   Loader2,
   LogIn,
   LogOut,
   MailWarning,
+  RefreshCw,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { isSafeHttpsUrl } from '../../services/authService';
@@ -16,12 +18,22 @@ interface AccountButtonProps {
   onOpenAuth: (mode: AuthModalMode) => void;
   onToast: (message: string, type?: 'success' | 'info' | 'error') => void;
   compact?: boolean;
+  isSyncing?: boolean;
+  hasLocalDataToImport?: boolean;
+  hasPendingImportJob?: boolean;
+  onSyncNow?: () => void;
+  onOpenLocalMigration?: () => void;
 }
 
 export default function AccountButton({
   onOpenAuth,
   onToast,
   compact = false,
+  isSyncing = false,
+  hasLocalDataToImport = false,
+  hasPendingImportJob = false,
+  onSyncNow,
+  onOpenLocalMigration,
 }: AccountButtonProps) {
   const {
     user,
@@ -219,6 +231,50 @@ export default function AccountButton({
 
           {/* Menu actions */}
           <div className="p-1.5 space-y-1">
+            {onSyncNow && (
+              <button
+                type="button"
+                role="menuitem"
+                disabled={isSyncing}
+                onClick={() => {
+                  setIsMenuOpen(false);
+                  onSyncNow();
+                }}
+                className="w-full px-3 py-2 rounded-xl text-left text-xs font-semibold text-slate-700 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-800 disabled:opacity-60 flex items-center gap-2 transition"
+              >
+                <RefreshCw
+                  className={`w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 ${
+                    isSyncing ? 'animate-spin' : ''
+                  }`}
+                />
+                {isSyncing ? 'Đang đồng bộ...' : 'Đồng bộ dữ liệu ngay'}
+              </button>
+            )}
+
+            {onOpenLocalMigration && (hasLocalDataToImport || hasPendingImportJob) && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setIsMenuOpen(false);
+                  onOpenLocalMigration();
+                }}
+                className="w-full px-3 py-2 rounded-xl text-left text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/35 flex items-center justify-between gap-2 transition"
+              >
+                <span className="flex items-center gap-2 truncate">
+                  <CloudUpload className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span className="truncate">
+                    {hasPendingImportJob
+                      ? 'Tiếp tục đồng bộ bị gián đoạn'
+                      : 'Nhập dữ liệu cục bộ lên tài khoản'}
+                  </span>
+                </span>
+                {hasPendingImportJob && (
+                  <span className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
+                )}
+              </button>
+            )}
+
             <button
               type="button"
               role="menuitem"

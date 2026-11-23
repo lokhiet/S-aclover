@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Plus, 
   Trash2, 
@@ -40,16 +40,50 @@ import { CharacterForm, NoteForm, IdeaForm } from './components/RepositoryForms'
 import Toast from './components/Toast';
 import AccountButton from './components/auth/AccountButton';
 import AuthModal from './components/auth/AuthModal';
+import LocalDataMigrationModal from './components/auth/LocalDataMigrationModal';
+import ConflictResolutionModal from './components/auth/ConflictResolutionModal';
 import { useAuth } from './contexts/AuthContext';
 import type { AuthModalMode } from './types/auth';
+import { initialCharacters, initialIdeas } from './initialData';
 import { defaultLibraryPrompts } from './promptsData';
 import { authorsList } from './authorsData';
 import { 
   loadState, 
   saveState, 
   exportStateToJSON, 
-  validateAndParseImport 
+  validateAndParseImport,
+  loadUiPrefs,
+  saveUiPrefs,
+  markGuestItemCustomized,
+  markGuestItemDeleted,
+  readRawLocalStorageState,
 } from './utils';
+import {
+  BUILTIN_CHARACTER_MAP,
+  BUILTIN_IDEA_MAP,
+  buildMigrationSummary,
+  extractPersonalDataFromSource,
+  extractPersonalLocalData,
+  type ImportJobPlan,
+  type MigrationSummary,
+} from './utils/localDataDiff';
+import {
+  clearResumableImportJob,
+  deleteCharacterFromCloud,
+  deleteIdeaFromCloud,
+  deleteNoteFromCloud,
+  fetchUserData,
+  isMigrationPromptDismissed,
+  loadResumableImportJob,
+  saveCharacterToCloud,
+  saveIdeaToCloud,
+  saveNoteToCloud,
+  setMigrationPromptDismissed,
+  versionKey,
+  type CloudUserDataSnapshot,
+  type ConflictDetail,
+  type SyncedVersionMap,
+} from './services/userDataService';
 
 // Helper function to resolve distinctive emoji icons for each library prompt
 const getLibraryPromptIcon = (prompt: LibraryPrompt) => {
@@ -462,12 +496,24 @@ const getLogoForUrl = (url: string) => {
 
 export default function App() {
   // Load initial states from LocalStorage or seed data safely on startup
-  const [notes, setNotes] = useState<Note[]>(() => loadState().notes);
-  const [ideas, setIdeas] = useState<Idea[]>(() => loadState().ideas);
-  const [characters, setCharacters] = useState<Character[]>(() => loadState().characters);
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => loadState().theme);
-  const [cloverEffect, setCloverEffect] = useState<boolean>(() => loadState().cloverEffect);
-  const [libraryPrompts, setLibraryPrompts] = useState<LibraryPrompt[]>(() => loadState().libraryPrompts || defaultLibraryPrompts);
+  const initialLocalStateRef = useRef<AppState | null>(null);
+  if (initialLocalStateRef.current === null) {
+    initialLocalStateRef.current = loadState();
+  }
+  const initialLocalState = initialLocalStateRef.current;
+  const initialUiPrefs = loadUiPrefs({
+    theme: initialLocalState.theme,
+    cloverEffect: initialLocalState.cloverEffect,
+  });
+
+  const [notes, setNotes] = useState<Note[]>(() => initialLocalState.notes);
+  const [ideas, setIdeas] = useState<Idea[]>(() => initialLocalState.ideas);
+  const [characters, setCharacters] = useState<Character[]>(() => initialLocalState.characters);
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => initialUiPrefs.theme);
+  const [cloverEffect, setCloverEffect] = useState<boolean>(() => initialUiPrefs.cloverEffect);
+  const [libraryPrompts, setLibraryPrompts] = useState<LibraryPrompt[]>(
+    () => initialLocalState.libraryPrompts || defaultLibraryPrompts,
+  );
 
   // Active view constraints
   const [activeTab, setActiveTab] = useState<'notes' | 'ideas' | 'characters' | 'authors'>('characters');
@@ -507,15 +553,64 @@ export default function App() {
   // Toast alert system
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
 
-  // Auth modal UI state (delegating all auth logic to AuthContext)
-  const { isRecoveryMode, authError, clearAuthError } = useAuth();
+  // Auth & Cloud Sync state (delegating all auth logic to AuthContext)
+  const {
+    user,
+    userId,
+    isAuthenticated,
+    isAuthReady,
+    isRecoveryMode,
+    authError,
+    clearAuthError,
+  } = useAuth();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authModalMode, setAuthModalMode] = useState<AuthModalMode>('login');
+
+  // Cloud synchronization state
+  const [isSyncingCloud, setIsSyncingCloud] = useState(false);
+  const [isSavingItem, setIsSavingItem] = useState(false);
+  const [cloudSnapshot, setCloudSnapshot] = useState<CloudUserDataSnapshot | null>(null);
+  const [syncedVersions, setSyncedVersions] = useState<SyncedVersionMap>({});
+
+  // Conflict resolution modal state (Optimistic Concurrency Control)
+  const [activeConflict, setActiveConflict] = useState<ConflictDetail | null>(null);
+  const [isResolvingConflict, setIsResolvingConflict] = useState(false);
+
+  // Local migration & Cloud JSON import modal state
+  const [isMigrationModalOpen, setIsMigrationModalOpen] = useState(false);
+  const [migrationMode, setMigrationMode] = useState<'local-migration' | 'json-import'>('local-migration');
+  const [migrationSummary, setMigrationSummary] = useState<MigrationSummary | null>(null);
+  const [migrationBackupPayload, setMigrationBackupPayload] = useState<Partial<AppState> | null>(null);
+  const [pendingResumableJob, setPendingResumableJob] = useState<ImportJobPlan | null>(null);
+  const [hasLocalDataToImport, setHasLocalDataToImport] = useState(false);
+
+  // Refs to guard against stale async fetches and avoid disrupting active edits
+  const fetchRequestIdRef = useRef(0);
+  const activeSyncedUserIdRef = useRef<string | null>(null);
+  const lastFocusSyncAtRef = useRef(0);
+  const isEditingOrBusyRef = useRef(false);
+
+  useEffect(() => {
+    isEditingOrBusyRef.current =
+      isCreating ||
+      isEditing ||
+      isSavingItem ||
+      isMigrationModalOpen ||
+      Boolean(activeConflict);
+  }, [isCreating, isEditing, isSavingItem, isMigrationModalOpen, activeConflict]);
 
   const openAuthModal = (mode: AuthModalMode = 'login') => {
     setAuthModalMode(mode);
     setIsAuthModalOpen(true);
   };
+
+  // Toast display trigger helper
+  const showToast = useCallback(
+    (message: string, type: 'success' | 'info' | 'error' = 'success') => {
+      setToast({ message, type });
+    },
+    [],
+  );
 
   // Tự động mở hộp thoại đặt lại mật khẩu khi quay về từ liên kết email khôi phục
   useEffect(() => {
@@ -545,8 +640,188 @@ export default function App() {
     }
   }, [theme]);
 
-  // Sync back to local storage whenever collections alter
+  // Tải & đồng bộ dữ liệu từ Supabase cho đúng tài khoản hiện tại
+  const syncFromSupabase = useCallback(
+    async (
+      targetUserId: string,
+      options: { silent?: boolean; checkLocalPrompt?: boolean } = {},
+    ): Promise<boolean> => {
+      const reqId = ++fetchRequestIdRef.current;
+      setIsSyncingCloud(true);
+
+      try {
+        const result = await fetchUserData(targetUserId);
+        // Bỏ qua kết quả cũ nếu tài khoản đã đổi hoặc có lượt đồng bộ mới hơn
+        if (reqId !== fetchRequestIdRef.current) return false;
+
+        if (!result.ok || !result.data) {
+          if (!options.silent) {
+            showToast(
+              result.error?.message || 'Không thể tải dữ liệu tài khoản từ Supabase.',
+              'error',
+            );
+          }
+          return false;
+        }
+
+        const snapshot = result.data;
+        setCharacters(snapshot.characters);
+        setNotes(snapshot.notes);
+        setIdeas(snapshot.ideas);
+        setLibraryPrompts(snapshot.libraryPrompts);
+        setCloudSnapshot(snapshot);
+        setSyncedVersions(snapshot.versions);
+        lastFocusSyncAtRef.current = Date.now();
+
+        // Kiểm tra thuần (read-only) xem localStorage có dữ liệu cá nhân hoặc phiên nhập bị gián đoạn không
+        const personalLocal = extractPersonalLocalData();
+        const summary = buildMigrationSummary(personalLocal, snapshot);
+        const resumable = loadResumableImportJob(targetUserId);
+
+        setHasLocalDataToImport(summary.totalActionableCount > 0);
+        setPendingResumableJob(resumable);
+
+        if (options.checkLocalPrompt) {
+          if (resumable && resumable.confirmedChunkIds.length < resumable.chunks.length) {
+            setMigrationMode(resumable.sourceLabel);
+            setMigrationSummary(resumable.sourceLabel === 'local-migration' ? summary : null);
+            setMigrationBackupPayload(readRawLocalStorageState());
+            setIsMigrationModalOpen(true);
+          } else if (
+            summary.totalActionableCount > 0 &&
+            !isMigrationPromptDismissed(targetUserId)
+          ) {
+            setMigrationMode('local-migration');
+            setMigrationSummary(summary);
+            setMigrationBackupPayload(readRawLocalStorageState());
+            setIsMigrationModalOpen(true);
+          }
+        }
+        return true;
+      } finally {
+        if (reqId === fetchRequestIdRef.current) {
+          setIsSyncingCloud(false);
+        }
+      }
+    },
+    [showToast],
+  );
+
+  // Chuyển đổi an toàn giữa chế độ Khách (localStorage) và Tài khoản (Supabase),
+  // bảo đảm cô lập 100%, không rò rỉ dữ liệu giữa các tài khoản khi đổi tài khoản/đăng xuất.
+  useEffect(() => {
+    if (!isAuthReady) return;
+
+    if (isAuthenticated && userId) {
+      if (activeSyncedUserIdRef.current !== userId) {
+        activeSyncedUserIdRef.current = userId;
+        // Xóa sạch trạng thái tạm và dữ liệu phiên trước khỏi bộ nhớ ngay lập tức
+        setIsCreating(false);
+        setIsEditing(false);
+        setActiveConflict(null);
+        setIsMigrationModalOpen(false);
+        setSelectedNoteId(null);
+        setSelectedIdeaId(null);
+        setSelectedCharId(null);
+        setSelectedLibraryPromptId(null);
+        setNotes([]);
+        setCharacters(initialCharacters);
+        setIdeas(initialIdeas);
+        setLibraryPrompts(defaultLibraryPrompts);
+        setCloudSnapshot(null);
+        setSyncedVersions({});
+        setHasLocalDataToImport(false);
+        setPendingResumableJob(null);
+
+        void syncFromSupabase(userId, { silent: false, checkLocalPrompt: true });
+      }
+    } else if (activeSyncedUserIdRef.current !== null) {
+      // Đã đăng xuất về chế độ Khách: khôi phục dữ liệu cục bộ nguyên vẹn từ seaclover_state
+      fetchRequestIdRef.current += 1;
+      activeSyncedUserIdRef.current = null;
+      setIsCreating(false);
+      setIsEditing(false);
+      setActiveConflict(null);
+      setIsMigrationModalOpen(false);
+      setCloudSnapshot(null);
+      setSyncedVersions({});
+      setHasLocalDataToImport(false);
+      setPendingResumableJob(null);
+      setSelectedNoteId(null);
+      setSelectedIdeaId(null);
+      setSelectedCharId(null);
+      setSelectedLibraryPromptId(null);
+
+      const guestState = loadState();
+      setNotes(guestState.notes);
+      setIdeas(guestState.ideas);
+      setCharacters(guestState.characters);
+      setLibraryPrompts(guestState.libraryPrompts || defaultLibraryPrompts);
+    }
+  }, [isAuthReady, isAuthenticated, userId, syncFromSupabase]);
+
+  // Tự động đồng bộ lại âm thầm khi người dùng quay lại tab (giảm xung đột giữa Edge/Chrome/thiết bị khác)
+  useEffect(() => {
+    if (!isAuthenticated || !userId) return;
+
+    const triggerFocusSync = () => {
+      if (document.visibilityState === 'hidden') return;
+      if (isEditingOrBusyRef.current) return;
+      if (Date.now() - lastFocusSyncAtRef.current < 15_000) return;
+      void syncFromSupabase(userId, { silent: true, checkLocalPrompt: false });
+    };
+
+    window.addEventListener('focus', triggerFocusSync);
+    document.addEventListener('visibilitychange', triggerFocusSync);
+    return () => {
+      window.removeEventListener('focus', triggerFocusSync);
+      document.removeEventListener('visibilitychange', triggerFocusSync);
+    };
+  }, [isAuthenticated, userId, syncFromSupabase]);
+
+  const handleManualSyncNow = () => {
+    if (!isAuthenticated || !userId) return;
+    if (isCreating || isEditing) {
+      showToast('Hãy lưu hoặc đóng biểu mẫu đang chỉnh sửa trước khi đồng bộ lại.', 'info');
+      return;
+    }
+    void syncFromSupabase(userId, { silent: false, checkLocalPrompt: false }).then((ok) => {
+      if (ok) {
+        showToast('Đã làm mới dữ liệu mới nhất từ tài khoản Supabase! 🍀', 'success');
+      }
+    });
+  };
+
+  const handleOpenLocalMigrationManually = () => {
+    if (!isAuthenticated || !userId || !cloudSnapshot) return;
+    const resumable = loadResumableImportJob(userId);
+    const personalLocal = extractPersonalLocalData();
+    const summary = buildMigrationSummary(personalLocal, cloudSnapshot);
+    setPendingResumableJob(resumable);
+
+    if (resumable && resumable.confirmedChunkIds.length < resumable.chunks.length) {
+      setMigrationMode(resumable.sourceLabel);
+      setMigrationSummary(resumable.sourceLabel === 'local-migration' ? summary : null);
+      setMigrationBackupPayload(readRawLocalStorageState());
+      setIsMigrationModalOpen(true);
+      return;
+    }
+
+    if (summary.totalActionableCount === 0) {
+      showToast('Tất cả dữ liệu cục bộ đã khớp sẵn với tài khoản của bạn.', 'info');
+      setHasLocalDataToImport(false);
+      return;
+    }
+
+    setMigrationMode('local-migration');
+    setMigrationSummary(summary);
+    setMigrationBackupPayload(readRawLocalStorageState());
+    setIsMigrationModalOpen(true);
+  };
+
+  // Sync back to local storage ONLY in Guest mode (tuyệt đối không ghi dữ liệu tài khoản vào seaclover_state)
   const persistToLocalStorage = (currentState: AppState) => {
+    if (isAuthenticated && userId) return;
     saveState(currentState);
   };
 
@@ -565,11 +840,6 @@ export default function App() {
       cloverEffect,
       libraryPrompts: updatedLibraryPrompts || libraryPrompts,
     });
-  };
-
-  // Toast display trigger helper
-  const showToast = (message: string, type: 'success' | 'info' | 'error' = 'success') => {
-    setToast({ message, type });
   };
 
   // Clipboard copy procedure with absolute safety helper
@@ -624,11 +894,14 @@ export default function App() {
     setSearchQuery('');
   };
 
-  // Toggle dynamic clover falling
+  // Toggle dynamic clover falling (tách cài đặt giao diện để không bao giờ ghi đè seaclover_state khi đã đăng nhập)
   const handleCloverToggle = () => {
     const nextVal = !cloverEffect;
     setCloverEffect(nextVal);
-    persistToLocalStorage({ notes, ideas, characters, theme, cloverEffect: nextVal, libraryPrompts });
+    saveUiPrefs({ theme, cloverEffect: nextVal });
+    if (!isAuthenticated) {
+      persistToLocalStorage({ notes, ideas, characters, theme, cloverEffect: nextVal, libraryPrompts });
+    }
     showToast(nextVal ? 'Đã bật hiệu ứng cỏ bốn lá rơi 🍀' : 'Đã tắt hiệu ứng cỏ bốn lá rơi', 'info');
   };
 
@@ -636,7 +909,10 @@ export default function App() {
   const toggleTheme = () => {
     const nextTheme = theme === 'light' ? 'dark' : 'light';
     setTheme(nextTheme);
-    persistToLocalStorage({ notes, ideas, characters, theme: nextTheme, cloverEffect, libraryPrompts });
+    saveUiPrefs({ theme: nextTheme, cloverEffect });
+    if (!isAuthenticated) {
+      persistToLocalStorage({ notes, ideas, characters, theme: nextTheme, cloverEffect, libraryPrompts });
+    }
   };
 
   // File Upload JSON restore function
@@ -649,6 +925,55 @@ export default function App() {
       const content = event.target?.result as string;
       const parsed = validateAndParseImport(content);
       if (parsed) {
+        // Nếu đang đăng nhập tài khoản Supabase: mở hộp thoại kiểm tra xung đột & đồng bộ từng lô lên tài khoản
+        if (isAuthenticated && userId) {
+          if (parsed.theme) {
+            setTheme(parsed.theme);
+            saveUiPrefs({
+              theme: parsed.theme,
+              cloverEffect: typeof parsed.cloverEffect === 'boolean' ? parsed.cloverEffect : cloverEffect,
+            });
+          } else if (typeof parsed.cloverEffect === 'boolean') {
+            setCloverEffect(parsed.cloverEffect);
+            saveUiPrefs({ theme, cloverEffect: parsed.cloverEffect });
+          }
+
+          const personalFromFile = extractPersonalDataFromSource(parsed);
+          const currentSnapshotForDiff = cloudSnapshot ?? {
+            characters,
+            notes,
+            ideas,
+            libraryPrompts,
+            cloudItemIds: {
+              characters: new Set(characters.map((c) => c.id)),
+              notes: new Set(notes.map((n) => n.id)),
+              ideas: new Set(ideas.map((i) => i.id)),
+              libraryPrompts: new Set(libraryPrompts.map((p) => p.id)),
+            },
+          };
+          const summary = buildMigrationSummary(personalFromFile, currentSnapshotForDiff);
+
+          if (summary.totalActionableCount === 0) {
+            showToast('Tệp JSON không có mục cá nhân mới hoặc đã khớp sẵn với tài khoản hiện tại.', 'info');
+            return;
+          }
+
+          setMigrationMode('json-import');
+          setMigrationSummary(summary);
+          setMigrationBackupPayload({
+            notes,
+            ideas,
+            characters,
+            theme,
+            cloverEffect,
+            libraryPrompts,
+          });
+          setPendingResumableJob(null);
+          setIsMigrationModalOpen(true);
+          return;
+        }
+
+        // Chế độ Khách (localStorage): giữ nguyên hành vi khôi phục cục bộ
         const mergedNotes = parsed.notes || notes;
         const mergedIdeas = parsed.ideas || ideas;
         const mergedChars = parsed.characters || characters;
@@ -662,6 +987,7 @@ export default function App() {
         setTheme(mergedTheme);
         setCloverEffect(mergedClover);
         setLibraryPrompts(mergedLibraryPrompts);
+        saveUiPrefs({ theme: mergedTheme, cloverEffect: mergedClover });
 
         persistToLocalStorage({
           notes: mergedNotes,
@@ -702,22 +1028,110 @@ export default function App() {
 
   /* ----------------- DATA MODIFICATIONS (C.R.U.D) ----------------- */
 
+  // Helper cập nhật version & đánh dấu mục đã nằm trên cloud sau khi Supabase xác nhận
+  const recordCloudVersion = (
+    kind: 'character' | 'note' | 'idea' | 'library_prompt',
+    itemId: string,
+    version?: number,
+    updatedAt?: string,
+  ) => {
+    if (typeof version === 'number') {
+      setSyncedVersions((prev) => ({
+        ...prev,
+        [versionKey(kind, itemId)]: {
+          version,
+          updatedAt: updatedAt || new Date().toISOString(),
+        },
+      }));
+    }
+    setCloudSnapshot((prev) => {
+      if (!prev) return prev;
+      const nextIds = {
+        characters: new Set(prev.cloudItemIds.characters),
+        notes: new Set(prev.cloudItemIds.notes),
+        ideas: new Set(prev.cloudItemIds.ideas),
+        libraryPrompts: new Set(prev.cloudItemIds.libraryPrompts),
+      };
+      if (kind === 'character') nextIds.characters.add(itemId);
+      if (kind === 'note') nextIds.notes.add(itemId);
+      if (kind === 'idea') nextIds.ideas.add(itemId);
+      if (kind === 'library_prompt') nextIds.libraryPrompts.add(itemId);
+      return { ...prev, cloudItemIds: nextIds };
+    });
+  };
+
   // Characters
-  const handleSaveCharacter = (data: Omit<Character, 'id' | 'createdAt'> & { id?: string }) => {
+  const handleSaveCharacter = async (data: Omit<Character, 'id' | 'createdAt'> & { id?: string }) => {
+    // Chế độ tài khoản Supabase: chờ máy chủ xác nhận trước khi cập nhật UI
+    if (isAuthenticated && userId) {
+      if (isSavingItem) return;
+      setIsSavingItem(true);
+      try {
+        if (data.id) {
+          const existing = characters.find((c) => c.id === data.id);
+          if (!existing) return;
+          // Gộp với bản hiện có để bảo toàn tuyệt đối các trường không có trong form (discord2, web, other...)
+          const updatedChar: Character = { ...existing, ...data, id: existing.id };
+          const expectedVersion = syncedVersions[versionKey('character', existing.id)]?.version;
+          const res = await saveCharacterToCloud(userId, updatedChar, {
+            expectedVersion,
+            isFirstOverride: expectedVersion === undefined,
+          });
+
+          if (res.conflict) {
+            setActiveConflict(res.conflict);
+            return;
+          }
+          if (!res.ok || !res.data) {
+            showToast(res.error?.message || 'Không thể lưu nhân vật lên tài khoản.', 'error');
+            return;
+          }
+
+          const confirmedChar = res.data;
+          setCharacters((prev) => prev.map((c) => (c.id === confirmedChar.id ? confirmedChar : c)));
+          recordCloudVersion('character', confirmedChar.id, res.version, res.updatedAt);
+          setIsCreating(false);
+          setIsEditing(false);
+          showToast('Đã cập nhật và đồng bộ nhân vật lên tài khoản! 🍀');
+        } else {
+          const newChar: Character = {
+            ...data,
+            id: `char-${Date.now()}`,
+            createdAt: new Date().toISOString(),
+          };
+          const res = await saveCharacterToCloud(userId, newChar);
+          if (!res.ok || !res.data) {
+            showToast(res.error?.message || 'Không thể lưu nhân vật mới lên tài khoản.', 'error');
+            return;
+          }
+
+          const confirmedChar = res.data;
+          setCharacters((prev) => [...prev, confirmedChar]);
+          recordCloudVersion('character', confirmedChar.id, res.version, res.updatedAt);
+          setSelectedCharId(confirmedChar.id);
+          setIsCreating(false);
+          setIsEditing(false);
+          showToast('Đã tạo và đồng bộ nhân vật mới lên tài khoản! 🎉');
+        }
+      } finally {
+        setIsSavingItem(false);
+      }
+      return;
+    }
+
+    // Chế độ Khách (localStorage)
     if (data.id) {
-      // Edit
-      const nextList = characters.map(c => c.id === data.id ? { 
-        ...c, 
-        ...data
-      } : c);
+      const nextList = characters.map((c) => (c.id === data.id ? { ...c, ...data } : c));
+      if (BUILTIN_CHARACTER_MAP.has(data.id)) {
+        markGuestItemCustomized('character', data.id);
+      }
       syncState(notes, ideas, nextList);
       showToast('Đã cập nhật nhân vật thành công!');
     } else {
-      // Add
       const newChar: Character = {
         ...data,
         id: `char-${Date.now()}`,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
       };
       const nextList = [...characters, newChar];
       syncState(notes, ideas, nextList);
@@ -728,35 +1142,133 @@ export default function App() {
     setIsEditing(false);
   };
 
-  const handleDeleteCharacter = (id: string) => {
-    if (confirm('Bạn chắc chắn muốn xóa nhân vật này? Các ghi chú liên đới sẽ mất kết nối nhân vật.')) {
-      const nextList = characters.filter(c => c.id !== id);
-      // Nullify references in notes/prompts
-      const nextNotes = notes.map(n => n.characterId === id ? { ...n, characterId: '' } : n);
-      syncState(nextNotes, ideas, nextList);
-      setSelectedCharId(nextList.length > 0 ? nextList[0].id : null);
-      setShowDetailOnMobile(false); // return to lists on delete
-      showToast('Đã hóa giải liên kết và xóa nhân vật.', 'info');
+  const handleDeleteCharacter = async (id: string) => {
+    if (!confirm('Bạn chắc chắn muốn xóa nhân vật này? Các ghi chú liên đới sẽ mất kết nối nhân vật.')) {
+      return;
     }
+
+    if (isAuthenticated && userId) {
+      if (isSavingItem) return;
+      setIsSavingItem(true);
+      try {
+        const isBuiltin = BUILTIN_CHARACTER_MAP.has(id);
+        const res = await deleteCharacterFromCloud(userId, id, isBuiltin);
+        if (!res.ok) {
+          showToast(res.error?.message || 'Không thể xóa nhân vật trên máy chủ.', 'error');
+          return;
+        }
+        const nextList = characters.filter((c) => c.id !== id);
+        const nextNotes = notes.map((n) => (n.characterId === id ? { ...n, characterId: '' } : n));
+        setCharacters(nextList);
+        setNotes(nextNotes);
+        setSelectedCharId(nextList.length > 0 ? nextList[0].id : null);
+        setShowDetailOnMobile(false);
+        showToast('Đã xóa nhân vật và đồng bộ lên tài khoản.', 'info');
+      } finally {
+        setIsSavingItem(false);
+      }
+      return;
+    }
+
+    if (BUILTIN_CHARACTER_MAP.has(id)) {
+      markGuestItemDeleted('character', id);
+    }
+    const nextList = characters.filter((c) => c.id !== id);
+    const nextNotes = notes.map((n) => (n.characterId === id ? { ...n, characterId: '' } : n));
+    syncState(nextNotes, ideas, nextList);
+    setSelectedCharId(nextList.length > 0 ? nextList[0].id : null);
+    setShowDetailOnMobile(false);
+    showToast('Đã hóa giải liên kết và xóa nhân vật.', 'info');
   };
 
   // Notes/Prompts
-  const handleSaveNote = (data: Omit<Note, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) => {
+  const handleSaveNote = async (data: Omit<Note, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) => {
+    if (isAuthenticated && userId) {
+      if (isSavingItem) return;
+      setIsSavingItem(true);
+      try {
+        if (data.id) {
+          const existing = notes.find((n) => n.id === data.id);
+          if (!existing) return;
+          // Giữ lại các thuộc tính tùy chọn như categoryOffline khi chỉnh sửa
+          const updatedNote: Note = {
+            ...existing,
+            title: data.title,
+            command: data.command,
+            content: data.content,
+            characterId: data.characterId,
+            icon: data.icon,
+            updatedAt: new Date().toISOString(),
+          };
+          const expectedVersion = syncedVersions[versionKey('note', existing.id)]?.version;
+          const res = await saveNoteToCloud(userId, updatedNote, {
+            expectedVersion,
+            isFirstOverride: expectedVersion === undefined,
+          });
+
+          if (res.conflict) {
+            setActiveConflict(res.conflict);
+            return;
+          }
+          if (!res.ok || !res.data) {
+            showToast(res.error?.message || 'Không thể lưu ghi chú lên tài khoản.', 'error');
+            return;
+          }
+
+          const confirmedNote = res.data;
+          setNotes((prev) => prev.map((n) => (n.id === confirmedNote.id ? confirmedNote : n)));
+          recordCloudVersion('note', confirmedNote.id, res.version, res.updatedAt);
+          setIsCreating(false);
+          setIsEditing(false);
+          showToast('Đã sửa và đồng bộ prompt/ghi chú lên tài khoản! ☘️');
+        } else {
+          const newNote: Note = {
+            id: `note-${Date.now()}`,
+            title: data.title,
+            command: data.command,
+            content: data.content,
+            characterId: data.characterId,
+            icon: data.icon || '☘️',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+          const res = await saveNoteToCloud(userId, newNote);
+          if (!res.ok || !res.data) {
+            showToast(res.error?.message || 'Không thể lưu ghi chú mới lên tài khoản.', 'error');
+            return;
+          }
+
+          const confirmedNote = res.data;
+          setNotes((prev) => [...prev, confirmedNote]);
+          recordCloudVersion('note', confirmedNote.id, res.version, res.updatedAt);
+          setSelectedNoteId(confirmedNote.id);
+          setIsCreating(false);
+          setIsEditing(false);
+          showToast('Đã thêm và đồng bộ ghi chú/prompt lên tài khoản! ☘️');
+        }
+      } finally {
+        setIsSavingItem(false);
+      }
+      return;
+    }
+
     if (data.id) {
-      // Edit
-      const nextList = notes.map(n => n.id === data.id ? {
-        ...n,
-        title: data.title,
-        command: data.command,
-        content: data.content,
-        characterId: data.characterId,
-        icon: data.icon,
-        updatedAt: new Date().toISOString()
-      } : n);
+      const nextList = notes.map((n) =>
+        n.id === data.id
+          ? {
+              ...n,
+              title: data.title,
+              command: data.command,
+              content: data.content,
+              characterId: data.characterId,
+              icon: data.icon,
+              updatedAt: new Date().toISOString(),
+            }
+          : n,
+      );
       syncState(nextList, ideas, characters);
       showToast('Đã sửa prompt/ghi chú thành công!');
     } else {
-      // Add
       const newNote: Note = {
         id: `note-${Date.now()}`,
         title: data.title,
@@ -765,7 +1277,7 @@ export default function App() {
         characterId: data.characterId,
         icon: data.icon || '☘️',
         createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
       };
       const nextList = [...notes, newNote];
       syncState(nextList, ideas, characters);
@@ -776,38 +1288,129 @@ export default function App() {
     setIsEditing(false);
   };
 
-  const handleDeleteNote = (id: string) => {
-    if (confirm('Bạn có đồng ý xóa vĩnh viễn ghi chú lệnh này?')) {
-      const nextList = notes.filter(n => n.id !== id);
-      syncState(nextList, ideas, characters);
-      setSelectedNoteId(nextList.length > 0 ? nextList[0].id : null);
-      setShowDetailOnMobile(false); // Back to list on mobile
-      showToast('Đã xóa bỏ câu lệnh/ghi chú thành công.', 'info');
+  const handleDeleteNote = async (id: string) => {
+    if (!confirm('Bạn có đồng ý xóa vĩnh viễn ghi chú lệnh này?')) {
+      return;
     }
+
+    if (isAuthenticated && userId) {
+      if (isSavingItem) return;
+      setIsSavingItem(true);
+      try {
+        const res = await deleteNoteFromCloud(userId, id);
+        if (!res.ok) {
+          showToast(res.error?.message || 'Không thể xóa ghi chú trên máy chủ.', 'error');
+          return;
+        }
+        const nextList = notes.filter((n) => n.id !== id);
+        setNotes(nextList);
+        setSelectedNoteId(nextList.length > 0 ? nextList[0].id : null);
+        setShowDetailOnMobile(false);
+        showToast('Đã xóa ghi chú và đồng bộ lên tài khoản.', 'info');
+      } finally {
+        setIsSavingItem(false);
+      }
+      return;
+    }
+
+    const nextList = notes.filter((n) => n.id !== id);
+    syncState(nextList, ideas, characters);
+    setSelectedNoteId(nextList.length > 0 ? nextList[0].id : null);
+    setShowDetailOnMobile(false);
+    showToast('Đã xóa bỏ câu lệnh/ghi chú thành công.', 'info');
   };
 
   // Ideas
-  const handleSaveIdea = (data: Omit<Idea, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) => {
+  const handleSaveIdea = async (data: Omit<Idea, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) => {
+    if (isAuthenticated && userId) {
+      if (isSavingItem) return;
+      setIsSavingItem(true);
+      try {
+        if (data.id) {
+          const existing = ideas.find((i) => i.id === data.id);
+          if (!existing) return;
+          const updatedIdea: Idea = {
+            ...existing,
+            title: data.title,
+            content: data.content,
+            tags: data.tags,
+            updatedAt: new Date().toISOString(),
+          };
+          const expectedVersion = syncedVersions[versionKey('idea', existing.id)]?.version;
+          const res = await saveIdeaToCloud(userId, updatedIdea, {
+            expectedVersion,
+            isFirstOverride: expectedVersion === undefined,
+          });
+
+          if (res.conflict) {
+            setActiveConflict(res.conflict);
+            return;
+          }
+          if (!res.ok || !res.data) {
+            showToast(res.error?.message || 'Không thể lưu ý tưởng lên tài khoản.', 'error');
+            return;
+          }
+
+          const confirmedIdea = res.data;
+          setIdeas((prev) => prev.map((i) => (i.id === confirmedIdea.id ? confirmedIdea : i)));
+          recordCloudVersion('idea', confirmedIdea.id, res.version, res.updatedAt);
+          setIsCreating(false);
+          setIsEditing(false);
+          showToast('Ý tưởng đã được cập nhật và đồng bộ lên tài khoản! 💡');
+        } else {
+          const newIdea: Idea = {
+            id: `idea-${Date.now()}`,
+            title: data.title,
+            content: data.content,
+            tags: data.tags,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+          const res = await saveIdeaToCloud(userId, newIdea);
+          if (!res.ok || !res.data) {
+            showToast(res.error?.message || 'Không thể lưu ý tưởng mới lên tài khoản.', 'error');
+            return;
+          }
+
+          const confirmedIdea = res.data;
+          setIdeas((prev) => [confirmedIdea, ...prev]);
+          recordCloudVersion('idea', confirmedIdea.id, res.version, res.updatedAt);
+          setSelectedIdeaId(confirmedIdea.id);
+          setIsCreating(false);
+          setIsEditing(false);
+          showToast('Hạt giống ý tưởng mới đã được lưu vào tài khoản! 💡');
+        }
+      } finally {
+        setIsSavingItem(false);
+      }
+      return;
+    }
+
     if (data.id) {
-      // Edit
-      const nextList = ideas.map(i => i.id === data.id ? {
-        ...i,
-        title: data.title,
-        content: data.content,
-        tags: data.tags,
-        updatedAt: new Date().toISOString()
-      } : i);
+      const nextList = ideas.map((i) =>
+        i.id === data.id
+          ? {
+              ...i,
+              title: data.title,
+              content: data.content,
+              tags: data.tags,
+              updatedAt: new Date().toISOString(),
+            }
+          : i,
+      );
+      if (BUILTIN_IDEA_MAP.has(data.id)) {
+        markGuestItemCustomized('idea', data.id);
+      }
       syncState(notes, nextList, characters);
       showToast('Ý tưởng đã được làm mới thành công!');
     } else {
-      // Add
       const newIdea: Idea = {
         id: `idea-${Date.now()}`,
         title: data.title,
         content: data.content,
         tags: data.tags,
         createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
       };
       const nextList = [...ideas, newIdea];
       syncState(notes, nextList, characters);
@@ -818,13 +1421,185 @@ export default function App() {
     setIsEditing(false);
   };
 
-  const handleDeleteIdea = (id: string) => {
-    if (confirm('Bạn có chắc chắn muốn giải phóng và xóa ý tưởng này?')) {
-      const nextList = ideas.filter(i => i.id !== id);
-      syncState(notes, nextList, characters);
-      setSelectedIdeaId(nextList.length > 0 ? nextList[0].id : null);
-      setShowDetailOnMobile(false); // return lists on delete
-      showToast('Đã dọn dẹp ý tưởng khỏi kho.', 'info');
+  const handleDeleteIdea = async (id: string) => {
+    if (!confirm('Bạn có chắc chắn muốn giải phóng và xóa ý tưởng này?')) {
+      return;
+    }
+
+    if (isAuthenticated && userId) {
+      if (isSavingItem) return;
+      setIsSavingItem(true);
+      try {
+        const isBuiltin = BUILTIN_IDEA_MAP.has(id);
+        const res = await deleteIdeaFromCloud(userId, id, isBuiltin);
+        if (!res.ok) {
+          showToast(res.error?.message || 'Không thể xóa ý tưởng trên máy chủ.', 'error');
+          return;
+        }
+        const nextList = ideas.filter((i) => i.id !== id);
+        setIdeas(nextList);
+        setSelectedIdeaId(nextList.length > 0 ? nextList[0].id : null);
+        setShowDetailOnMobile(false);
+        showToast('Đã xóa ý tưởng và đồng bộ lên tài khoản.', 'info');
+      } finally {
+        setIsSavingItem(false);
+      }
+      return;
+    }
+
+    if (BUILTIN_IDEA_MAP.has(id)) {
+      markGuestItemDeleted('idea', id);
+    }
+    const nextList = ideas.filter((i) => i.id !== id);
+    syncState(notes, nextList, characters);
+    setSelectedIdeaId(nextList.length > 0 ? nextList[0].id : null);
+    setShowDetailOnMobile(false);
+    showToast('Đã dọn dẹp ý tưởng khỏi kho.', 'info');
+  };
+
+  /* ----------------- CONFLICT RESOLUTION HANDLERS ----------------- */
+
+  const handleConflictKeepServer = async () => {
+    if (!activeConflict || !userId) return;
+    setIsResolvingConflict(true);
+    try {
+      setActiveConflict(null);
+      setIsEditing(false);
+      setIsCreating(false);
+      await syncFromSupabase(userId, { silent: false, checkLocalPrompt: false });
+      showToast('Đã tải bản mới nhất từ máy chủ.', 'info');
+    } finally {
+      setIsResolvingConflict(false);
+    }
+  };
+
+  const handleConflictOverwriteServer = async () => {
+    if (!activeConflict || !userId) return;
+    setIsResolvingConflict(true);
+    try {
+      if (activeConflict.kind === 'character') {
+        const res = await saveCharacterToCloud(
+          userId,
+          activeConflict.localItem as Character,
+          { forceOverwrite: true },
+        );
+        if (!res.ok || !res.data) {
+          showToast(res.error?.message || 'Không thể ghi đè nhân vật lên máy chủ.', 'error');
+          return;
+        }
+        const confirmed = res.data;
+        setCharacters((prev) => {
+          const exists = prev.some((c) => c.id === confirmed.id);
+          return exists
+            ? prev.map((c) => (c.id === confirmed.id ? confirmed : c))
+            : [...prev, confirmed];
+        });
+        recordCloudVersion('character', confirmed.id, res.version, res.updatedAt);
+      } else if (activeConflict.kind === 'note') {
+        const res = await saveNoteToCloud(
+          userId,
+          activeConflict.localItem as Note,
+          { forceOverwrite: true },
+        );
+        if (!res.ok || !res.data) {
+          showToast(res.error?.message || 'Không thể ghi đè ghi chú lên máy chủ.', 'error');
+          return;
+        }
+        const confirmed = res.data;
+        setNotes((prev) => {
+          const exists = prev.some((n) => n.id === confirmed.id);
+          return exists
+            ? prev.map((n) => (n.id === confirmed.id ? confirmed : n))
+            : [...prev, confirmed];
+        });
+        recordCloudVersion('note', confirmed.id, res.version, res.updatedAt);
+      } else if (activeConflict.kind === 'idea') {
+        const res = await saveIdeaToCloud(
+          userId,
+          activeConflict.localItem as Idea,
+          { forceOverwrite: true },
+        );
+        if (!res.ok || !res.data) {
+          showToast(res.error?.message || 'Không thể ghi đè ý tưởng lên máy chủ.', 'error');
+          return;
+        }
+        const confirmed = res.data;
+        setIdeas((prev) => {
+          const exists = prev.some((i) => i.id === confirmed.id);
+          return exists
+            ? prev.map((i) => (i.id === confirmed.id ? confirmed : i))
+            : [confirmed, ...prev];
+        });
+        recordCloudVersion('idea', confirmed.id, res.version, res.updatedAt);
+      }
+
+      setActiveConflict(null);
+      setIsEditing(false);
+      setIsCreating(false);
+      showToast('Đã lưu và ghi đè bản trên thiết bị này lên tài khoản! 🍀', 'success');
+    } finally {
+      setIsResolvingConflict(false);
+    }
+  };
+
+  const handleConflictSaveAsCopy = async () => {
+    if (!activeConflict || !userId) return;
+    setIsResolvingConflict(true);
+    try {
+      const nowIso = new Date().toISOString();
+      if (activeConflict.kind === 'character') {
+        const localChar = activeConflict.localItem as Character;
+        const copyChar: Character = {
+          ...localChar,
+          id: `char-${Date.now()}`,
+          name: localChar.name.endsWith(' (Bản sao)') ? localChar.name : `${localChar.name} (Bản sao)`,
+          createdAt: nowIso,
+        };
+        const res = await saveCharacterToCloud(userId, copyChar);
+        if (!res.ok || !res.data) {
+          showToast(res.error?.message || 'Không thể tạo bản sao nhân vật.', 'error');
+          return;
+        }
+        setSelectedCharId(res.data.id);
+      } else if (activeConflict.kind === 'note') {
+        const localNote = activeConflict.localItem as Note;
+        const copyNote: Note = {
+          ...localNote,
+          id: `note-${Date.now()}`,
+          title: localNote.title.endsWith(' (Bản sao)') ? localNote.title : `${localNote.title} (Bản sao)`,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        };
+        const res = await saveNoteToCloud(userId, copyNote);
+        if (!res.ok || !res.data) {
+          showToast(res.error?.message || 'Không thể tạo bản sao ghi chú.', 'error');
+          return;
+        }
+        setSelectedNoteId(res.data.id);
+      } else if (activeConflict.kind === 'idea') {
+        const localIdea = activeConflict.localItem as Idea;
+        const copyIdea: Idea = {
+          ...localIdea,
+          id: `idea-${Date.now()}`,
+          title: localIdea.title.endsWith(' (Bản sao)') ? localIdea.title : `${localIdea.title} (Bản sao)`,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        };
+        const res = await saveIdeaToCloud(userId, copyIdea);
+        if (!res.ok || !res.data) {
+          showToast(res.error?.message || 'Không thể tạo bản sao ý tưởng.', 'error');
+          return;
+        }
+        setSelectedIdeaId(res.data.id);
+      }
+
+      setActiveConflict(null);
+      setIsEditing(false);
+      setIsCreating(false);
+      await syncFromSupabase(userId, { silent: true, checkLocalPrompt: false });
+      showToast('Đã lưu thành bản sao mới và giữ nguyên bản trên máy chủ! 🍀', 'success');
+    } finally {
+      setIsResolvingConflict(false);
     }
   };
 
@@ -941,6 +1716,11 @@ export default function App() {
               compact
               onOpenAuth={openAuthModal}
               onToast={showToast}
+              isSyncing={isSyncingCloud}
+              hasLocalDataToImport={hasLocalDataToImport}
+              hasPendingImportJob={Boolean(pendingResumableJob)}
+              onSyncNow={handleManualSyncNow}
+              onOpenLocalMigration={handleOpenLocalMigrationManually}
             />
           </div>
         </div>
@@ -1482,7 +2262,15 @@ export default function App() {
             </button>
 
             {/* Account / Login trigger */}
-            <AccountButton onOpenAuth={openAuthModal} onToast={showToast} />
+            <AccountButton
+              onOpenAuth={openAuthModal}
+              onToast={showToast}
+              isSyncing={isSyncingCloud}
+              hasLocalDataToImport={hasLocalDataToImport}
+              hasPendingImportJob={Boolean(pendingResumableJob)}
+              onSyncNow={handleManualSyncNow}
+              onOpenLocalMigration={handleOpenLocalMigrationManually}
+            />
 
             {isWelcomeScreen && (
               <>
@@ -1531,18 +2319,21 @@ export default function App() {
                     characters={characters}
                     onSave={handleSaveNote}
                     onCancel={() => setIsCreating(false)}
+                    isSaving={isSavingItem}
                   />
                 )}
                 {activeTab === 'ideas' && (
                   <IdeaForm 
                     onSave={handleSaveIdea}
                     onCancel={() => setIsCreating(false)}
+                    isSaving={isSavingItem}
                   />
                 )}
                 {activeTab === 'characters' && (
                   <CharacterForm 
                     onSave={handleSaveCharacter}
                     onCancel={() => setIsCreating(false)}
+                    isSaving={isSavingItem}
                   />
                 )}
               </div>
@@ -1557,6 +2348,7 @@ export default function App() {
                     characters={characters}
                     onSave={handleSaveNote}
                     onCancel={() => setIsEditing(false)}
+                    isSaving={isSavingItem}
                   />
                 )}
                 {activeTab === 'ideas' && activeIdea && (
@@ -1564,6 +2356,7 @@ export default function App() {
                     initialData={activeIdea}
                     onSave={handleSaveIdea}
                     onCancel={() => setIsEditing(false)}
+                    isSaving={isSavingItem}
                   />
                 )}
                 {activeTab === 'characters' && activeChar && (
@@ -1571,6 +2364,7 @@ export default function App() {
                     initialData={activeChar}
                     onSave={handleSaveCharacter}
                     onCancel={() => setIsEditing(false)}
+                    isSaving={isSavingItem}
                   />
                 )}
               </div>
@@ -2652,6 +3446,47 @@ export default function App() {
         onModeChange={setAuthModalMode}
         onClose={() => setIsAuthModalOpen(false)}
         onToast={showToast}
+      />
+
+      {/* LOCAL DATA MIGRATION / CLOUD JSON IMPORT MODAL */}
+      {isAuthenticated && userId && (
+        <LocalDataMigrationModal
+          isOpen={isMigrationModalOpen}
+          mode={migrationMode}
+          userId={userId}
+          userEmail={user?.email ?? undefined}
+          summary={migrationSummary}
+          backupPayload={migrationBackupPayload}
+          resumableJob={pendingResumableJob}
+          onClose={(markDismissed) => {
+            if (markDismissed && migrationMode === 'local-migration') {
+              setMigrationPromptDismissed(userId, true);
+            }
+            setIsMigrationModalOpen(false);
+          }}
+          onCompleted={async () => {
+            clearResumableImportJob(userId);
+            setPendingResumableJob(null);
+            if (migrationMode === 'local-migration') {
+              setMigrationPromptDismissed(userId, true);
+            }
+            await syncFromSupabase(userId, { silent: true, checkLocalPrompt: false });
+          }}
+          onToast={showToast}
+        />
+      )}
+
+      {/* CROSS-DEVICE EDIT CONFLICT RESOLUTION MODAL */}
+      <ConflictResolutionModal
+        conflict={activeConflict}
+        isResolving={isResolvingConflict}
+        onKeepServer={handleConflictKeepServer}
+        onOverwriteServer={handleConflictOverwriteServer}
+        onSaveAsCopy={handleConflictSaveAsCopy}
+        onCopyLocalDraft={(text) => {
+          void copyToClipboard(text, 'nội dung đang soạn');
+        }}
+        onCancel={() => setActiveConflict(null)}
       />
 
       {/* Floating dynamic Toast Notifications */}
