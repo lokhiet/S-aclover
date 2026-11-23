@@ -5,8 +5,6 @@ import {
   Edit3, 
   Copy, 
   Search, 
-  Download, 
-  Upload, 
   Sun, 
   Moon, 
   Sparkles, 
@@ -50,8 +48,6 @@ import { authorsList } from './authorsData';
 import { 
   loadState, 
   saveState, 
-  exportStateToJSON, 
-  validateAndParseImport,
   loadUiPrefs,
   saveUiPrefs,
   markGuestItemCustomized,
@@ -62,7 +58,6 @@ import {
   BUILTIN_CHARACTER_MAP,
   BUILTIN_IDEA_MAP,
   buildMigrationSummary,
-  extractPersonalDataFromSource,
   extractPersonalLocalData,
   type ImportJobPlan,
   type MigrationSummary,
@@ -628,9 +623,6 @@ export default function App() {
     }
   }, [authError, isAuthModalOpen, clearAuthError]);
 
-  // File picker reference for JSON Import
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
   // Set page-level dark class globally on HTML node when theme changes
   useEffect(() => {
     if (theme === 'dark') {
@@ -913,117 +905,6 @@ export default function App() {
     if (!isAuthenticated) {
       persistToLocalStorage({ notes, ideas, characters, theme: nextTheme, cloverEffect, libraryPrompts });
     }
-  };
-
-  // File Upload JSON restore function
-  const handleJSONImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const content = event.target?.result as string;
-      const parsed = validateAndParseImport(content);
-      if (parsed) {
-        // Nếu đang đăng nhập tài khoản Supabase: mở hộp thoại kiểm tra xung đột & đồng bộ từng lô lên tài khoản
-        if (isAuthenticated && userId) {
-          if (parsed.theme) {
-            setTheme(parsed.theme);
-            saveUiPrefs({
-              theme: parsed.theme,
-              cloverEffect: typeof parsed.cloverEffect === 'boolean' ? parsed.cloverEffect : cloverEffect,
-            });
-          } else if (typeof parsed.cloverEffect === 'boolean') {
-            setCloverEffect(parsed.cloverEffect);
-            saveUiPrefs({ theme, cloverEffect: parsed.cloverEffect });
-          }
-
-          const personalFromFile = extractPersonalDataFromSource(parsed);
-          const currentSnapshotForDiff = cloudSnapshot ?? {
-            characters,
-            notes,
-            ideas,
-            libraryPrompts,
-            cloudItemIds: {
-              characters: new Set(characters.map((c) => c.id)),
-              notes: new Set(notes.map((n) => n.id)),
-              ideas: new Set(ideas.map((i) => i.id)),
-              libraryPrompts: new Set(libraryPrompts.map((p) => p.id)),
-            },
-          };
-          const summary = buildMigrationSummary(personalFromFile, currentSnapshotForDiff);
-
-          if (summary.totalActionableCount === 0) {
-            showToast('Tệp JSON không có mục cá nhân mới hoặc đã khớp sẵn với tài khoản hiện tại.', 'info');
-            return;
-          }
-
-          setMigrationMode('json-import');
-          setMigrationSummary(summary);
-          setMigrationBackupPayload({
-            notes,
-            ideas,
-            characters,
-            theme,
-            cloverEffect,
-            libraryPrompts,
-          });
-          setPendingResumableJob(null);
-          setIsMigrationModalOpen(true);
-          return;
-        }
-
-        // Chế độ Khách (localStorage): giữ nguyên hành vi khôi phục cục bộ
-        const mergedNotes = parsed.notes || notes;
-        const mergedIdeas = parsed.ideas || ideas;
-        const mergedChars = parsed.characters || characters;
-        const mergedTheme = parsed.theme || theme;
-        const mergedClover = typeof parsed.cloverEffect === 'boolean' ? parsed.cloverEffect : cloverEffect;
-        const mergedLibraryPrompts = parsed.libraryPrompts || libraryPrompts;
-
-        setNotes(mergedNotes);
-        setIdeas(mergedIdeas);
-        setCharacters(mergedChars);
-        setTheme(mergedTheme);
-        setCloverEffect(mergedClover);
-        setLibraryPrompts(mergedLibraryPrompts);
-        saveUiPrefs({ theme: mergedTheme, cloverEffect: mergedClover });
-
-        persistToLocalStorage({
-          notes: mergedNotes,
-          ideas: mergedIdeas,
-          characters: mergedChars,
-          theme: mergedTheme,
-          cloverEffect: mergedClover,
-          libraryPrompts: mergedLibraryPrompts
-        });
-
-        // Auto select first entry
-        if (mergedNotes.length > 0) setSelectedNoteId(mergedNotes[0].id);
-        if (mergedIdeas.length > 0) setSelectedIdeaId(mergedIdeas[0].id);
-        if (mergedChars.length > 0) setSelectedCharId(mergedChars[0].id);
-        if (mergedLibraryPrompts.length > 0) setSelectedLibraryPromptId(mergedLibraryPrompts[0].id);
-
-        showToast('Khôi phục toàn bộ dữ liệu và cài đặt thành công! 🍀', 'success');
-      } else {
-        showToast('Định dạng tệp tin JSON không hợp lệ hoặc bị hỏng.', 'error');
-      }
-    };
-    reader.readAsText(file);
-    e.target.value = ''; // clear input
-  };
-
-  // File backup JSON output trigger
-  const handleJSONExport = () => {
-    exportStateToJSON({
-      notes,
-      ideas,
-      characters,
-      theme,
-      cloverEffect,
-      libraryPrompts
-    });
-    showToast('Đã tải xuống file sao lưu hệ thống thành công! 📥', 'success');
   };
 
   /* ----------------- DATA MODIFICATIONS (C.R.U.D) ----------------- */
@@ -1663,7 +1544,7 @@ export default function App() {
   const activeIdea = ideas.find(i => i.id === selectedIdeaId) || null;
   const activeChar = characters.find(c => c.id === selectedCharId) || null;
   const activeLibraryPrompt = libraryPrompts.find(p => p.id === selectedLibraryPromptId) || null;
-  const activeAuthor = authorsList.find(a => a.id === (selectedAuthorId || (filteredAuthors.length > 0 ? filteredAuthors[0].id : authorsList[0].id))) || null;
+  const activeAuthor = authorsList.find(a => a.id === (selectedAuthorId || (filteredAuthors.length > 0 ? filteredAuthors[0].id : authorsList[0]?.id))) || null;
 
   const isWelcomeScreen = !isCreating && !isEditing && (
     (activeTab === 'notes' && !activeNote && !activeLibraryPrompt) ||
@@ -1701,8 +1582,12 @@ export default function App() {
             className="flex items-center gap-2.5 cursor-pointer group select-none hover:opacity-95 active:scale-95 transition-all duration-150"
             title="Về trang chủ Chào mừng"
           >
-            <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center text-white text-base shadow-md shadow-emerald-500/20 animate-spin-slow group-hover:rotate-180 transition-transform duration-700">
-              🍀
+            <div className="w-9 h-9 rounded-xl overflow-hidden bg-emerald-500/10 border border-emerald-200/80 dark:border-emerald-800/60 shadow-md shadow-emerald-500/20 flex-shrink-0 group-hover:scale-105 transition-transform duration-300">
+              <img
+                src="/app-icon.jpg"
+                alt="SéaClover"
+                className="w-full h-full object-cover"
+              />
             </div>
             <div>
               <h1 className="text-base font-bold text-emerald-800 dark:text-emerald-400 font-sans tracking-tight leading-none group-hover:text-emerald-600 dark:group-hover:text-emerald-300 transition-colors">SéaClover</h1>
@@ -2167,7 +2052,7 @@ export default function App() {
                 <div className="p-6 text-center text-zinc-400 dark:text-zinc-600 text-xs">Không tìm thấy tác giả nào</div>
               ) : (
                 filteredAuthors.map((author) => {
-                  const isSelected = selectedAuthorId === author.id || (!selectedAuthorId && author.id === authorsList[0].id);
+                  const isSelected = selectedAuthorId === author.id || (!selectedAuthorId && author.id === authorsList[0]?.id);
                   return (
                     <div
                       key={author.id}
@@ -2271,39 +2156,6 @@ export default function App() {
               onSyncNow={handleManualSyncNow}
               onOpenLocalMigration={handleOpenLocalMigrationManually}
             />
-
-            {isWelcomeScreen && (
-              <>
-                <span className="h-6 w-px bg-zinc-200 dark:bg-zinc-800 mx-1"></span>
-
-                {/* Import Backup / Export Backup */}
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={handleJSONImport}
-                  accept=".json"
-                  className="hidden"
-                />
-                
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="p-2 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 text-xs font-semibold flex items-center gap-1.5 transition"
-                  title="Khôi phục toàn bộ dữ liệu từ tệp JSON"
-                >
-                  <Upload className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                  <span className="hidden md:inline">Nhập JSON (Import)</span>
-                </button>
-
-                <button
-                  onClick={handleJSONExport}
-                  className="p-2 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 text-xs font-semibold flex items-center gap-1.5 transition"
-                  title="Tải toàn bộ bộ nhớ prompt về máy"
-                >
-                  <Download className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                  <span className="hidden md:inline">Xuất JSON (Export)</span>
-                </button>
-              </>
-            )}
           </div>
         </header>
 
@@ -2379,7 +2231,11 @@ export default function App() {
                   (activeTab === 'characters' && !activeChar) ||
                   (activeTab === 'authors' && !activeAuthor)) && (
                   <div className="bg-gradient-to-br from-emerald-500/5 to-white dark:from-zinc-900 dark:to-zinc-950 p-8 rounded-3xl border border-emerald-100 dark:border-emerald-900/30 text-center space-y-6">
-                    <span className="inline-block text-6xl animate-bounce">🍀</span>
+                    <img
+                      src="/app-icon.jpg"
+                      alt="SéaClover"
+                      className="w-20 h-20 mx-auto rounded-2xl object-cover shadow-lg shadow-emerald-500/20 border-2 border-emerald-200/80 dark:border-emerald-800/70"
+                    />
                     <h2 className="text-2xl font-extrabold text-emerald-800 dark:text-emerald-400 font-sans tracking-tight">Chào mừng đến với SéaClover!</h2>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 max-w-4xl mx-auto pt-4">
                       <div 

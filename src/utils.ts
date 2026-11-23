@@ -237,6 +237,7 @@ export function loadState(): AppState {
       'char-aoyagi-haru',
       'char-game-thuc-te-ao',
       'char-hoac-canh-chau',
+      'char-bac-dinh-kieu',
     ]);
 
     const loadedCharacters = Array.isArray(parsed.characters) ? parsed.characters : initialCharacters;

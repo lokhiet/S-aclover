@@ -43,6 +43,7 @@ const REMOVED_LEGACY_CHAR_IDS = new Set([
   'char-aoyagi-haru',
   'char-game-thuc-te-ao',
   'char-hoac-canh-chau',
+  'char-bac-dinh-kieu',
 ]);
 
 export interface PersonalDataBundle {

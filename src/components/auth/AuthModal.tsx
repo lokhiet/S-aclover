@@ -599,8 +599,12 @@ export default function AuthModal({
         {/* Header */}
         <div className="px-5 py-4 border-b border-slate-100 dark:border-zinc-800 flex items-center justify-between gap-3 bg-emerald-50/40 dark:bg-zinc-950/30">
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-emerald-500 flex items-center justify-center text-white text-lg shadow-sm shadow-emerald-500/20 flex-shrink-0">
-              🍀
+            <div className="w-9 h-9 rounded-xl overflow-hidden bg-emerald-500/10 border border-emerald-200/80 dark:border-emerald-800/60 shadow-sm shadow-emerald-500/20 flex-shrink-0">
+              <img
+                src="/app-icon.jpg"
+                alt="SéaClover"
+                className="w-full h-full object-cover"
+              />
             </div>
             <div className="min-w-0">
               <h3
