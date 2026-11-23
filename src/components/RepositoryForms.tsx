@@ -9,12 +9,68 @@ interface CharacterFormProps {
   isSaving?: boolean;
 }
 
-const PRESET_EMOJIS = ['☘️', '🍀', '✍️', '💻', '🎨', '🌱', '🧙', '🦾', '🎓', '💼', '🚀', '🦊', '🦉', '🦁', '🌟', '🧩'];
+const CHARACTER_EMOJI_GROUPS: Array<{ id: string; label: string; emojis: string[] }> = [
+  {
+    id: 'people',
+    label: 'Nhân vật',
+    emojis: ['🤵', '👰', '🤴', '👸', '🧛', '🧚', '🧜', '🧝', '🧙', '🥷', '🕵️', '👩‍⚕️', '👨‍⚖️', '👩‍🎨', '👩‍🎓', '🧑‍💻', '🦹', '🦸', '👼', '😈'],
+  },
+  {
+    id: 'animals',
+    label: 'Thú & Linh vật',
+    emojis: ['🦊', '🐺', '🐱', '🐶', '🐰', '🐻', '🐼', '🦁', '🐯', '🦌', '🦢', '🦉', '🦋', '🐉', '🦄', '🐍', '🐈‍⬛', '🕊️', '🦈', '🦜'],
+  },
+  {
+    id: 'mood',
+    label: 'Cảm xúc & Tình cảm',
+    emojis: ['🖤', '❤️‍🔥', '🥀', '🌹', '💔', '💘', '💌', '💋', '🥂', '💍', '🎀', '🕯️', '🎭', '👑', '💎', '⛓️', '🩸', '💫', '✨', '🌙'],
+  },
+  {
+    id: 'nature',
+    label: 'Thiên nhiên & Vũ trụ',
+    emojis: ['🍀', '☘️', '🌸', '🌺', '🌻', '🌷', '🌿', '🍁', '❄️', '🌊', '🌌', '⭐', '☀️', '🌈', '🔥', '⚡', '🌧️', '☁️', '🪐', '🔮'],
+  },
+  {
+    id: 'objects',
+    label: 'Đồ vật & Sáng tạo',
+    emojis: ['✍️', '📖', '📜', '✒️', '🎸', '🎻', '🎹', '🎧', '📷', '🎨', '⚔️', '🗡️', '🛡️', '🗝️', '⏳', '🧭', '☕', '🍵', '🧁', '🍰'],
+  },
+];
+
+const NOTE_EMOJI_GROUPS: Array<{ id: string; label: string; emojis: string[] }> = [
+  {
+    id: 'popular',
+    label: 'Phổ biến',
+    emojis: ['☘️', '🍀', '📝', '💡', '🤖', '👑', '🔑', '🎯', '🔥', '🛡️', '⚙️', '💬', '📢', '📌', '📈', '🚀'],
+  },
+  {
+    id: 'story',
+    label: 'Kịch bản & Cảm xúc',
+    emojis: ['🎭', '❤️‍🔥', '🥀', '💌', '📞', '📱', '🕯️', '🌙', '⚡', '💥', '🥀', '🦋', '💔', '🥂', '🎀', '🔮'].filter(
+      (v, i, a) => a.indexOf(v) === i,
+    ),
+  },
+  {
+    id: 'tools',
+    label: 'Hệ thống & HUD',
+    emojis: ['📊', '🧠', '⏱️', '🧹', '🔓', '🔄', '🔍', '📥', '🧩', '🗂️', '🧭', '🛠️', '📡', '💻', '🧪', '🧾'],
+  },
+  {
+    id: 'creative',
+    label: 'Sáng tạo & Đời sống',
+    emojis: ['✍️', '📖', '🎨', '🎬', '🎧', '📷', '🌸', '✨', '⭐', '🌈', '☕', '🍰', '🏫', '💘', '💎', '🌟'],
+  },
+];
+
+function limitEmojiInput(raw: string): string {
+  return Array.from(raw).slice(0, 8).join('');
+}
 
 export function CharacterForm({ initialData, onSave, onCancel, isSaving = false }: CharacterFormProps) {
   const [name, setName] = useState(initialData?.name || '');
   const [role, setRole] = useState(initialData?.role || '');
   const [avatar, setAvatar] = useState(initialData?.avatar || '🍀');
+  const [emojiCategory, setEmojiCategory] = useState(CHARACTER_EMOJI_GROUPS[0].id);
   const [description, setDescription] = useState(initialData?.description || '');
   
   const [author, setAuthor] = useState(initialData?.author || '');
@@ -193,30 +249,62 @@ export function CharacterForm({ initialData, onSave, onCancel, isSaving = false 
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-emerald-700 dark:text-emerald-300 mb-2">Nhóm Emoji Đại Diện</label>
-        <div className="flex flex-wrap gap-2 p-3 bg-emerald-50/50 dark:bg-zinc-950/50 rounded-xl border border-emerald-100/60 dark:border-emerald-900/20">
-          {PRESET_EMOJIS.map((emoji) => (
-            <button
-              key={emoji}
-              type="button"
-              onClick={() => setAvatar(emoji)}
-              className={`text-2xl p-2 rounded-xl transition-all ${
-                avatar === emoji
-                  ? 'bg-emerald-500 text-white scale-110 shadow-md shadow-emerald-500/20'
-                  : 'hover:bg-emerald-100/60 dark:hover:bg-emerald-900/30 text-zinc-800 dark:text-zinc-300'
-              }`}
-            >
-              {emoji}
-            </button>
-          ))}
-          <input
-            type="text"
-            value={avatar}
-            onChange={(e) => setAvatar(e.target.value.substring(0, 4))}
-            placeholder="Icon..."
-            className="w-16 px-2 py-1.5 text-center text-xl rounded-xl border border-emerald-200 dark:border-emerald-800 bg-white dark:bg-zinc-950 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            title="Nhập emoji tùy chọn"
-          />
+        <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+          <label className="block text-sm font-medium text-emerald-700 dark:text-emerald-300">
+            Nhóm Emoji Đại Diện
+          </label>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-zinc-500 dark:text-zinc-400">Đang chọn:</span>
+            <span className="w-8 h-8 rounded-lg bg-emerald-500/15 border border-emerald-200 dark:border-emerald-800 flex items-center justify-center text-lg">
+              {avatar || '🍀'}
+            </span>
+          </div>
+        </div>
+
+        <div className="p-3 bg-emerald-50/50 dark:bg-zinc-950/50 rounded-xl border border-emerald-100/60 dark:border-emerald-900/20 space-y-3">
+          {/* Category tabs */}
+          <div className="flex flex-wrap gap-1.5 pb-2 border-b border-emerald-100/70 dark:border-emerald-900/30">
+            {CHARACTER_EMOJI_GROUPS.map((group) => (
+              <button
+                key={group.id}
+                type="button"
+                onClick={() => setEmojiCategory(group.id)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition ${
+                  emojiCategory === group.id
+                    ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-600/20'
+                    : 'bg-white/80 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 hover:bg-emerald-100/70 dark:hover:bg-emerald-900/30 border border-emerald-100/80 dark:border-zinc-800'
+                }`}
+              >
+                {group.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Active category emojis + custom input */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {(CHARACTER_EMOJI_GROUPS.find((g) => g.id === emojiCategory) ?? CHARACTER_EMOJI_GROUPS[0]).emojis.map((emoji) => (
+              <button
+                key={emoji}
+                type="button"
+                onClick={() => setAvatar(emoji)}
+                className={`text-2xl w-10 h-10 flex items-center justify-center rounded-xl transition-all ${
+                  avatar === emoji
+                    ? 'bg-emerald-500 text-white scale-110 shadow-md shadow-emerald-500/20'
+                    : 'hover:bg-emerald-100/60 dark:hover:bg-emerald-900/30 text-zinc-800 dark:text-zinc-300'
+                }`}
+              >
+                {emoji}
+              </button>
+            ))}
+            <input
+              type="text"
+              value={avatar}
+              onChange={(e) => setAvatar(limitEmojiInput(e.target.value))}
+              placeholder="Tự nhập"
+              className="w-20 h-10 px-2 text-center text-lg rounded-xl border border-emerald-200 dark:border-emerald-800 bg-white dark:bg-zinc-950 text-emerald-950 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              title="Nhập hoặc dán bất kỳ emoji nào bạn muốn"
+            />
+          </div>
         </div>
       </div>
 
@@ -347,6 +435,7 @@ export function NoteForm({ initialData, characters, onSave, onCancel, isSaving =
   const [content, setContent] = useState(initialData?.content || '');
   const [characterId, setCharacterId] = useState(initialData?.characterId || '');
   const [icon, setIcon] = useState(initialData?.icon || '☘️');
+  const [noteEmojiCategory, setNoteEmojiCategory] = useState(NOTE_EMOJI_GROUPS[0].id);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -425,30 +514,60 @@ export function NoteForm({ initialData, characters, onSave, onCancel, isSaving =
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-emerald-700 dark:text-emerald-300 mb-2">Icon/Emoji Đại Diện Câu Lệnh</label>
-        <div className="flex flex-wrap gap-2 p-3 bg-emerald-50/50 dark:bg-zinc-900/60 rounded-xl border border-emerald-100/60 dark:border-emerald-900/20">
-          {['☘️', '📝', '💡', '🤖', '👑', '🔑', '🎯', '🔥', '🛡️', '⚙️', '💬', '📢', '📌', '📈', '🚀', '🔮'].map((emoji) => (
-            <button
-              key={emoji}
-              type="button"
-              onClick={() => setIcon(emoji)}
-              className={`text-2xl p-2 rounded-xl transition-all ${
-                icon === emoji
-                  ? 'bg-emerald-500 text-white scale-110 shadow-md shadow-emerald-500/20'
-                  : 'hover:bg-emerald-100/60 dark:hover:bg-emerald-900/30 text-zinc-800 dark:text-zinc-300'
-              }`}
-            >
-              {emoji}
-            </button>
-          ))}
-          <input
-            type="text"
-            value={icon}
-            onChange={(e) => setIcon(e.target.value.substring(0, 4))}
-            placeholder="Custom..."
-            className="w-16 px-2 py-1.5 text-center text-xl rounded-xl border border-emerald-200 dark:border-emerald-800 bg-white dark:bg-zinc-950 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            title="Nhập emoji tùy chọn"
-          />
+        <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+          <label className="block text-sm font-medium text-emerald-700 dark:text-emerald-300">
+            Icon/Emoji Đại Diện Câu Lệnh
+          </label>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-zinc-500 dark:text-zinc-400">Đang chọn:</span>
+            <span className="w-8 h-8 rounded-lg bg-emerald-500/15 border border-emerald-200 dark:border-emerald-800 flex items-center justify-center text-lg">
+              {icon || '☘️'}
+            </span>
+          </div>
+        </div>
+
+        <div className="p-3 bg-emerald-50/50 dark:bg-zinc-900/60 rounded-xl border border-emerald-100/60 dark:border-emerald-900/20 space-y-3">
+          <div className="flex flex-wrap gap-1.5 pb-2 border-b border-emerald-100/70 dark:border-emerald-900/30">
+            {NOTE_EMOJI_GROUPS.map((group) => (
+              <button
+                key={group.id}
+                type="button"
+                onClick={() => setNoteEmojiCategory(group.id)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition ${
+                  noteEmojiCategory === group.id
+                    ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-600/20'
+                    : 'bg-white/80 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 hover:bg-emerald-100/70 dark:hover:bg-emerald-900/30 border border-emerald-100/80 dark:border-zinc-800'
+                }`}
+              >
+                {group.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            {(NOTE_EMOJI_GROUPS.find((g) => g.id === noteEmojiCategory) ?? NOTE_EMOJI_GROUPS[0]).emojis.map((emoji) => (
+              <button
+                key={emoji}
+                type="button"
+                onClick={() => setIcon(emoji)}
+                className={`text-2xl w-10 h-10 flex items-center justify-center rounded-xl transition-all ${
+                  icon === emoji
+                    ? 'bg-emerald-500 text-white scale-110 shadow-md shadow-emerald-500/20'
+                    : 'hover:bg-emerald-100/60 dark:hover:bg-emerald-900/30 text-zinc-800 dark:text-zinc-300'
+                }`}
+              >
+                {emoji}
+              </button>
+            ))}
+            <input
+              type="text"
+              value={icon}
+              onChange={(e) => setIcon(limitEmojiInput(e.target.value))}
+              placeholder="Tự nhập"
+              className="w-20 h-10 px-2 text-center text-lg rounded-xl border border-emerald-200 dark:border-emerald-800 bg-white dark:bg-zinc-950 text-emerald-950 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              title="Nhập hoặc dán bất kỳ emoji nào bạn muốn"
+            />
+          </div>
         </div>
       </div>
 

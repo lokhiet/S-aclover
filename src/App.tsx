@@ -40,6 +40,17 @@ import AccountButton from './components/auth/AccountButton';
 import AuthModal from './components/auth/AuthModal';
 import LocalDataMigrationModal from './components/auth/LocalDataMigrationModal';
 import ConflictResolutionModal from './components/auth/ConflictResolutionModal';
+import {
+  PixelCloverIcon,
+  PixelCharacterIcon,
+  PixelAuthorIcon,
+  PixelCommandIcon,
+  PixelIdeaIcon,
+  PixelSearchIcon,
+  PixelTagIcon,
+  PixelFolderShortcutIcon,
+  OtegamiPostmark,
+} from './components/PixelIcons';
 import { useAuth } from './contexts/AuthContext';
 import type { AuthModalMode } from './types/auth';
 import { initialCharacters, initialIdeas } from './initialData';
@@ -1564,7 +1575,7 @@ export default function App() {
   };
 
   return (
-    <div className={`h-[100dvh] overflow-hidden flex flex-col md:flex-row bg-slate-50 dark:bg-zinc-950 text-slate-800 dark:text-zinc-200 transition-theme relative`}>
+    <div className="h-[100dvh] overflow-hidden flex flex-col bg-[#ECF5EF] dark:bg-[#111C17] text-[#20372D] dark:text-[#F4EDDC] transition-theme relative">
       
       {/* Clover Rain Canvas Backing Overlay */}
       <CloverRain active={cloverEffect} />
@@ -1572,719 +1583,873 @@ export default function App() {
       {/* Star Rain falling stars on dark mode */}
       <StarRain active={theme === 'dark'} />
 
-      {/* 2-COLUMN STRUCTURE: SIDEBAR CONTAINER */}
-      <aside className={`w-full md:w-80 h-full flex-shrink-0 bg-white dark:bg-zinc-900 border-b md:border-b-0 md:border-r border-emerald-100 dark:border-emerald-900/30 flex flex-col z-20 ${showDetailOnMobile ? 'hidden md:flex' : 'flex'}`}>
-        
-        {/* App Title Display Area */}
-        <div className="p-3 border-b border-emerald-50 dark:border-emerald-900/20 flex items-center justify-between">
-          <div 
+      {/* RETRO EARLY-2000s WINDOW TITLE BAR */}
+      <header className="retro-titlebar px-3 sm:px-4 py-2 flex items-center justify-between gap-2 flex-shrink-0 z-30">
+        <div className="flex items-center gap-2 min-w-0">
+          {showDetailOnMobile && (
+            <button
+              type="button"
+              onClick={() => setShowDetailOnMobile(false)}
+              className="md:hidden retro-btn px-2.5 py-1 text-xs font-semibold flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <span>← Thư mục</span>
+            </button>
+          )}
+
+          <button
+            type="button"
             onClick={handleGoHome}
-            className="flex items-center gap-2.5 cursor-pointer group select-none hover:opacity-95 active:scale-95 transition-all duration-150"
-            title="Về trang chủ Chào mừng"
+            title="Mở lại lá thư chào mừng SéaClover"
+            className="flex items-center gap-2 min-w-0 px-1.5 py-0.5 rounded hover:bg-white/45 dark:hover:bg-white/5 transition-colors cursor-pointer select-none"
           >
-            <div className="w-9 h-9 rounded-xl overflow-hidden bg-emerald-500/10 border border-emerald-200/80 dark:border-emerald-800/60 shadow-md shadow-emerald-500/20 flex-shrink-0 group-hover:scale-105 transition-transform duration-300">
-              <img
-                src="/app-icon.jpg"
-                alt="SéaClover"
-                className="w-full h-full object-cover"
+            <PixelCloverIcon className="w-4 h-4 flex-shrink-0" />
+            <span className="font-mono text-xs sm:text-[13px] font-semibold tracking-tight text-[#254B3C] dark:text-[#D5EFE2] truncate">
+              SéaClover.exe
+            </span>
+          </button>
+        </div>
+
+        {/* Utility buttons: soft square corners with gentle sunken press */}
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+          {/* Clover switch */}
+          <button
+            type="button"
+            onClick={handleCloverToggle}
+            title={cloverEffect ? 'Tắt cỏ rơi' : 'Mở cỏ rơi'}
+            className={`retro-btn px-2.5 py-1.5 flex items-center gap-1.5 text-xs font-semibold whitespace-nowrap shrink-0 cursor-pointer ${
+              cloverEffect ? 'retro-btn-active' : ''
+            }`}
+          >
+            <PixelCloverIcon className="w-3.5 h-3.5 flex-shrink-0" />
+            <span className="hidden sm:inline">Cỏ Rơi</span>
+          </button>
+
+          {/* Dark / Light switch */}
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className="retro-btn px-2.5 py-1.5 flex items-center justify-center cursor-pointer"
+            title={theme === 'light' ? 'Chuyển sang chế độ tối' : 'Chuyển sang chế độ sáng'}
+            aria-label={theme === 'light' ? 'Chuyển sang chế độ tối' : 'Chuyển sang chế độ sáng'}
+          >
+            {theme === 'light' ? (
+              <Moon className="w-3.5 h-3.5 text-[#39755D]" />
+            ) : (
+              <Sun className="w-3.5 h-3.5 text-[#F6D57E]" />
+            )}
+          </button>
+
+          {/* Account / Login trigger */}
+          <AccountButton
+            onOpenAuth={openAuthModal}
+            onToast={showToast}
+            isSyncing={isSyncingCloud}
+            hasLocalDataToImport={hasLocalDataToImport}
+            hasPendingImportJob={Boolean(pendingResumableJob)}
+            onSyncNow={handleManualSyncNow}
+            onOpenLocalMigration={handleOpenLocalMigrationManually}
+          />
+        </div>
+      </header>
+
+      {/* 2-COLUMN WORKSPACE SHELL (1 column on mobile) */}
+      <div className="flex-1 min-h-0 flex flex-col md:flex-row relative z-20">
+        
+        {/* LEFT COLUMN: RETRO FOLDER BROWSER SIDEBAR */}
+        <aside className={`w-full md:w-[324px] lg:w-[336px] h-full flex-shrink-0 bg-[#FAF6EA] dark:bg-[#16241E] border-b md:border-b-0 md:border-r border-[#B8D7C5] dark:border-[#2C473A] flex flex-col ${showDetailOnMobile ? 'hidden md:flex' : 'flex'}`}>
+          
+          {/* Brand Identity Header inside Folder Browser */}
+          <div className="px-3.5 py-3 border-b border-[#D5E6DC] dark:border-[#263F33] bg-[#FFF9EA] dark:bg-[#192A22] flex items-center justify-between gap-2">
+            <div 
+              onClick={handleGoHome}
+              className="flex items-center gap-2.5 cursor-pointer group select-none min-w-0"
+              title="Về lá thư chào mừng"
+            >
+              <div className="w-10 h-10 rounded-md overflow-hidden bg-[#E2F3E8] dark:bg-[#22382E] border border-[#9FC4AF] dark:border-[#3A5C4C] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] flex-shrink-0 p-0.5">
+                <img
+                  src="/app-icon.jpg"
+                  alt="SéaClover"
+                  className="w-full h-full object-cover rounded-[4px]"
+                />
+              </div>
+              <div className="min-w-0">
+                <h1 className="text-[17px] font-extrabold text-[#2B5A47] dark:text-[#98DAB9] tracking-tight leading-tight group-hover:text-[#39755D] dark:group-hover:text-[#B9EDD4] transition-colors truncate">
+                  SéaClover
+                </h1>
+                <p className="text-[10px] text-[#567466] dark:text-[#8FB0A1] font-mono tracking-wider mt-0.5 truncate">
+                  credit by Nhi Séa
+                </p>
+              </div>
+            </div>
+
+            {/* Subtle blush-pink stationery tab badge on mobile to open welcome letter */}
+            <button
+              type="button"
+              onClick={handleGoHome}
+              className="md:hidden retro-btn px-2 py-1 text-[11px] font-semibold text-[#39755D] dark:text-[#98DAB9] whitespace-nowrap shrink-0 cursor-pointer"
+              title="Đọc lá thư chào mừng"
+            >
+              Thư chào
+            </button>
+          </div>
+
+          {/* 4 Directory Folder Tabs with Crisp Pixel Icons */}
+          <div className="p-2 border-b border-[#D5E6DC] dark:border-[#263F33] bg-[#F1F8F3] dark:bg-[#13201A] grid grid-cols-4 gap-1.5">
+            <button
+              type="button"
+              onClick={() => handleTabChange('characters')}
+              className={`py-2 px-1 rounded-md border text-[10px] sm:text-[11px] font-semibold flex flex-col items-center gap-1 transition-all cursor-pointer active:translate-y-px ${
+                activeTab === 'characters'
+                  ? 'bg-[#E2F3E8] dark:bg-[#233C31] border-[#39755D] dark:border-[#7BC4A4] text-[#214C3B] dark:text-[#E5F7EE] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] dark:shadow-none'
+                  : 'bg-[#FFF9EA]/80 dark:bg-[#192922] border-[#C9DFD1] dark:border-[#2A4437] text-[#4C6A5C] dark:text-[#9CB8AB] hover:bg-[#E2F3E8]/60 dark:hover:bg-[#20342B] hover:border-[#7AA994]'
+              }`}
+            >
+              <PixelCharacterIcon className="w-4 h-4 flex-shrink-0" />
+              <span className="truncate max-w-full leading-tight">Nhân Vật</span>
+              <span className="text-[9px] tabular-nums-mono opacity-80">({characters.length})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleTabChange('authors')}
+              className={`py-2 px-1 rounded-md border text-[10px] sm:text-[11px] font-semibold flex flex-col items-center gap-1 transition-all cursor-pointer active:translate-y-px ${
+                activeTab === 'authors'
+                  ? 'bg-[#E2F3E8] dark:bg-[#233C31] border-[#39755D] dark:border-[#7BC4A4] text-[#214C3B] dark:text-[#E5F7EE] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] dark:shadow-none'
+                  : 'bg-[#FFF9EA]/80 dark:bg-[#192922] border-[#C9DFD1] dark:border-[#2A4437] text-[#4C6A5C] dark:text-[#9CB8AB] hover:bg-[#E2F3E8]/60 dark:hover:bg-[#20342B] hover:border-[#7AA994]'
+              }`}
+            >
+              <PixelAuthorIcon className="w-4 h-4 flex-shrink-0" />
+              <span className="truncate max-w-full leading-tight">Tác Giả</span>
+              <span className="text-[9px] tabular-nums-mono opacity-80">({authorsList.length})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleTabChange('notes')}
+              className={`py-2 px-1 rounded-md border text-[10px] sm:text-[11px] font-semibold flex flex-col items-center gap-1 transition-all cursor-pointer active:translate-y-px ${
+                activeTab === 'notes'
+                  ? 'bg-[#E2F3E8] dark:bg-[#233C31] border-[#39755D] dark:border-[#7BC4A4] text-[#214C3B] dark:text-[#E5F7EE] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] dark:shadow-none'
+                  : 'bg-[#FFF9EA]/80 dark:bg-[#192922] border-[#C9DFD1] dark:border-[#2A4437] text-[#4C6A5C] dark:text-[#9CB8AB] hover:bg-[#E2F3E8]/60 dark:hover:bg-[#20342B] hover:border-[#7AA994]'
+              }`}
+            >
+              <PixelCommandIcon className="w-4 h-4 flex-shrink-0" />
+              <span className="truncate max-w-full leading-tight">Kho Lệnh</span>
+              <span className="text-[9px] tabular-nums-mono opacity-80">({notes.length + libraryPrompts.length})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleTabChange('ideas')}
+              className={`py-2 px-1 rounded-md border text-[10px] sm:text-[11px] font-semibold flex flex-col items-center gap-1 transition-all cursor-pointer active:translate-y-px ${
+                activeTab === 'ideas'
+                  ? 'bg-[#E2F3E8] dark:bg-[#233C31] border-[#39755D] dark:border-[#7BC4A4] text-[#214C3B] dark:text-[#E5F7EE] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] dark:shadow-none'
+                  : 'bg-[#FFF9EA]/80 dark:bg-[#192922] border-[#C9DFD1] dark:border-[#2A4437] text-[#4C6A5C] dark:text-[#9CB8AB] hover:bg-[#E2F3E8]/60 dark:hover:bg-[#20342B] hover:border-[#7AA994]'
+              }`}
+            >
+              <PixelIdeaIcon className="w-4 h-4 flex-shrink-0" />
+              <span className="truncate max-w-full leading-tight">Kho Idea</span>
+              <span className="text-[9px] tabular-nums-mono opacity-80">({ideas.length})</span>
+            </button>
+          </div>
+
+          {/* Compact Search & Tag Filter Bar */}
+          <div className="p-2.5 border-b border-[#E0ECE4] dark:border-[#22392E] bg-[#FAF6EA] dark:bg-[#16241E]">
+            <div className="relative">
+              <PixelSearchIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#4E7A66] dark:text-[#86B8A1] pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={
+                  activeTab === 'notes' ? 'Tìm kiếm câu lệnh...' : 
+                  activeTab === 'ideas' ? 'Tìm kiếm ý tưởng...' : 
+                  activeTab === 'characters' ? 'Tìm nhân vật...' : 'Tìm kiếm tác giả...'
+                }
+                className="retro-input w-full pl-8 pr-3 py-1.5 text-xs placeholder:text-[#6B887A] dark:placeholder:text-[#789688] transition-theme"
               />
             </div>
-            <div>
-              <h1 className="text-base font-bold text-emerald-800 dark:text-emerald-400 font-sans tracking-tight leading-none group-hover:text-emerald-600 dark:group-hover:text-emerald-300 transition-colors">SéaClover</h1>
-              <p className="text-[9px] text-emerald-600/70 dark:text-emerald-500/60 font-mono tracking-widest mt-0.5">credit by Nhi Séa</p>
-            </div>
-          </div>
 
-          {/* Mobile quick access to Account / Login from Sidebar */}
-          <div className="md:hidden">
-            <AccountButton
-              compact
-              onOpenAuth={openAuthModal}
-              onToast={showToast}
-              isSyncing={isSyncingCloud}
-              hasLocalDataToImport={hasLocalDataToImport}
-              hasPendingImportJob={Boolean(pendingResumableJob)}
-              onSyncNow={handleManualSyncNow}
-              onOpenLocalMigration={handleOpenLocalMigrationManually}
-            />
-          </div>
-        </div>
-
-        {/* Categories Tab selector bar */}
-        <div className="p-2 border-b border-emerald-50 dark:border-emerald-900/10 bg-emerald-50/50 dark:bg-zinc-950/45 grid grid-cols-4 gap-1">
-          <button
-            onClick={() => handleTabChange('characters')}
-            className={`py-1.5 px-0.5 rounded-lg text-[9px] md:text-xs font-semibold flex flex-col items-center gap-1 transition ${
-              activeTab === 'characters' 
-                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/10' 
-                : 'text-zinc-500 dark:text-zinc-400 hover:bg-emerald-50/80 dark:hover:bg-emerald-950/20'
-            }`}
-          >
-            <UserCircle2 className="w-3.5 h-3.5 text-blue-500" />
-            <span className="truncate max-w-full">Nhân Vật</span>
-            <span className="text-[8px] opacity-75 font-mono">({characters.length})</span>
-          </button>
-
-          <button
-            onClick={() => handleTabChange('authors')}
-            className={`py-1.5 px-0.5 rounded-lg text-[9px] md:text-xs font-semibold flex flex-col items-center gap-1 transition-all ${
-              activeTab === 'authors' 
-                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/10' 
-                : 'text-zinc-500 dark:text-zinc-400 hover:bg-emerald-50/80 dark:hover:bg-emerald-950/20'
-            }`}
-          >
-            <BookOpen className="w-3.5 h-3.5 text-purple-500" />
-            <span className="truncate max-w-full">Tác Giả</span>
-            <span className="text-[8px] opacity-75 font-mono">({authorsList.length})</span>
-          </button>
-
-          <button
-            onClick={() => handleTabChange('notes')}
-            className={`py-1.5 px-0.5 rounded-lg text-[9px] md:text-xs font-semibold flex flex-col items-center gap-1 transition ${
-              activeTab === 'notes' 
-                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/10' 
-                : 'text-zinc-500 dark:text-zinc-400 hover:bg-emerald-50/80 dark:hover:bg-emerald-950/20'
-            }`}
-          >
-            <Terminal className="w-3.5 h-3.5 text-emerald-500" />
-            <span className="truncate max-w-full">Kho Lệnh</span>
-            <span className="text-[8px] opacity-75 font-mono">({notes.length + libraryPrompts.length})</span>
-          </button>
-          
-          <button
-            onClick={() => handleTabChange('ideas')}
-            className={`py-1.5 px-0.5 rounded-lg text-[9px] md:text-xs font-semibold flex flex-col items-center gap-1 transition ${
-              activeTab === 'ideas' 
-                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/10' 
-                : 'text-zinc-500 dark:text-zinc-400 hover:bg-emerald-50/80 dark:hover:bg-emerald-950/20'
-            }`}
-          >
-            <Lightbulb className="w-3.5 h-3.5 text-amber-500" />
-            <span className="truncate max-w-full">Kho Idea</span>
-            <span className="text-[8px] opacity-75 font-mono">({ideas.length})</span>
-          </button>
-        </div>
-
-        {/* Visual Sidebar Search with responsive input */}
-        <div className="p-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-600/60 dark:text-emerald-500/40" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={
-                activeTab === 'notes' ? "Tìm kiếm câu lệnh..." : 
-                activeTab === 'ideas' ? "Tìm kiếm ý tưởng..." : 
-                activeTab === 'characters' ? "Tìm nhân vật đại diện..." : "Tìm kiếm tác giả..."
-              }
-              className="w-full pl-9 pr-4 py-2 text-xs rounded-xl border border-emerald-100 dark:border-emerald-900/30 bg-emerald-50/30 dark:bg-zinc-950/30 text-emerald-950 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-theme"
-            />
-          </div>
-
-          {/* Advanced filter button for characters */}
-          {activeTab === 'characters' && (
-            <div className="mt-2 space-y-2">
-              <div className="flex gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsFilterModalOpen(true);
-                    setCharacterFilterType('tag');
-                  }}
-                  className={`flex-1 py-2 px-3 rounded-xl border text-[11px] font-bold flex items-center justify-center gap-2 transition duration-200 shadow-sm active:scale-[0.98] ${
-                    selectedFilterTag
-                      ? 'border-emerald-305 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-450 font-extrabold'
-                      : 'border-emerald-100 dark:border-emerald-900/30 bg-emerald-50/20 dark:bg-zinc-950/20 text-emerald-850 dark:text-emerald-400 hover:bg-emerald-50/50'
-                  }`}
-                >
-                  <span>🔍 Tìm theo Tag</span>
-                  {selectedFilterTag && (
-                    <span className="w-2 h-2 rounded-full bg-emerald-600 animate-ping" />
-                  )}
-                </button>
-
-                {selectedFilterTag && (
+            {/* Advanced Tag Filter for Characters */}
+            {activeTab === 'characters' && (
+              <div className="mt-2 space-y-1.5">
+                <div className="flex gap-1.5">
                   <button
                     type="button"
                     onClick={() => {
-                      setSelectedFilterAuthor(null);
-                      setSelectedFilterTag(null);
-                      setCharacterFilterType(null);
-                      showToast('Xóa bộ lọc nhân vật', 'info');
+                      setIsFilterModalOpen(true);
+                      setCharacterFilterType('tag');
                     }}
-                    className="px-2.5 rounded-xl border border-red-200 bg-red-50 text-red-650 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-950/40 transition active:scale-[0.98]"
-                    title="Xóa bộ lọc"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-
-              {/* Active search filter badge indicator */}
-              {selectedFilterTag && (
-                <div className="flex flex-wrap items-center gap-1.5 p-1.5 bg-stone-50/55 dark:bg-zinc-950/10 rounded-lg text-[9px] text-zinc-500">
-                  <span className="font-medium opacity-75">Đang lọc:</span>
-                  {selectedFilterTag && (
-                    <span 
-                      onClick={() => setSelectedFilterTag(null)}
-                      className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-amber-50/80 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 rounded border border-amber-100 hover:bg-amber-100 cursor-pointer transition font-semibold"
-                    >
-                      🏷️ #{selectedFilterTag} ×
-                    </span>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Categories / Topics Horizontal Scroll Bar specifically for Prompt Library (Notes Tab) */}
-        {activeTab === 'notes' && (
-          <div className="px-3 pb-3.5 flex items-center gap-2 overflow-x-auto snap-x snap-mandatory scrollbar-none">
-            {LIB_TOPICS.map((topic) => {
-              const isActive = selectedLibTopicId === topic.id;
-              const count = libraryPrompts.filter(topic.match).length + (topic.id === 'all' ? notes.length : 0);
-              
-              const renderLucideIcon = () => {
-                const css = `w-3.5 h-3.5 flex-shrink-0 ${isActive ? 'text-emerald-500' : 'text-zinc-500 dark:text-zinc-400'}`;
-                switch (topic.id) {
-                  case 'all': return <Sparkles className={css} />;
-                  case 'story': return <BookOpen className={css} />;
-                  case 'hud_social': return <Terminal className={css} />;
-                  case 'web': return <Globe className={css} />;
-                  case 'nsfw': return <Flame className={css} />;
-                  case 'sync_fix': return <RefreshCw className={css} />;
-                  case 'control': return <User className={css} />;
-                  case 'autoplay': return <Zap className={css} />;
-                  case 'minigame': return <Activity className={css} />;
-                  default: return <Sparkles className={css} />;
-                }
-              };
-
-              return (
-                <button
-                  key={topic.id}
-                  onClick={() => setSelectedLibTopicId(topic.id)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold whitespace-nowrap snap-start transition-all duration-200 active:scale-95 ${
-                    isActive
-                      ? 'border-emerald-500/60 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 dark:border-emerald-500/40'
-                      : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                  }`}
-                >
-                  {renderLucideIcon()}
-                  <span>{topic.name}</span>
-                  <span className="text-[10px] opacity-75 font-mono">({count})</span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Categories / Topics Horizontal Scroll Bar specifically for Ideas Tab */}
-        {activeTab === 'ideas' && (
-          <div className="px-3 pb-3.5 flex items-center gap-2 overflow-x-auto snap-x snap-mandatory">
-            {TOPICS.map((topic) => {
-              const isActive = selectedTopicId === topic.id;
-              const count = ideas.filter(topic.match).length;
-              
-              // Icon rendering helper mapped exactly to topics
-              const renderLucideIcon = () => {
-                const css = `w-3.5 h-3.5 flex-shrink-0 ${isActive ? 'text-amber-500' : 'text-zinc-500 dark:text-zinc-400'}`;
-                switch (topic.id) {
-                  case 'all': return <Sparkles className={css} />;
-                  case 'cooking': return <Utensils className={css} />;
-                  case 'sweet': return <Heart className={css} />;
-                  case 'sexy': return <Flame className={css} />;
-                  case 'drama': return <Zap className={css} />;
-                  case 'funny': return <Smile className={css} />;
-                  case 'daily': return <Activity className={css} />;
-                  default: return <Sparkles className={css} />;
-                }
-              };
-
-              return (
-                <button
-                  key={topic.id}
-                  onClick={() => setSelectedTopicId(topic.id)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold whitespace-nowrap snap-start transition-all duration-200 active:scale-95 ${
-                    isActive
-                      ? 'border-amber-500/60 bg-amber-500/10 text-amber-500 dark:border-amber-500/40'
-                      : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                  }`}
-                >
-                  {renderLucideIcon()}
-                  <span>{topic.name}</span>
-                  <span className="text-[10px] opacity-75 font-mono">({count})</span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Unified Item listings with elegant scroll */}
-        <div className="flex-1 overflow-y-auto px-2 pb-16 space-y-1">
-          {activeTab === 'notes' && (
-            <>
-              {filteredNotes.map((note) => {
-                const correlatedChar = characters.find(c => c.id === note.characterId);
-                const isSelected = selectedNoteId === note.id && !selectedLibraryPromptId && !isCreating;
-                return (
-                  <div
-                    key={note.id}
-                    onClick={() => {
-                      setSelectedNoteId(note.id);
-                      setSelectedLibraryPromptId(null);
-                      setIsCreating(false);
-                      setIsEditing(false);
-                      setShowDetailOnMobile(true);
-                    }}
-                    className={`group relative w-full text-left p-3 rounded-xl transition flex items-start gap-3 border cursor-pointer select-none ${
-                      isSelected
-                        ? 'bg-emerald-50/80 border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-900/60 text-emerald-950 dark:text-emerald-400'
-                        : 'border-transparent hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300'
+                    className={`retro-btn flex-1 py-1.5 px-2.5 text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer ${
+                      selectedFilterTag ? 'retro-btn-active' : ''
                     }`}
                   >
-                    <span className="text-xl mt-0.5">{note.icon || '☘️'}</span>
-                    <div className="flex-1 min-w-0 pr-6">
-                      <p className="font-semibold text-xs truncate leading-snug">{note.title}</p>
-                      <p className="text-[10px] opacity-75 mt-1 truncate">
-                        {correlatedChar ? `${correlatedChar.name} • ` : ''}{new Date(note.updatedAt).toLocaleDateString()}
-                      </p>
-                    </div>
-                    
-                    {/* Quick Delete Trash Button */}
+                    <PixelTagIcon className="w-3.5 h-3.5 text-[#39755D] dark:text-[#7BC4A4]" />
+                    <span>{selectedFilterTag ? `Tag: #${selectedFilterTag}` : 'Tìm theo Tag'}</span>
+                  </button>
+
+                  {selectedFilterTag && (
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteNote(note.id);
+                      type="button"
+                      onClick={() => {
+                        setSelectedFilterAuthor(null);
+                        setSelectedFilterTag(null);
+                        setCharacterFilterType(null);
+                        showToast('Xóa bộ lọc nhân vật', 'info');
                       }}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-zinc-400 hover:text-red-500 hover:bg-red-500/10 dark:hover:bg-red-500/20 opacity-0 group-hover:opacity-100 transition-all"
-                      title="Xóa nhanh câu lệnh này"
+                      className="retro-btn px-2.5 text-red-700 dark:text-red-400 cursor-pointer"
+                      title="Xóa bộ lọc"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
+                  )}
+                </div>
+
+                {/* Active search filter badge indicator */}
+                {selectedFilterTag && (
+                  <div className="flex flex-wrap items-center gap-1.5 px-2 py-1 bg-[#FFF9EA] dark:bg-[#1A2B23] rounded border border-[#D4E4DA] dark:border-[#2C473A] text-[10px] text-[#527062] dark:text-[#A4BFB2]">
+                    <span className="font-medium">Đang lọc:</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedFilterTag(null)}
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-[#F2CDDA]/45 dark:bg-[#3A2831] text-[#6B374B] dark:text-[#F0C2D3] rounded border border-[#E5B6C6] dark:border-[#5D3D4B] hover:opacity-85 cursor-pointer transition font-semibold"
+                    >
+                      #{selectedFilterTag} ×
+                    </button>
                   </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Categories / Topics Horizontal Scroll Bar specifically for Prompt Library (Notes Tab) */}
+          {activeTab === 'notes' && (
+            <div className="px-2.5 py-2 border-b border-[#E3EFE7] dark:border-[#22392E] flex items-center gap-1.5 overflow-x-auto snap-x snap-mandatory scrollbar-none">
+              {LIB_TOPICS.map((topic) => {
+                const isActive = selectedLibTopicId === topic.id;
+                const count = libraryPrompts.filter(topic.match).length + (topic.id === 'all' ? notes.length : 0);
+                
+                const renderLucideIcon = () => {
+                  const css = `w-3 h-3 flex-shrink-0 ${isActive ? 'text-[#39755D] dark:text-[#8CD2B3]' : 'text-[#5A786A] dark:text-[#8BA89B]'}`;
+                  switch (topic.id) {
+                    case 'all': return <Sparkles className={css} />;
+                    case 'story': return <BookOpen className={css} />;
+                    case 'hud_social': return <Terminal className={css} />;
+                    case 'web': return <Globe className={css} />;
+                    case 'nsfw': return <Flame className={css} />;
+                    case 'sync_fix': return <RefreshCw className={css} />;
+                    case 'control': return <User className={css} />;
+                    case 'autoplay': return <Zap className={css} />;
+                    case 'minigame': return <Activity className={css} />;
+                    default: return <Sparkles className={css} />;
+                  }
+                };
+
+                return (
+                  <button
+                    key={topic.id}
+                    type="button"
+                    onClick={() => setSelectedLibTopicId(topic.id)}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-md border text-[11px] font-semibold whitespace-nowrap snap-start transition-all cursor-pointer active:translate-y-px ${
+                      isActive
+                        ? 'border-[#39755D] bg-[#E2F3E8] text-[#224C3B] dark:bg-[#233C31] dark:text-[#D9F3E6] dark:border-[#7BC4A4]'
+                        : 'border-[#CFE2D6] dark:border-[#2B4639] bg-[#FFF9EA] dark:bg-[#192A22] text-[#4C6A5C] dark:text-[#A4BFB2] hover:bg-[#E2F3E8]/55 dark:hover:bg-[#20352B]'
+                    }`}
+                  >
+                    {renderLucideIcon()}
+                    <span>{topic.name}</span>
+                    <span className="text-[10px] opacity-75 tabular-nums-mono">({count})</span>
+                  </button>
                 );
               })}
-
-              {filteredLibraryPrompts.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => {
-                    setSelectedLibraryPromptId(p.id);
-                    setSelectedNoteId(null);
-                    setIsCreating(false);
-                    setIsEditing(false);
-                    setShowDetailOnMobile(true);
-                    // Auto collapse when switching selected library prompt
-                    setVisibleSteps({});
-                  }}
-                  className={`w-full text-left p-3 rounded-xl transition flex items-start gap-3 border ${
-                    selectedLibraryPromptId === p.id && !selectedNoteId && !isCreating
-                      ? 'bg-emerald-50/80 border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-900/60 text-emerald-950 dark:text-emerald-400'
-                      : 'border-transparent hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300'
-                  }`}
-                >
-                  <span className="text-xl mt-0.5">{getLibraryPromptIcon(p)}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-[13px] leading-snug text-emerald-900 dark:text-emerald-400">{p.title}</p>
-                    <p className="text-[10.5px] text-zinc-500 dark:text-zinc-400 mt-1 line-clamp-2 leading-relaxed">
-                      {p.description}
-                    </p>
-                    <div className="mt-2 flex items-center justify-between text-[10px] text-zinc-400 dark:text-zinc-500">
-                      <span>Tác giả: <strong className="text-zinc-600 dark:text-zinc-300">{p.author}</strong></span>
-                      <span className="flex items-center gap-1 font-semibold text-emerald-600 dark:text-emerald-440">
-                        <Terminal className="w-3 h-3 text-emerald-500" />
-                        {p.steps.length} phần lệnh
-                      </span>
-                    </div>
-                  </div>
-                </button>
-              ))}
-
-              {filteredNotes.length === 0 && filteredLibraryPrompts.length === 0 && (
-                <div className="p-6 text-center text-zinc-400 dark:text-zinc-600 text-xs">Không tìm thấy câu lệnh phù hợp</div>
-              )}
-            </>
+            </div>
           )}
 
+          {/* Categories / Topics Horizontal Scroll Bar specifically for Ideas Tab */}
           {activeTab === 'ideas' && (
-            <>
-              {filteredIdeas.length === 0 ? (
-                <div className="p-6 text-center text-zinc-400 dark:text-zinc-600 text-xs text-medium">Không có ý tưởng nào khớp</div>
-              ) : (
-                <div className="space-y-3.5 pt-1">
-                  {filteredIdeas.map((idea) => {
-                    const topicInfo = getIdeaTopicInfo(idea);
-                    const isActive = selectedIdeaId === idea.id && !isCreating;
-                    
-                    return (
-                      <div
-                        key={idea.id}
-                        onClick={() => {
-                          setSelectedIdeaId(idea.id);
-                          setShowDetailOnMobile(true);
-                        }}
-                        className={`group relative text-left p-4 rounded-2xl transition-all duration-200 flex flex-col gap-2.5 border cursor-pointer select-none ${
-                          isActive
-                            ? 'bg-gradient-to-br from-emerald-500/5 to-emerald-500/[0.01] border-emerald-500/35 dark:border-emerald-500/45 shadow-sm ring-1 ring-emerald-500/10'
-                            : 'bg-zinc-50/40 dark:bg-zinc-900/10 border-zinc-200 dark:border-zinc-800/55 hover:border-zinc-300 dark:hover:border-zinc-700/80 hover:bg-zinc-50/80 dark:hover:bg-zinc-900/30'
-                        }`}
-                      >
-                        {/* Card Header (Icon, Topic & Actions) */}
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <span className="text-lg leading-none flex-shrink-0">{topicInfo.icon}</span>
-                            <span className={`px-2 py-0.5 text-[9px] font-bold rounded-full border truncate select-none ${topicInfo.colorClass}`}>
-                              {topicInfo.name}
-                            </span>
-                          </div>
-                          
-                          {/* Mini Actions */}
-                          <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSelectedIdeaId(idea.id);
-                                setIsEditing(true);
-                                setIsCreating(false);
-                                setShowDetailOnMobile(true);
-                              }}
-                              className="p-1 rounded-lg text-zinc-400 hover:text-emerald-600 hover:bg-emerald-500/10 dark:hover:bg-emerald-500/25 transition"
-                              title="Sửa ý tưởng"
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteIdea(idea.id);
-                              }}
-                              className="p-1 rounded-lg text-zinc-400 hover:text-red-500 hover:bg-red-500/10 dark:hover:bg-red-500/25 transition"
-                              title="Xóa ý tưởng"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
+            <div className="px-2.5 py-2 border-b border-[#E3EFE7] dark:border-[#22392E] flex items-center gap-1.5 overflow-x-auto snap-x snap-mandatory scrollbar-none">
+              {TOPICS.map((topic) => {
+                const isActive = selectedTopicId === topic.id;
+                const count = ideas.filter(topic.match).length;
+                
+                const renderLucideIcon = () => {
+                  const css = `w-3 h-3 flex-shrink-0 ${isActive ? 'text-[#39755D] dark:text-[#8CD2B3]' : 'text-[#5A786A] dark:text-[#8BA89B]'}`;
+                  switch (topic.id) {
+                    case 'all': return <Sparkles className={css} />;
+                    case 'cooking': return <Utensils className={css} />;
+                    case 'sweet': return <Heart className={css} />;
+                    case 'sexy': return <Flame className={css} />;
+                    case 'drama': return <Zap className={css} />;
+                    case 'funny': return <Smile className={css} />;
+                    case 'daily': return <Activity className={css} />;
+                    default: return <Sparkles className={css} />;
+                  }
+                };
 
-                        {/* Card Title */}
-                        <h4 className="font-extrabold text-xs text-zinc-900 dark:text-zinc-100 leading-snug tracking-tight">
-                          {idea.title}
-                        </h4>
-
-                        {/* Card Content (Displayed directly outside) */}
-                        <div className="text-[11px] text-zinc-600 dark:text-zinc-300 leading-relaxed whitespace-pre-wrap break-words bg-white/75 dark:bg-zinc-950/40 p-3 rounded-xl border border-zinc-200/40 dark:border-zinc-850 shadow-inner max-h-[2400px] overflow-y-auto pr-1.5 scrollbar-thin">
-                          {idea.content}
-                        </div>
-
-                        {/* Card Footer (Creation Date) */}
-                        <div className="flex items-center justify-between text-[9px] text-zinc-400 dark:text-zinc-500 font-mono tracking-tight pt-0.5">
-                          <span>📅 Gieo: {new Date(idea.createdAt).toLocaleDateString('vi-VN')}</span>
-                          {idea.updatedAt && idea.updatedAt !== idea.createdAt && (
-                            <span>đã sửa</span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </>
+                return (
+                  <button
+                    key={topic.id}
+                    type="button"
+                    onClick={() => setSelectedTopicId(topic.id)}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-md border text-[11px] font-semibold whitespace-nowrap snap-start transition-all cursor-pointer active:translate-y-px ${
+                      isActive
+                        ? 'border-[#39755D] bg-[#E2F3E8] text-[#224C3B] dark:bg-[#233C31] dark:text-[#D9F3E6] dark:border-[#7BC4A4]'
+                        : 'border-[#CFE2D6] dark:border-[#2B4639] bg-[#FFF9EA] dark:bg-[#192A22] text-[#4C6A5C] dark:text-[#A4BFB2] hover:bg-[#E2F3E8]/55 dark:hover:bg-[#20352B]'
+                    }`}
+                  >
+                    {renderLucideIcon()}
+                    <span>{topic.name}</span>
+                    <span className="text-[10px] opacity-75 tabular-nums-mono">({count})</span>
+                  </button>
+                );
+              })}
+            </div>
           )}
 
-          {activeTab === 'characters' && (
-            <>
-              {filteredCharacters.length === 0 ? (
-                <div className="p-6 text-center text-zinc-400 dark:text-zinc-600 text-xs">Không tìm thấy nhân vật nào</div>
-              ) : (
-                filteredCharacters.map((char) => {
-                  const isSelected = selectedCharId === char.id && !isCreating;
+          {/* Unified Item Listings inside Folder Browser */}
+          <div className="flex-1 overflow-y-auto px-2 py-2 pb-16 space-y-1.5">
+            {activeTab === 'notes' && (
+              <>
+                {filteredNotes.map((note) => {
+                  const correlatedChar = characters.find(c => c.id === note.characterId);
+                  const isSelected = selectedNoteId === note.id && !selectedLibraryPromptId && !isCreating;
                   return (
                     <div
-                      key={char.id}
+                      key={note.id}
                       onClick={() => {
-                        setSelectedCharId(char.id);
+                        setSelectedNoteId(note.id);
+                        setSelectedLibraryPromptId(null);
                         setIsCreating(false);
                         setIsEditing(false);
                         setShowDetailOnMobile(true);
                       }}
-                      className={`group relative w-full text-left p-3 rounded-xl transition flex items-start gap-3 border cursor-pointer select-none ${
+                      className={`group relative w-full text-left p-2.5 rounded-md transition flex items-start gap-2.5 border cursor-pointer select-none ${
                         isSelected
-                          ? 'bg-emerald-50/80 border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-900/60 text-emerald-950 dark:text-emerald-400'
-                          : 'border-transparent hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300'
+                          ? 'bg-[#E2F3E8] border-[#39755D] dark:bg-[#223A2F] dark:border-[#7BC4A4] text-[#1E4434] dark:text-[#E5F7EE]'
+                          : 'bg-[#FFF9EA]/70 dark:bg-[#1A2A23]/60 border-transparent hover:border-[#B8D7C5] dark:hover:border-[#314E40] hover:bg-[#E2F3E8]/45 dark:hover:bg-[#1E3129] text-[#284237] dark:text-[#DCEAE1]'
                       }`}
                     >
+                      <span className="text-lg mt-0.5 leading-none">{note.icon || '☘️'}</span>
                       <div className="flex-1 min-w-0 pr-6">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <p className="font-semibold text-xs truncate leading-snug text-zinc-900 dark:text-zinc-100 group-hover:text-emerald-700 dark:group-hover:text-emerald-450 transition-colors">{char.name}</p>
-                          {char.author && (
-                            <span className="px-1 py-0.2 text-[8px] bg-zinc-100/80 dark:bg-zinc-800/80 text-zinc-500 dark:text-zinc-400 rounded border border-zinc-200/50 dark:border-zinc-700 font-medium max-w-[80px] truncate" title={`Tác giả: ${char.author}`}>
-                              {char.author}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-[10px] opacity-75 mt-1 truncate">{char.role}</p>
+                        <p className="font-semibold text-xs truncate leading-snug">{note.title}</p>
+                        <p className="text-[10px] text-[#587568] dark:text-[#96B2A4] mt-1 truncate tabular-nums-mono">
+                          {correlatedChar ? `${correlatedChar.name} • ` : ''}{new Date(note.updatedAt).toLocaleDateString('vi-VN')}
+                        </p>
                       </div>
-
-                      {/* Quick Delete Character Button */}
+                      
+                      {/* Quick Delete Trash Button */}
                       <button
+                        type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleDeleteCharacter(char.id);
+                          handleDeleteNote(note.id);
                         }}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-zinc-400 hover:text-red-500 hover:bg-red-500/10 dark:hover:bg-red-500/20 opacity-0 group-hover:opacity-100 transition-all"
-                        title="Xóa nhanh nhân vật này"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded text-[#6B877A] hover:text-red-600 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-all"
+                        title="Xóa nhanh câu lệnh này"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   );
-                })
-              )}
-            </>
-          )}
+                })}
 
-          {activeTab === 'authors' && (
-            <>
-              {filteredAuthors.length === 0 ? (
-                <div className="p-6 text-center text-zinc-400 dark:text-zinc-600 text-xs">Không tìm thấy tác giả nào</div>
-              ) : (
-                filteredAuthors.map((author) => {
-                  const isSelected = selectedAuthorId === author.id || (!selectedAuthorId && author.id === authorsList[0]?.id);
-                  return (
-                    <div
-                      key={author.id}
-                      onClick={() => {
-                        setSelectedAuthorId(author.id);
-                        setIsCreating(false);
-                        setIsEditing(false);
-                        setShowDetailOnMobile(true);
-                      }}
-                      className={`group relative w-full text-left p-3 rounded-xl transition flex items-center gap-3 border cursor-pointer select-none ${
-                        isSelected
-                          ? 'bg-emerald-50/80 border-emerald-250 dark:bg-emerald-950/20 dark:border-emerald-900/60 text-emerald-950 dark:text-emerald-400'
-                          : 'border-transparent hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300'
-                      }`}
-                    >
-                      <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center text-lg shadow-sm border border-zinc-200/50 dark:border-zinc-700/50">
-                        {author.avatarEmoji}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className={`font-semibold text-xs truncate leading-snug ${isSelected ? 'text-emerald-900 dark:text-emerald-400 font-bold' : 'text-zinc-900 dark:text-zinc-100'}`}>
-                          {author.name}
-                        </p>
+                {filteredLibraryPrompts.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedLibraryPromptId(p.id);
+                      setSelectedNoteId(null);
+                      setIsCreating(false);
+                      setIsEditing(false);
+                      setShowDetailOnMobile(true);
+                      setVisibleSteps({});
+                    }}
+                    className={`w-full text-left p-2.5 rounded-md transition flex items-start gap-2.5 border cursor-pointer ${
+                      selectedLibraryPromptId === p.id && !selectedNoteId && !isCreating
+                        ? 'bg-[#E2F3E8] border-[#39755D] dark:bg-[#223A2F] dark:border-[#7BC4A4] text-[#1E4434] dark:text-[#E5F7EE]'
+                        : 'bg-[#FFF9EA]/70 dark:bg-[#1A2A23]/60 border-transparent hover:border-[#B8D7C5] dark:hover:border-[#314E40] hover:bg-[#E2F3E8]/45 dark:hover:bg-[#1E3129] text-[#284237] dark:text-[#DCEAE1]'
+                    }`}
+                  >
+                    <span className="text-lg mt-0.5 leading-none">{getLibraryPromptIcon(p)}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-[12.5px] leading-snug text-[#23503E] dark:text-[#A3DFC3]">{p.title}</p>
+                      <p className="text-[10.5px] text-[#587568] dark:text-[#98B4A7] mt-1 line-clamp-2 leading-relaxed">
+                        {p.description}
+                      </p>
+                      <div className="mt-1.5 flex items-center justify-between text-[10px] text-[#648174] dark:text-[#87A597]">
+                        <span className="truncate">Tác giả: <strong className="text-[#2D5544] dark:text-[#CBE7D8]">{p.author}</strong></span>
+                        <span className="flex items-center gap-1 font-semibold text-[#39755D] dark:text-[#86CFAF] tabular-nums-mono shrink-0">
+                          <Terminal className="w-3 h-3" />
+                          {p.steps.length} phần
+                        </span>
                       </div>
                     </div>
-                  );
-                })
-              )}
-            </>
-          )}
-        </div>
+                  </button>
+                ))}
 
-        {/* Sidebar Creation Command Anchor */}
-        {activeTab !== 'authors' && (
-          <div className="sticky bottom-0 p-3 border-t border-emerald-50 dark:border-emerald-900/20 bg-white dark:bg-zinc-900 flex justify-center z-10 shadow-[0_-4px_12px_rgba(0,0,0,0.03)] dark:shadow-none">
-            <button
-              onClick={() => {
-                setIsCreating(true);
-                setIsEditing(false);
-                setShowDetailOnMobile(true);
-              }}
-              className="w-full py-2 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white font-semibold text-xs flex items-center justify-center gap-2 shadow-md shadow-emerald-600/10 hover:shadow-emerald-500/20 transition-theme"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Thêm Mới {
-                activeTab === 'notes' ? 'Câu Lệnh' : 
-                activeTab === 'ideas' ? 'Ý Tưởng' : 'Nhân Vật'
-              }</span>
-            </button>
-          </div>
-        )}
-      </aside>
-
-      {/* MAIN SCREEN COLUMNS CONTROLLER */}
-      <main className={`flex-1 h-full flex flex-col min-w-0 z-20 ${showDetailOnMobile ? 'flex' : 'hidden md:flex'}`}>
-        
-        {/* Navigation Utilities bar with Theme & Export triggers */}
-        <header className="px-6 py-2 bg-white dark:bg-zinc-900 border-b border-emerald-50 dark:border-emerald-900/25 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            {showDetailOnMobile && !isWelcomeScreen && (
-              <button
-                onClick={() => setShowDetailOnMobile(false)}
-                className="md:hidden flex items-center gap-1 text-emerald-700 dark:text-emerald-400 font-bold text-xs px-2.5 py-1.5 bg-emerald-50 dark:bg-zinc-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/20 rounded-xl border border-emerald-100 dark:border-emerald-900/30 transition-theme active:scale-95 mr-1"
-              >
-                ← Chọn Khác
-              </button>
-            )}
-            {/* Removed the redundant category badge indicator per user request */}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Clover switch */}
-            <button
-              onClick={handleCloverToggle}
-              title={cloverEffect ? "Tắt cỏ rơi" : "Mở cỏ rơi"}
-              className={`p-2 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition ${
-                cloverEffect 
-                  ? 'border-emerald-200 dark:border-emerald-900 bg-emerald-50/60 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400' 
-                  : 'border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800'
-              }`}
-            >
-              <span className={`animate-bounce mt-0.5`}>🍀</span>
-              <span className="hidden lg:inline">Cỏ Rơi</span>
-            </button>
-
-            {/* Dark switch (Always Visible) */}
-            <button
-              onClick={toggleTheme}
-              className="p-2 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 transition"
-              title={theme === 'light' ? 'Chuyển sang chế độ tối' : 'Chuyển sang chế độ sáng'}
-            >
-              {theme === 'light' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4 text-amber-500" />}
-            </button>
-
-            {/* Account / Login trigger */}
-            <AccountButton
-              onOpenAuth={openAuthModal}
-              onToast={showToast}
-              isSyncing={isSyncingCloud}
-              hasLocalDataToImport={hasLocalDataToImport}
-              hasPendingImportJob={Boolean(pendingResumableJob)}
-              onSyncNow={handleManualSyncNow}
-              onOpenLocalMigration={handleOpenLocalMigrationManually}
-            />
-          </div>
-        </header>
-
-        {/* DETAILS OR FORM EDITOR VIEW */}
-        <div className="flex-1 overflow-y-auto p-6 md:p-8">
-          <div className="max-w-4xl mx-auto space-y-6">
-            
-            {/* 1. CREATION / FORM SECTOR */}
-            {isCreating && (
-              <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-emerald-100 dark:border-emerald-900/20 p-1">
-                {activeTab === 'notes' && (
-                  <NoteForm 
-                    characters={characters}
-                    onSave={handleSaveNote}
-                    onCancel={() => setIsCreating(false)}
-                    isSaving={isSavingItem}
-                  />
-                )}
-                {activeTab === 'ideas' && (
-                  <IdeaForm 
-                    onSave={handleSaveIdea}
-                    onCancel={() => setIsCreating(false)}
-                    isSaving={isSavingItem}
-                  />
-                )}
-                {activeTab === 'characters' && (
-                  <CharacterForm 
-                    onSave={handleSaveCharacter}
-                    onCancel={() => setIsCreating(false)}
-                    isSaving={isSavingItem}
-                  />
-                )}
-              </div>
-            )}
-
-            {/* 2. CHOSEN EDIT STATE */}
-            {isEditing && (
-              <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-emerald-100 dark:border-emerald-900/20 p-1">
-                {activeTab === 'notes' && activeNote && (
-                  <NoteForm 
-                    initialData={activeNote}
-                    characters={characters}
-                    onSave={handleSaveNote}
-                    onCancel={() => setIsEditing(false)}
-                    isSaving={isSavingItem}
-                  />
-                )}
-                {activeTab === 'ideas' && activeIdea && (
-                  <IdeaForm 
-                    initialData={activeIdea}
-                    onSave={handleSaveIdea}
-                    onCancel={() => setIsEditing(false)}
-                    isSaving={isSavingItem}
-                  />
-                )}
-                {activeTab === 'characters' && activeChar && (
-                  <CharacterForm 
-                    initialData={activeChar}
-                    onSave={handleSaveCharacter}
-                    onCancel={() => setIsEditing(false)}
-                    isSaving={isSavingItem}
-                  />
-                )}
-              </div>
-            )}
-
-            {/* 3. COHESIVE READ MODE (ONLY SHOWS IF NOT CREATING OR EDITING) */}
-            {!isCreating && !isEditing && (
-              <>
-                {/* A. NOT SELECTED STATE - THE WELCOME CARD */}
-                {((activeTab === 'notes' && !activeNote && !activeLibraryPrompt) || 
-                  (activeTab === 'ideas' && !activeIdea) || 
-                  (activeTab === 'characters' && !activeChar) ||
-                  (activeTab === 'authors' && !activeAuthor)) && (
-                  <div className="bg-gradient-to-br from-emerald-500/5 to-white dark:from-zinc-900 dark:to-zinc-950 p-8 rounded-3xl border border-emerald-100 dark:border-emerald-900/30 text-center space-y-6">
-                    <img
-                      src="/app-icon.jpg"
-                      alt="SéaClover"
-                      className="w-20 h-20 mx-auto rounded-2xl object-cover shadow-lg shadow-emerald-500/20 border-2 border-emerald-200/80 dark:border-emerald-800/70"
-                    />
-                    <h2 className="text-2xl font-extrabold text-emerald-800 dark:text-emerald-400 font-sans tracking-tight">Chào mừng đến với SéaClover!</h2>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 max-w-4xl mx-auto pt-4">
-                      <div 
-                        onClick={() => {
-                          setActiveTab('characters');
-                          setShowDetailOnMobile(false);
-                        }}
-                        className="p-4 rounded-2xl bg-white dark:bg-zinc-900 shadow-sm border border-emerald-500/5 hover:border-emerald-500/30 dark:hover:border-emerald-500/30 hover:-translate-y-1 hover:shadow-md transition duration-300 cursor-pointer select-none active:scale-95"
-                      >
-                        <span className="text-xl">🎨</span>
-                        <h4 className="text-xs font-bold text-emerald-800 dark:text-emerald-400 mt-2">Kho Nhân vật</h4>
-                        <p className="text-[10px] text-zinc-400 dark:text-zinc-500 mt-1">Bộ sưu tập các char/nhân vật yêu thích</p>
-                      </div>
-                      <div 
-                        onClick={() => {
-                          setActiveTab('authors');
-                          setShowDetailOnMobile(false);
-                        }}
-                        className="p-4 rounded-2xl bg-white dark:bg-zinc-900 shadow-sm border border-emerald-500/5 hover:border-emerald-500/30 dark:hover:border-emerald-500/30 hover:-translate-y-1 hover:shadow-md transition duration-300 cursor-pointer select-none active:scale-95"
-                      >
-                        <span className="text-xl">👩‍💻</span>
-                        <h4 className="text-xs font-bold text-emerald-800 dark:text-emerald-400 mt-2">Kho Tác giả</h4>
-                        <p className="text-[10px] text-zinc-400 dark:text-zinc-500 mt-1">Thông tin chi tiết của các nhà sáng tạo nội dung</p>
-                      </div>
-                      <div 
-                        onClick={() => {
-                          setActiveTab('notes');
-                          setShowDetailOnMobile(false);
-                        }}
-                        className="p-4 rounded-2xl bg-white dark:bg-zinc-900 shadow-sm border border-emerald-500/5 hover:border-emerald-500/30 dark:hover:border-emerald-500/30 hover:-translate-y-1 hover:shadow-md transition duration-300 cursor-pointer select-none active:scale-95"
-                      >
-                        <span className="text-xl">✍️</span>
-                        <h4 className="text-xs font-bold text-emerald-800 dark:text-emerald-400 mt-2">Kho Lệnh AI</h4>
-                        <p className="text-[10px] text-zinc-400 dark:text-zinc-500 mt-1">Lưu trữ các prompt mẫu, câu lệnh tiện ích</p>
-                      </div>
-                      <div 
-                        onClick={() => {
-                          setActiveTab('ideas');
-                          setShowDetailOnMobile(false);
-                        }}
-                        className="p-4 rounded-2xl bg-white dark:bg-zinc-900 shadow-sm border border-emerald-500/5 hover:border-emerald-500/30 dark:hover:border-emerald-500/30 hover:-translate-y-1 hover:shadow-md transition duration-300 cursor-pointer select-none active:scale-95"
-                      >
-                        <span className="text-xl">💡</span>
-                        <h4 className="text-xs font-bold text-emerald-800 dark:text-emerald-400 mt-2">Kho Ý tưởng</h4>
-                        <p className="text-[10px] text-zinc-400 dark:text-zinc-500 mt-1">Tổng hợp những ý tưởng có thể chơi với char để giải ngấy</p>
-                      </div>
-                    </div>
+                {filteredNotes.length === 0 && filteredLibraryPrompts.length === 0 && (
+                  <div className="p-6 text-center text-[#6B877A] dark:text-[#7E9B8D] text-xs">
+                    Thư mục này chưa có câu lệnh phù hợp.
                   </div>
                 )}
+              </>
+            )}
+
+            {activeTab === 'ideas' && (
+              <>
+                {filteredIdeas.length === 0 ? (
+                  <div className="p-6 text-center text-[#6B877A] dark:text-[#7E9B8D] text-xs">
+                    Không có ý tưởng nào khớp.
+                  </div>
+                ) : (
+                  <div className="space-y-2.5 pt-0.5">
+                    {filteredIdeas.map((idea) => {
+                      const topicInfo = getIdeaTopicInfo(idea);
+                      const isActive = selectedIdeaId === idea.id && !isCreating;
+                      
+                      return (
+                        <div
+                          key={idea.id}
+                          onClick={() => {
+                            setSelectedIdeaId(idea.id);
+                            setShowDetailOnMobile(true);
+                          }}
+                          className={`group relative text-left p-3 rounded-lg transition-all duration-150 flex flex-col gap-2 border cursor-pointer select-none ${
+                            isActive
+                              ? 'bg-[#E2F3E8] border-[#39755D] dark:bg-[#223A2F] dark:border-[#7BC4A4]'
+                              : 'bg-[#FFF9EA] dark:bg-[#1B2C24] border-[#CFE2D6] dark:border-[#2B4639] hover:border-[#8AB69F] dark:hover:border-[#497560]'
+                          }`}
+                        >
+                          {/* Card Header (Icon, Topic & Actions) */}
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="text-base leading-none flex-shrink-0">{topicInfo.icon}</span>
+                              <span className={`px-2 py-0.5 text-[9px] font-bold rounded border truncate select-none ${topicInfo.colorClass}`}>
+                                {topicInfo.name}
+                              </span>
+                            </div>
+                            
+                            {/* Mini Actions */}
+                            <div className="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition-opacity">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedIdeaId(idea.id);
+                                  setIsEditing(true);
+                                  setIsCreating(false);
+                                  setShowDetailOnMobile(true);
+                                }}
+                                className="p-1 rounded text-[#587568] hover:text-[#39755D] hover:bg-[#39755D]/10 dark:text-[#9CB8AB] dark:hover:text-[#98DAB9] transition"
+                                title="Sửa ý tưởng"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteIdea(idea.id);
+                                }}
+                                className="p-1 rounded text-[#587568] hover:text-red-600 hover:bg-red-500/10 dark:text-[#9CB8AB] dark:hover:text-red-400 transition"
+                                title="Xóa ý tưởng"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Card Title */}
+                          <h4 className="font-bold text-xs text-[#20372D] dark:text-[#F4EDDC] leading-snug tracking-tight">
+                            {idea.title}
+                          </h4>
+
+                          {/* Card Content */}
+                          <div className="text-[11px] text-[#3E5A4E] dark:text-[#C5D8CE] leading-relaxed whitespace-pre-wrap break-words bg-white/75 dark:bg-[#14221B] p-2.5 rounded border border-[#D8E7DD] dark:border-[#294236] max-h-[2400px] overflow-y-auto pr-1.5">
+                            {idea.content}
+                          </div>
+
+                          {/* Card Footer */}
+                          <div className="flex items-center justify-between text-[9px] text-[#668476] dark:text-[#86A496] tabular-nums-mono pt-0.5">
+                            <span>Gieo: {new Date(idea.createdAt).toLocaleDateString('vi-VN')}</span>
+                            {idea.updatedAt && idea.updatedAt !== idea.createdAt && (
+                              <span>đã sửa</span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            )}
+
+            {activeTab === 'characters' && (
+              <>
+                {filteredCharacters.length === 0 ? (
+                  <div className="p-6 text-center text-[#6B877A] dark:text-[#7E9B8D] text-xs">
+                    Chưa có nhân vật nào trong thư mục.
+                  </div>
+                ) : (
+                  filteredCharacters.map((char) => {
+                    const isSelected = selectedCharId === char.id && !isCreating;
+                    return (
+                      <div
+                        key={char.id}
+                        onClick={() => {
+                          setSelectedCharId(char.id);
+                          setIsCreating(false);
+                          setIsEditing(false);
+                          setShowDetailOnMobile(true);
+                        }}
+                        className={`group relative w-full text-left p-2.5 rounded-md transition flex items-start gap-2.5 border cursor-pointer select-none ${
+                          isSelected
+                            ? 'bg-[#E2F3E8] border-[#39755D] dark:bg-[#223A2F] dark:border-[#7BC4A4] text-[#1E4434] dark:text-[#E5F7EE]'
+                            : 'bg-[#FFF9EA]/70 dark:bg-[#1A2A23]/60 border-transparent hover:border-[#B8D7C5] dark:hover:border-[#314E40] hover:bg-[#E2F3E8]/45 dark:hover:bg-[#1E3129] text-[#284237] dark:text-[#DCEAE1]'
+                        }`}
+                      >
+                        <div className="flex-1 min-w-0 pr-6">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className="font-semibold text-xs truncate leading-snug text-[#20372D] dark:text-[#F4EDDC] group-hover:text-[#39755D] dark:group-hover:text-[#98DAB9] transition-colors">
+                              {char.name}
+                            </p>
+                            {char.author && (
+                              <span
+                                className="px-1.5 py-0.5 text-[9px] bg-[#E2F3E8]/80 dark:bg-[#243B31] text-[#39755D] dark:text-[#9AD8BD] rounded border border-[#BDD9C9] dark:border-[#345646] font-medium max-w-[85px] truncate"
+                                title={`Tác giả: ${char.author}`}
+                              >
+                                {char.author}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[10px] text-[#5B786B] dark:text-[#94B1A3] mt-1 truncate">{char.role}</p>
+                        </div>
+
+                        {/* Quick Delete Character Button */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteCharacter(char.id);
+                          }}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded text-[#6B877A] hover:text-red-600 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-all"
+                          title="Xóa nhanh nhân vật này"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </>
+            )}
+
+            {activeTab === 'authors' && (
+              <>
+                {filteredAuthors.length === 0 ? (
+                  <div className="p-6 text-center text-[#6B877A] dark:text-[#7E9B8D] text-xs">
+                    Chưa có tác giả nào trong thư mục.
+                  </div>
+                ) : (
+                  filteredAuthors.map((author) => {
+                    const isSelected = selectedAuthorId === author.id || (!selectedAuthorId && author.id === authorsList[0]?.id);
+                    return (
+                      <div
+                        key={author.id}
+                        onClick={() => {
+                          setSelectedAuthorId(author.id);
+                          setIsCreating(false);
+                          setIsEditing(false);
+                          setShowDetailOnMobile(true);
+                        }}
+                        className={`group relative w-full text-left p-2.5 rounded-md transition flex items-center gap-2.5 border cursor-pointer select-none ${
+                          isSelected
+                            ? 'bg-[#E2F3E8] border-[#39755D] dark:bg-[#223A2F] dark:border-[#7BC4A4] text-[#1E4434] dark:text-[#E5F7EE]'
+                            : 'bg-[#FFF9EA]/70 dark:bg-[#1A2A23]/60 border-transparent hover:border-[#B8D7C5] dark:hover:border-[#314E40] hover:bg-[#E2F3E8]/45 dark:hover:bg-[#1E3129] text-[#284237] dark:text-[#DCEAE1]'
+                        }`}
+                      >
+                        <div className="w-8 h-8 rounded-md bg-[#FFF9EA] dark:bg-[#1D3027] flex items-center justify-center text-base border border-[#C6DFD0] dark:border-[#314E40]">
+                          {author.avatarEmoji}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className={`font-semibold text-xs truncate leading-snug ${isSelected ? 'text-[#214C3B] dark:text-[#A3DFC3] font-bold' : 'text-[#20372D] dark:text-[#F4EDDC]'}`}>
+                            {author.name}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Sidebar Creation Command Anchor */}
+          {activeTab !== 'authors' && (
+            <div className="sticky bottom-0 p-2.5 border-t border-[#CBE0D3] dark:border-[#294336] bg-[#F1F8F3] dark:bg-[#14221B] flex justify-center z-10">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCreating(true);
+                  setIsEditing(false);
+                  setShowDetailOnMobile(true);
+                }}
+                className="retro-btn-primary w-full py-2 px-4 font-semibold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Thêm Mới {
+                  activeTab === 'notes' ? 'Câu Lệnh' : 
+                  activeTab === 'ideas' ? 'Ý Tưởng' : 'Nhân Vật'
+                }</span>
+              </button>
+            </div>
+          )}
+        </aside>
+
+        {/* RIGHT COLUMN: MAIN LETTER & DETAIL VIEWPORT */}
+        <main className={`flex-1 h-full flex flex-col min-w-0 bg-[#EDF6F0] dark:bg-[#111C17] ${showDetailOnMobile ? 'flex' : 'hidden md:flex'}`}>
+          
+          {/* DETAILS OR FORM EDITOR VIEW */}
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8">
+            <div className="max-w-4xl mx-auto space-y-6">
+              
+              {/* 1. CREATION / FORM SECTOR */}
+              {isCreating && (
+                <div className="bg-[#FFF9EA] dark:bg-[#172620] rounded-lg border border-[#B8D7C5] dark:border-[#2E4B3D] p-1">
+                  {activeTab === 'notes' && (
+                    <NoteForm 
+                      characters={characters}
+                      onSave={handleSaveNote}
+                      onCancel={() => setIsCreating(false)}
+                      isSaving={isSavingItem}
+                    />
+                  )}
+                  {activeTab === 'ideas' && (
+                    <IdeaForm 
+                      onSave={handleSaveIdea}
+                      onCancel={() => setIsCreating(false)}
+                      isSaving={isSavingItem}
+                    />
+                  )}
+                  {activeTab === 'characters' && (
+                    <CharacterForm 
+                      onSave={handleSaveCharacter}
+                      onCancel={() => setIsCreating(false)}
+                      isSaving={isSavingItem}
+                    />
+                  )}
+                </div>
+              )}
+
+              {/* 2. CHOSEN EDIT STATE */}
+              {isEditing && (
+                <div className="bg-[#FFF9EA] dark:bg-[#172620] rounded-lg border border-[#B8D7C5] dark:border-[#2E4B3D] p-1">
+                  {activeTab === 'notes' && activeNote && (
+                    <NoteForm 
+                      initialData={activeNote}
+                      characters={characters}
+                      onSave={handleSaveNote}
+                      onCancel={() => setIsEditing(false)}
+                      isSaving={isSavingItem}
+                    />
+                  )}
+                  {activeTab === 'ideas' && activeIdea && (
+                    <IdeaForm 
+                      initialData={activeIdea}
+                      onSave={handleSaveIdea}
+                      onCancel={() => setIsEditing(false)}
+                      isSaving={isSavingItem}
+                    />
+                  )}
+                  {activeTab === 'characters' && activeChar && (
+                    <CharacterForm 
+                      initialData={activeChar}
+                      onSave={handleSaveCharacter}
+                      onCancel={() => setIsEditing(false)}
+                      isSaving={isSavingItem}
+                    />
+                  )}
+                </div>
+              )}
+
+              {/* 3. COHESIVE READ MODE (ONLY SHOWS IF NOT CREATING OR EDITING) */}
+              {!isCreating && !isEditing && (
+                <>
+                  {/* A. NOT SELECTED STATE — OPENED HANDWRITTEN WELCOME LETTER */}
+                  {((activeTab === 'notes' && !activeNote && !activeLibraryPrompt) || 
+                    (activeTab === 'ideas' && !activeIdea) || 
+                    (activeTab === 'characters' && !activeChar) ||
+                    (activeTab === 'authors' && !activeAuthor)) && (
+                    <section className="letter-paper relative rounded-lg px-5 py-6 sm:px-9 sm:py-8 md:px-11 md:py-10 animate-fade-in overflow-hidden">
+                      {/* Soft blush-pink masking-tape accent at top-left paper corner */}
+                      <span
+                        aria-hidden="true"
+                        className="pointer-events-none absolute -top-1 left-6 w-16 h-3.5 bg-[#F2CDDA]/85 dark:bg-[#C98CA3]/45 border-x border-b border-[#E3B2C4]/70 dark:border-[#DDA6BA]/35 rounded-b-[2px] -rotate-2"
+                      />
+
+                      {/* Letter Header Row: Left-aligned greeting + Top-right postage stamp & "おてがみ" postmark */}
+                      <div className="flex flex-col-reverse sm:flex-row sm:items-start justify-between gap-6">
+                        {/* Left-aligned personal letter copy */}
+                        <div className="flex-1 min-w-0 text-left pt-1 sm:pt-3 max-w-xl">
+                          <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-[#5B7D6E] dark:text-[#8FB9A5] mb-3">
+                            Dear friend — SéaClover
+                          </p>
+                          <h2 className="text-xl sm:text-2xl font-bold text-[#2B5A47] dark:text-[#A5DFC4] tracking-tight leading-snug">
+                            Gửi bạn, từ SéaClover
+                          </h2>
+                          <div className="mt-4 space-y-1.5 text-sm sm:text-[15px] leading-8 text-[#2B463A] dark:text-[#EFE8D7]">
+                            <p>Mình để dành ở đây những nhân vật, câu lệnh và ý tưởng mình thích.</p>
+                            <p>Bạn cứ mở một thư mục và xem từ từ nhé. 🍀</p>
+                          </div>
+                        </div>
+
+                        {/* Top-right Perforated Postage Stamp + Circular "おてがみ" Postmark */}
+                        <div className="flex items-center justify-end self-end sm:self-start flex-shrink-0 select-none">
+                          {/* Circular Japanese postmark slightly overlapping stamp edge */}
+                          <div className="-mr-5 z-10 text-[#39755D] dark:text-[#A5DFC4] pointer-events-none">
+                            <OtegamiPostmark className="w-20 h-16 sm:w-24 sm:h-[76px]" />
+                          </div>
+
+                          {/* Perforated postage stamp frame holding current mascot */}
+                          <div className="postage-stamp rotate-[2deg]">
+                            <div className="bg-[#FFF9EA] dark:bg-[#182720] p-1 border border-[#D89AB1] dark:border-[#9E6A7D]">
+                              <img
+                                src="/app-icon.jpg"
+                                alt="Mascot cỏ bốn lá SéaClover"
+                                className="w-[70px] h-[70px] sm:w-[82px] sm:h-[82px] object-cover block"
+                              />
+                              <div className="flex items-center justify-between pt-1 px-0.5 font-mono text-[8px] font-semibold text-[#8A4E64] dark:text-[#E8B8CA] leading-none">
+                                <span>CLOVER</span>
+                                <span>04</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Hairline stationery rule separating letter body & 4 mini folder shortcuts */}
+                      <div className="mt-8 pt-6 border-t border-dashed border-[#B7D4C3] dark:border-[#325142]">
+                        <div className="flex items-center justify-between gap-2 mb-3.5">
+                          <span className="font-mono text-[11px] font-semibold tracking-wider text-[#4C7060] dark:text-[#96BDAA]">
+                            Mở nhanh thư mục
+                          </span>
+                          <span className="font-mono text-[10px] text-[#6B8A7B] dark:text-[#7FA292] tabular-nums-mono">
+                            4 thư mục
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveTab('characters');
+                              setShowDetailOnMobile(false);
+                            }}
+                            className="retro-btn p-3.5 text-left flex flex-col items-start gap-2 cursor-pointer group"
+                          >
+                            <div className="w-full flex items-center justify-between gap-2">
+                              <PixelFolderShortcutIcon
+                                variant="characters"
+                                className="w-9 h-8 transition-transform duration-150 group-hover:-translate-y-0.5"
+                              />
+                              <span className="tabular-nums-mono text-[10px] px-1.5 py-0.5 rounded bg-[#E2F3E8] dark:bg-[#233B30] text-[#2F634E] dark:text-[#A5DFC4] border border-[#BDDAC9] dark:border-[#355949]">
+                                {characters.length}
+                              </span>
+                            </div>
+                            <div className="min-w-0 w-full">
+                              <h3 className="text-xs font-bold text-[#224C3B] dark:text-[#E8F6EE] leading-snug">
+                                Nhân Vật
+                              </h3>
+                              <p className="text-[11px] text-[#587668] dark:text-[#9BB8AA] mt-0.5 leading-snug line-clamp-2">
+                                Hồ sơ các nhân vật bạn lưu giữ
+                              </p>
+                            </div>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveTab('authors');
+                              setShowDetailOnMobile(false);
+                            }}
+                            className="retro-btn p-3.5 text-left flex flex-col items-start gap-2 cursor-pointer group"
+                          >
+                            <div className="w-full flex items-center justify-between gap-2">
+                              <PixelFolderShortcutIcon
+                                variant="authors"
+                                className="w-9 h-8 transition-transform duration-150 group-hover:-translate-y-0.5"
+                              />
+                              <span className="tabular-nums-mono text-[10px] px-1.5 py-0.5 rounded bg-[#F2CDDA]/55 dark:bg-[#3A2831] text-[#7A3F55] dark:text-[#EBBFD0] border border-[#E6B8C8] dark:border-[#5D3D4B]">
+                                {authorsList.length}
+                              </span>
+                            </div>
+                            <div className="min-w-0 w-full">
+                              <h3 className="text-xs font-bold text-[#224C3B] dark:text-[#E8F6EE] leading-snug">
+                                Tác Giả
+                              </h3>
+                              <p className="text-[11px] text-[#587668] dark:text-[#9BB8AA] mt-0.5 leading-snug line-clamp-2">
+                                Ghi chú về các tác giả yêu thích
+                              </p>
+                            </div>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveTab('notes');
+                              setShowDetailOnMobile(false);
+                            }}
+                            className="retro-btn p-3.5 text-left flex flex-col items-start gap-2 cursor-pointer group"
+                          >
+                            <div className="w-full flex items-center justify-between gap-2">
+                              <PixelFolderShortcutIcon
+                                variant="notes"
+                                className="w-9 h-8 transition-transform duration-150 group-hover:-translate-y-0.5"
+                              />
+                              <span className="tabular-nums-mono text-[10px] px-1.5 py-0.5 rounded bg-[#E2F3E8] dark:bg-[#233B30] text-[#2F634E] dark:text-[#A5DFC4] border border-[#BDDAC9] dark:border-[#355949]">
+                                {notes.length + libraryPrompts.length}
+                              </span>
+                            </div>
+                            <div className="min-w-0 w-full">
+                              <h3 className="text-xs font-bold text-[#224C3B] dark:text-[#E8F6EE] leading-snug">
+                                Kho Lệnh
+                              </h3>
+                              <p className="text-[11px] text-[#587668] dark:text-[#9BB8AA] mt-0.5 leading-snug line-clamp-2">
+                                Prompt mẫu & câu lệnh tiện dùng
+                              </p>
+                            </div>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveTab('ideas');
+                              setShowDetailOnMobile(false);
+                            }}
+                            className="retro-btn p-3.5 text-left flex flex-col items-start gap-2 cursor-pointer group"
+                          >
+                            <div className="w-full flex items-center justify-between gap-2">
+                              <PixelFolderShortcutIcon
+                                variant="ideas"
+                                className="w-9 h-8 transition-transform duration-150 group-hover:-translate-y-0.5"
+                              />
+                              <span className="tabular-nums-mono text-[10px] px-1.5 py-0.5 rounded bg-[#E2F3E8] dark:bg-[#233B30] text-[#2F634E] dark:text-[#A5DFC4] border border-[#BDDAC9] dark:border-[#355949]">
+                                {ideas.length}
+                              </span>
+                            </div>
+                            <div className="min-w-0 w-full">
+                              <h3 className="text-xs font-bold text-[#224C3B] dark:text-[#E8F6EE] leading-snug">
+                                Kho Idea
+                              </h3>
+                              <p className="text-[11px] text-[#587668] dark:text-[#9BB8AA] mt-0.5 leading-snug line-clamp-2">
+                                Những ý tưởng vui để chơi cùng char
+                              </p>
+                            </div>
+                          </button>
+                        </div>
+                      </div>
+                    </section>
+                  )}
 
                 {/* B. NOTE DETAILS COMPONENT DISPLAY */}
                 {activeTab === 'notes' && activeNote && (
@@ -3115,6 +3280,7 @@ export default function App() {
           </div>
         </div>
       </main>
+      </div>
 
       {/* CHARACTER SEARCH & FILTER MODAL */}
       {isFilterModalOpen && (
@@ -3126,19 +3292,20 @@ export default function App() {
           />
           
           {/* Modal content container */}
-          <div className="bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800/80 w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden shadow-2xl relative z-10 animate-scale-in">
+          <div className="bg-[#FFF9EA] dark:bg-[#172620] rounded-lg border border-[#9FC4AF] dark:border-[#335243] w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden shadow-2xl relative z-10 animate-fade-in">
             {/* Modal Header */}
-            <div className="px-6 py-4 border-b border-zinc-100 dark:border-zinc-800 flex justify-between items-center bg-stone-50 dark:bg-zinc-950/20">
-              <div className="flex items-center gap-2">
-                <span className="text-xl">🔍</span>
+            <div className="retro-titlebar px-5 py-3 flex justify-between items-center">
+              <div className="flex items-center gap-2.5">
+                <PixelTagIcon className="w-4 h-4 text-[#39755D] dark:text-[#8CD2B3]" />
                 <div>
-                  <h3 className="text-sm font-extrabold text-emerald-950 dark:text-zinc-200">Tìm kiếm & Lọc nhân vật</h3>
-                  <p className="text-[10px] text-zinc-500 dark:text-zinc-400">Dễ dàng phân loại nhân vật theo từng Tag mong muốn</p>
+                  <h3 className="text-sm font-bold text-[#224C3B] dark:text-[#E5F7EE]">Tìm kiếm & Lọc nhân vật</h3>
+                  <p className="text-[10px] text-[#527062] dark:text-[#9CB8AB]">Phân loại nhân vật theo từng Tag mong muốn</p>
                 </div>
               </div>
               <button
+                type="button"
                 onClick={() => setIsFilterModalOpen(false)}
-                className="p-1.5 rounded-xl border border-zinc-200 hover:border-zinc-300 dark:border-zinc-800 dark:hover:border-zinc-700 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition bg-white dark:bg-zinc-950"
+                className="retro-btn p-1.5 text-[#39755D] dark:text-[#A5DFC4] cursor-pointer"
                 aria-label="Đóng"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
