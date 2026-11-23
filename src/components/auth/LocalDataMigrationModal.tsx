@@ -204,28 +204,28 @@ export default function LocalDataMigrationModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-fade-in"
+      className="fixed inset-0 z-50 bg-[#14221B]/55 dark:bg-[#141716]/75 backdrop-blur-[2px] flex items-center justify-center p-3 sm:p-4 animate-fade-in"
       role="dialog"
       aria-modal="true"
       aria-labelledby="migration-modal-title"
     >
-      <div className="w-full max-w-xl max-h-[92vh] bg-white dark:bg-zinc-900 border border-emerald-100 dark:border-zinc-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col">
+      <div className="w-full max-w-xl max-h-[92vh] bg-[#FFF9EA] dark:bg-[#292E2B] border border-[#9FC4AF] dark:border-[#49554D] rounded-lg shadow-lg dark:shadow-none overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="px-5 py-4 bg-gradient-to-r from-emerald-50/90 to-teal-50/60 dark:from-emerald-950/40 dark:to-zinc-900 border-b border-emerald-100/80 dark:border-zinc-800 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-2xl bg-emerald-600 text-white flex items-center justify-center flex-shrink-0 shadow-md shadow-emerald-600/20">
-              {isLocalMode ? <CloudUpload className="w-5 h-5" /> : <FileJson className="w-5 h-5" />}
+        <div className="retro-titlebar px-4 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-md bg-[#39755D] dark:bg-[#343D37] text-[#FFF9EA] dark:text-[#A3BDA8] border border-[#2B5A47] dark:border-[#49554D] flex items-center justify-center flex-shrink-0">
+              {isLocalMode ? <CloudUpload className="w-4 h-4" /> : <FileJson className="w-4 h-4" />}
             </div>
             <div className="min-w-0">
               <h2
                 id="migration-modal-title"
-                className="text-sm sm:text-base font-bold text-slate-900 dark:text-zinc-100 truncate"
+                className="text-sm font-bold text-[#224C3B] dark:text-[#E4E1D8] truncate"
               >
                 {isLocalMode
                   ? 'Phát hiện dữ liệu cũ trên thiết bị này'
                   : 'Nhập tệp JSON vào tài khoản Supabase'}
               </h2>
-              <p className="text-[11px] text-slate-500 dark:text-zinc-400 truncate">
+              <p className="text-[11px] text-[#527062] dark:text-[#B8BDB5] truncate">
                 {userEmail ? `Tài khoản đích: ${userEmail}` : 'Đồng bộ an toàn lên đám mây'}
               </p>
             </div>
@@ -235,18 +235,18 @@ export default function LocalDataMigrationModal({
             type="button"
             disabled={isRunning}
             onClick={() => onClose(false)}
-            className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 hover:bg-white/70 dark:hover:bg-zinc-800 disabled:opacity-40 transition"
+            className="retro-btn p-1.5 text-[#39755D] dark:text-[#A3BDA8] disabled:opacity-40 cursor-pointer flex-shrink-0"
             aria-label="Đóng"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
           {/* Safety banner */}
-          <div className="p-3.5 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/25 border border-emerald-200/70 dark:border-emerald-900/60 flex items-start gap-2.5 text-xs text-emerald-900 dark:text-emerald-200">
-            <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
+          <div className="retro-callout-mint p-3.5 flex items-start gap-2.5 text-xs text-[#224C3B] dark:text-[#E4E1D8]">
+            <ShieldCheck className="w-4 h-4 text-[#39755D] dark:text-[#A3BDA8] flex-shrink-0 mt-0.5" />
             <p className="leading-relaxed">
               {isLocalMode
                 ? 'Dữ liệu cũ trong trình duyệt sẽ không bao giờ bị tự động xóa hay ghi đè. Bạn có thể sao lưu trước rồi chọn cách đưa lên tài khoản.'
@@ -256,10 +256,10 @@ export default function LocalDataMigrationModal({
 
           {/* Resumable interrupted job state */}
           {hasUnfinishedJob && (
-            <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/70 space-y-3">
+            <div className="retro-callout-warm p-3.5 space-y-3">
               <div className="flex items-start gap-2.5">
-                <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-                <div className="text-xs text-amber-900 dark:text-amber-200 space-y-1">
+                <AlertTriangle className="w-4 h-4 text-[#9C742E] dark:text-[#D5B97A] flex-shrink-0 mt-0.5" />
+                <div className="text-xs text-[#4C3B19] dark:text-[#E4E1D8] space-y-1">
                   <p className="font-bold">Tiến trình đồng bộ trước đó bị gián đoạn</p>
                   <p className="leading-relaxed">
                     Đã xác nhận lưu{' '}
@@ -272,9 +272,9 @@ export default function LocalDataMigrationModal({
                 </div>
               </div>
 
-              <div className="w-full h-2 rounded-full bg-amber-200/70 dark:bg-amber-900/50 overflow-hidden">
+              <div className="w-full h-2 rounded bg-[#E6D5AD] dark:bg-[#202423] overflow-hidden">
                 <div
-                  className="h-full bg-emerald-500 transition-all duration-300"
+                  className="h-full bg-[#39755D] dark:bg-[#A3BDA8] transition-all duration-300"
                   style={{ width: `${progressInfo.percent}%` }}
                 />
               </div>
@@ -283,9 +283,9 @@ export default function LocalDataMigrationModal({
 
           {/* Completed state */}
           {isCompleted && (
-            <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 flex items-center gap-3">
-              <CheckCircle2 className="w-6 h-6 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
-              <div className="text-xs text-emerald-900 dark:text-emerald-200">
+            <div className="retro-callout-mint p-4 flex items-center gap-3">
+              <CheckCircle2 className="w-6 h-6 text-[#39755D] dark:text-[#A3BDA8] flex-shrink-0" />
+              <div className="text-xs text-[#224C3B] dark:text-[#E4E1D8]">
                 <p className="font-bold text-sm">Đồng bộ hoàn tất 100%!</p>
                 <p className="mt-0.5">
                   Toàn bộ {progressInfo.totalItems} mục đã được Supabase xác nhận và lưu an toàn.
@@ -298,48 +298,48 @@ export default function LocalDataMigrationModal({
           {summary && !isCompleted && !hasUnfinishedJob && (
             <>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                <div className="p-3 rounded-2xl bg-slate-50 dark:bg-zinc-950/60 border border-slate-200/70 dark:border-zinc-800 text-center">
-                  <div className="text-lg font-extrabold text-emerald-600 dark:text-emerald-400">
+                <div className="p-3 rounded-md bg-[#FAF6EA] dark:bg-[#202423] border border-[#CBE0D3] dark:border-[#49554D] text-center">
+                  <div className="text-lg font-extrabold font-mono text-[#39755D] dark:text-[#A3BDA8]">
                     {summary.newData.characters.length + summary.conflictData.characters.length}
                   </div>
-                  <div className="text-[11px] font-semibold text-slate-600 dark:text-zinc-400">
+                  <div className="text-[11px] font-semibold text-[#547264] dark:text-[#B8BDB5]">
                     Nhân vật
                   </div>
                 </div>
-                <div className="p-3 rounded-2xl bg-slate-50 dark:bg-zinc-950/60 border border-slate-200/70 dark:border-zinc-800 text-center">
-                  <div className="text-lg font-extrabold text-emerald-600 dark:text-emerald-400">
+                <div className="p-3 rounded-md bg-[#FAF6EA] dark:bg-[#202423] border border-[#CBE0D3] dark:border-[#49554D] text-center">
+                  <div className="text-lg font-extrabold font-mono text-[#39755D] dark:text-[#A3BDA8]">
                     {summary.newData.notes.length + summary.conflictData.notes.length}
                   </div>
-                  <div className="text-[11px] font-semibold text-slate-600 dark:text-zinc-400">
+                  <div className="text-[11px] font-semibold text-[#547264] dark:text-[#B8BDB5]">
                     Ghi chú / Lệnh
                   </div>
                 </div>
-                <div className="p-3 rounded-2xl bg-slate-50 dark:bg-zinc-950/60 border border-slate-200/70 dark:border-zinc-800 text-center">
-                  <div className="text-lg font-extrabold text-emerald-600 dark:text-emerald-400">
+                <div className="p-3 rounded-md bg-[#FAF6EA] dark:bg-[#202423] border border-[#CBE0D3] dark:border-[#49554D] text-center">
+                  <div className="text-lg font-extrabold font-mono text-[#39755D] dark:text-[#A3BDA8]">
                     {summary.newData.ideas.length + summary.conflictData.ideas.length}
                   </div>
-                  <div className="text-[11px] font-semibold text-slate-600 dark:text-zinc-400">
+                  <div className="text-[11px] font-semibold text-[#547264] dark:text-[#B8BDB5]">
                     Ý tưởng
                   </div>
                 </div>
-                <div className="p-3 rounded-2xl bg-slate-50 dark:bg-zinc-950/60 border border-slate-200/70 dark:border-zinc-800 text-center">
-                  <div className="text-lg font-extrabold text-emerald-600 dark:text-emerald-400">
+                <div className="p-3 rounded-md bg-[#FAF6EA] dark:bg-[#202423] border border-[#CBE0D3] dark:border-[#49554D] text-center">
+                  <div className="text-lg font-extrabold font-mono text-[#39755D] dark:text-[#A3BDA8]">
                     {summary.newData.libraryPrompts.length +
                       summary.conflictData.libraryPrompts.length}
                   </div>
-                  <div className="text-[11px] font-semibold text-slate-600 dark:text-zinc-400">
+                  <div className="text-[11px] font-semibold text-[#547264] dark:text-[#B8BDB5]">
                     Prompt thư viện
                   </div>
                 </div>
               </div>
 
-              <div className="text-xs text-slate-600 dark:text-zinc-300 flex flex-wrap items-center gap-x-4 gap-y-1 px-1">
+              <div className="text-xs text-[#4C6A5C] dark:text-[#B8BDB5] flex flex-wrap items-center gap-x-4 gap-y-1 px-1">
                 <span>
-                  Mục mới: <strong className="text-emerald-600 dark:text-emerald-400">{summary.totalNewCount}</strong>
+                  Mục mới: <strong className="text-[#2B5A47] dark:text-[#A3BDA8]">{summary.totalNewCount}</strong>
                 </span>
                 <span>
                   Trùng ID khác nội dung:{' '}
-                  <strong className={hasConflicts ? 'text-amber-600 dark:text-amber-400' : ''}>
+                  <strong className={hasConflicts ? 'text-[#8E6418] dark:text-[#D5B97A]' : ''}>
                     {summary.totalConflictCount}
                   </strong>
                 </span>
@@ -352,26 +352,26 @@ export default function LocalDataMigrationModal({
 
               {/* Conflict preview list */}
               {hasConflicts && (
-                <div className="p-3.5 rounded-2xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/70 dark:border-amber-900/50 space-y-2">
+                <div className="retro-callout-warm p-3.5 space-y-2">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-bold text-amber-800 dark:text-amber-300">
+                    <span className="text-xs font-bold text-[#6E5120] dark:text-[#D5B97A]">
                       Có {summary.totalConflictCount} mục trùng mã với tài khoản hiện tại
                     </span>
                     <button
                       type="button"
                       onClick={() => setShowConflictDetails((prev) => !prev)}
-                      className="text-[11px] font-semibold text-amber-700 dark:text-amber-400 hover:underline"
+                      className="text-[11px] font-semibold text-[#8E6418] dark:text-[#D5B97A] hover:underline cursor-pointer"
                     >
                       {showConflictDetails ? 'Ẩn danh sách' : 'Xem chi tiết'}
                     </button>
                   </div>
 
                   {showConflictDetails && (
-                    <ul className="max-h-32 overflow-y-auto space-y-1 text-[11px] text-amber-900 dark:text-amber-200 pr-1">
+                    <ul className="max-h-32 overflow-y-auto space-y-1 text-[11px] text-[#4C3B19] dark:text-[#E4E1D8] pr-1">
                       {summary.conflicts.map((item) => (
                         <li
                           key={`${item.kind}:${item.id}`}
-                          className="flex items-center justify-between gap-2 py-1 border-t border-amber-200/50 dark:border-amber-900/40"
+                          className="flex items-center justify-between gap-2 py-1 border-t border-[#E6D5AD] dark:border-[#49554D]"
                         >
                           <span className="truncate font-medium">
                             [{KIND_LABELS[item.kind]}] {item.label}
@@ -388,15 +388,15 @@ export default function LocalDataMigrationModal({
 
               {/* Strategy choices */}
               <div className="space-y-2">
-                <p className="text-xs font-bold text-slate-700 dark:text-zinc-200">
+                <p className="text-xs font-bold text-[#224C3B] dark:text-[#E4E1D8]">
                   Chọn cách nhập dữ liệu:
                 </p>
 
                 <label
-                  className={`flex items-start gap-3 p-3 rounded-2xl border cursor-pointer transition ${
+                  className={`flex items-start gap-3 p-3 rounded-md border cursor-pointer transition ${
                     strategy === 'clone-copy'
-                      ? 'border-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/25'
-                      : 'border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-950/50'
+                      ? 'border-[#39755D] bg-[#E2F3E8] dark:border-[#A3BDA8] dark:bg-[#343D37]'
+                      : 'border-[#CFE2D6] dark:border-[#49554D] bg-[#FAF6EA] dark:bg-[#202423] hover:border-[#7AA994]'
                   }`}
                 >
                   <input
@@ -405,13 +405,13 @@ export default function LocalDataMigrationModal({
                     checked={strategy === 'clone-copy'}
                     onChange={() => setStrategy('clone-copy')}
                     disabled={isRunning}
-                    className="mt-0.5 accent-emerald-600"
+                    className="mt-0.5 accent-[#39755D]"
                   />
                   <div className="text-xs">
-                    <div className="font-bold text-slate-800 dark:text-zinc-100">
+                    <div className="font-bold text-[#20372D] dark:text-[#E4E1D8]">
                       Hợp nhất an toàn — Giữ cả hai nếu trùng (Khuyên dùng)
                     </div>
-                    <div className="text-slate-500 dark:text-zinc-400 mt-0.5">
+                    <div className="text-[#547264] dark:text-[#B8BDB5] mt-0.5">
                       Thêm tất cả mục mới; mục trùng ID sẽ tự động tạo thêm &ldquo;(Bản sao)&rdquo;
                       để không mất bất kỳ nội dung nào.
                     </div>
@@ -419,10 +419,10 @@ export default function LocalDataMigrationModal({
                 </label>
 
                 <label
-                  className={`flex items-start gap-3 p-3 rounded-2xl border cursor-pointer transition ${
+                  className={`flex items-start gap-3 p-3 rounded-md border cursor-pointer transition ${
                     strategy === 'keep-cloud'
-                      ? 'border-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/25'
-                      : 'border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-950/50'
+                      ? 'border-[#39755D] bg-[#E2F3E8] dark:border-[#A3BDA8] dark:bg-[#343D37]'
+                      : 'border-[#CFE2D6] dark:border-[#49554D] bg-[#FAF6EA] dark:bg-[#202423] hover:border-[#7AA994]'
                   }`}
                 >
                   <input
@@ -431,23 +431,23 @@ export default function LocalDataMigrationModal({
                     checked={strategy === 'keep-cloud'}
                     onChange={() => setStrategy('keep-cloud')}
                     disabled={isRunning}
-                    className="mt-0.5 accent-emerald-600"
+                    className="mt-0.5 accent-[#39755D]"
                   />
                   <div className="text-xs">
-                    <div className="font-bold text-slate-800 dark:text-zinc-100">
+                    <div className="font-bold text-[#20372D] dark:text-[#E4E1D8]">
                       Chỉ thêm mục mới — Giữ nguyên mục đã có trên tài khoản
                     </div>
-                    <div className="text-slate-500 dark:text-zinc-400 mt-0.5">
+                    <div className="text-[#547264] dark:text-[#B8BDB5] mt-0.5">
                       Chỉ tải lên các mục chưa có trên máy chủ, bỏ qua toàn bộ mục trùng ID.
                     </div>
                   </div>
                 </label>
 
                 <label
-                  className={`flex items-start gap-3 p-3 rounded-2xl border cursor-pointer transition ${
+                  className={`flex items-start gap-3 p-3 rounded-md border cursor-pointer transition ${
                     strategy === 'overwrite-cloud'
-                      ? 'border-amber-500 bg-amber-50/60 dark:bg-amber-950/25'
-                      : 'border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-950/50'
+                      ? 'border-[#B88B36] bg-[#FDF6E3] dark:border-[#A3BDA8] dark:bg-[#292E2B]'
+                      : 'border-[#CFE2D6] dark:border-[#49554D] bg-[#FAF6EA] dark:bg-[#202423] hover:border-[#7AA994]'
                   }`}
                 >
                   <input
@@ -456,13 +456,13 @@ export default function LocalDataMigrationModal({
                     checked={strategy === 'overwrite-cloud'}
                     onChange={() => setStrategy('overwrite-cloud')}
                     disabled={isRunning}
-                    className="mt-0.5 accent-amber-600"
+                    className="mt-0.5 accent-[#9C742E]"
                   />
                   <div className="text-xs">
-                    <div className="font-bold text-slate-800 dark:text-zinc-100">
+                    <div className="font-bold text-[#20372D] dark:text-[#E4E1D8]">
                       Nhập và ghi đè các mục trùng ID
                     </div>
-                    <div className="text-slate-500 dark:text-zinc-400 mt-0.5">
+                    <div className="text-[#547264] dark:text-[#B8BDB5] mt-0.5">
                       Thêm mục mới và cập nhật các mục trùng ID trên tài khoản theo dữ liệu nhập.
                     </div>
                   </div>
@@ -473,19 +473,19 @@ export default function LocalDataMigrationModal({
 
           {/* Active running progress */}
           {isRunning && activeJob && (
-            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-zinc-950/60 border border-slate-200 dark:border-zinc-800 space-y-2">
-              <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-zinc-200">
+            <div className="retro-callout-mint p-3.5 space-y-2">
+              <div className="flex items-center justify-between text-xs font-semibold text-[#224C3B] dark:text-[#E4E1D8]">
                 <span className="flex items-center gap-2">
-                  <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
+                  <Loader2 className="w-4 h-4 animate-spin text-[#39755D] dark:text-[#A3BDA8]" />
                   Đang đồng bộ lên Supabase...
                 </span>
-                <span>
+                <span className="font-mono">
                   {progressInfo.confirmedItems}/{progressInfo.totalItems} mục ({progressInfo.percent}%)
                 </span>
               </div>
-              <div className="w-full h-2 rounded-full bg-slate-200 dark:bg-zinc-800 overflow-hidden">
+              <div className="w-full h-2 rounded bg-[#CBE0D3] dark:bg-[#202423] overflow-hidden">
                 <div
-                  className="h-full bg-emerald-500 transition-all duration-300"
+                  className="h-full bg-[#39755D] dark:bg-[#A3BDA8] transition-all duration-300"
                   style={{ width: `${progressInfo.percent}%` }}
                 />
               </div>
@@ -494,7 +494,7 @@ export default function LocalDataMigrationModal({
 
           {/* Error message */}
           {errorMessage && (
-            <div className="p-3.5 rounded-2xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/70 text-xs text-red-700 dark:text-red-300 leading-relaxed">
+            <div className="p-3.5 rounded-md bg-[#FBECEE] dark:bg-[#292E2B] border border-[#E5B8BF] dark:border-[#6B4A4D] text-xs text-[#8E3240] dark:text-[#E4A6AA] leading-relaxed">
               {errorMessage}
             </div>
           )}
@@ -505,21 +505,21 @@ export default function LocalDataMigrationModal({
               type="button"
               disabled={isRunning}
               onClick={handleDownloadBackup}
-              className="w-full py-2.5 px-4 rounded-xl border border-slate-200 dark:border-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-800 text-xs font-semibold text-slate-700 dark:text-zinc-200 flex items-center justify-center gap-2 transition disabled:opacity-50"
+              className="retro-btn w-full py-2.5 px-4 text-xs font-semibold flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
             >
-              <Download className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              <Download className="w-4 h-4 text-[#39755D] dark:text-[#A3BDA8]" />
               Tải tệp sao lưu JSON về máy trước khi nhập
             </button>
           )}
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3.5 bg-slate-50/80 dark:bg-zinc-950/50 border-t border-slate-100 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-2">
+        <div className="px-4 sm:px-5 py-3 bg-[#F1F8F3] dark:bg-[#202423] border-t border-[#CBE0D3] dark:border-[#49554D] flex flex-wrap items-center justify-between gap-2">
           {isCompleted ? (
             <button
               type="button"
               onClick={() => onClose(true)}
-              className="ml-auto px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition"
+              className="retro-btn-primary ml-auto px-5 py-2 text-xs font-bold cursor-pointer"
             >
               Hoàn tất
             </button>
@@ -529,7 +529,7 @@ export default function LocalDataMigrationModal({
                 type="button"
                 disabled={isRunning}
                 onClick={handleDiscardJob}
-                className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-zinc-700 text-xs font-semibold text-slate-600 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 disabled:opacity-50 transition"
+                className="retro-btn px-3.5 py-2 text-xs font-semibold disabled:opacity-50 cursor-pointer"
               >
                 Để sau
               </button>
@@ -537,7 +537,7 @@ export default function LocalDataMigrationModal({
                 type="button"
                 disabled={isRunning}
                 onClick={handleResumeJob}
-                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-emerald-600/20 disabled:opacity-60 transition"
+                className="retro-btn-primary px-4 py-2 text-xs font-bold flex items-center gap-1.5 disabled:opacity-60 cursor-pointer"
               >
                 {isRunning ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -555,7 +555,7 @@ export default function LocalDataMigrationModal({
                 type="button"
                 disabled={isRunning}
                 onClick={() => onClose(isLocalMode)}
-                className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-zinc-700 text-xs font-semibold text-slate-600 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 disabled:opacity-50 transition"
+                className="retro-btn px-3.5 py-2 text-xs font-semibold disabled:opacity-50 cursor-pointer"
               >
                 {isLocalMode ? 'Bỏ qua (Giữ dữ liệu tài khoản)' : 'Hủy bỏ'}
               </button>
@@ -563,7 +563,7 @@ export default function LocalDataMigrationModal({
                 type="button"
                 disabled={isRunning || !summary || summary.totalActionableCount === 0}
                 onClick={handleStartNewImport}
-                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-emerald-600/20 disabled:opacity-60 transition"
+                className="retro-btn-primary px-4 py-2 text-xs font-bold flex items-center gap-1.5 disabled:opacity-60 cursor-pointer"
               >
                 {isRunning ? (
                   <Loader2 className="w-4 h-4 animate-spin" />

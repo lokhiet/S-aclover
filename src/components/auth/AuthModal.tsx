@@ -500,21 +500,21 @@ export default function AuthModal({
     return (
       <div className="space-y-3 pt-1">
         <div className="relative flex items-center">
-          <div className="flex-1 border-t border-slate-200 dark:border-zinc-800" />
-          <span className="px-3 text-[11px] font-medium text-slate-400 dark:text-zinc-500">
+          <div className="flex-1 border-t border-[#CBE0D3] dark:border-[#49554D]" />
+          <span className="px-3 text-[11px] font-mono text-[#5B7A6C] dark:text-[#B8BDB5]">
             hoặc
           </span>
-          <div className="flex-1 border-t border-slate-200 dark:border-zinc-800" />
+          <div className="flex-1 border-t border-[#CBE0D3] dark:border-[#49554D]" />
         </div>
 
         <button
           type="button"
           disabled={isGoogleDisabled}
           onClick={handleGoogleSignIn}
-          className="w-full py-2.5 px-4 rounded-xl border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950/60 hover:bg-slate-50 dark:hover:bg-zinc-800/80 text-slate-700 dark:text-zinc-100 text-xs font-bold flex items-center justify-center gap-2.5 transition active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed"
+          className="retro-btn w-full py-2.5 px-4 text-xs font-bold flex items-center justify-center gap-2.5 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
         >
           {isGoogleLoading ? (
-            <Loader2 className="w-4 h-4 animate-spin text-emerald-600 dark:text-emerald-400" />
+            <Loader2 className="w-4 h-4 animate-spin text-[#39755D] dark:text-[#A3BDA8]" />
           ) : (
             <GoogleBrandIcon className="w-4 h-4 flex-shrink-0" />
           )}
@@ -524,7 +524,7 @@ export default function AuthModal({
               : 'Tiếp tục với Google'}
           </span>
           {googleStatus.checked && !googleStatus.ready && (
-            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/25">
+            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-800 dark:text-[#D5B97A] border border-amber-500/25">
               Chưa sẵn sàng
             </span>
           )}
@@ -532,7 +532,7 @@ export default function AuthModal({
 
         {/* Thông báo rõ ràng khi Google OAuth chưa được kích hoạt trên Supabase / Google Cloud */}
         {isConfigured && googleStatus.checked && !googleStatus.ready && (
-          <div className="p-2.5 rounded-xl bg-amber-50/80 dark:bg-amber-950/25 border border-amber-200/80 dark:border-amber-900/40 text-[11px] text-amber-800 dark:text-amber-300 flex items-start gap-2 leading-relaxed">
+          <div className="retro-callout-warm p-2.5 text-[11px] text-[#6E5120] dark:text-[#D5B97A] flex items-start gap-2 leading-relaxed">
             <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
             <span>{googleStatus.message}</span>
           </div>
@@ -540,13 +540,13 @@ export default function AuthModal({
 
         {/* Hướng dẫn mở tab độc lập khi chạy trong khung Preview iframe của AI Studio */}
         {showIframeGoogleGuide && (
-          <div className="p-3 rounded-2xl bg-slate-50 dark:bg-zinc-950/60 border border-emerald-200 dark:border-emerald-900/50 text-xs text-slate-700 dark:text-zinc-300 space-y-2.5">
+          <div className="retro-callout-mint p-3 text-xs text-[#2B463A] dark:text-[#E4E1D8] space-y-2.5">
             <div className="flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
+              <AlertCircle className="w-4 h-4 text-[#39755D] dark:text-[#A3BDA8] flex-shrink-0 mt-0.5" />
               <p className="text-[11px] leading-relaxed">
                 Ứng dụng đang chạy trong khung xem trước (iframe). Google chặn
                 đăng nhập OAuth bên trong iframe — hãy mở ứng dụng ở{' '}
-                <strong className="text-emerald-700 dark:text-emerald-400">
+                <strong className="text-[#23503E] dark:text-[#A3BDA8]">
                   tab trình duyệt riêng
                 </strong>{' '}
                 rồi chọn <strong>Tiếp tục với Google</strong> để xác thực PKCE
@@ -560,7 +560,7 @@ export default function AuthModal({
                   href={currentAppUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex-1 min-w-[150px] py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold flex items-center justify-center gap-1.5 transition"
+                  className="retro-btn-primary flex-1 min-w-[150px] py-2 px-3 text-[11px] font-bold flex items-center justify-center gap-1.5"
                 >
                   <ExternalLink className="w-3.5 h-3.5" />
                   Mở ứng dụng ở tab mới
@@ -568,9 +568,9 @@ export default function AuthModal({
                 <button
                   type="button"
                   onClick={handleCopyAppUrl}
-                  className="py-2 px-3 rounded-xl border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-200 text-[11px] font-semibold flex items-center justify-center gap-1.5 transition"
+                  className="retro-btn py-2 px-3 text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
                 >
-                  <Copy className="w-3.5 h-3.5" />
+                  <Copy className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
                   Sao chép URL
                 </button>
               </div>
@@ -590,30 +590,30 @@ export default function AuthModal({
     >
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-slate-900/60 dark:bg-zinc-950/80 backdrop-blur-xs transition-opacity"
+        className="absolute inset-0 bg-[#14221B]/55 dark:bg-[#141716]/75 backdrop-blur-[2px] transition-opacity"
         onClick={handleClose}
       />
 
       {/* Modal Container */}
-      <div className="bg-white dark:bg-zinc-900 rounded-3xl border border-emerald-100 dark:border-zinc-800 w-full max-w-md max-h-[92dvh] flex flex-col overflow-hidden shadow-2xl relative z-10 animate-fade-in">
+      <div className="bg-[#FFF9EA] dark:bg-[#292E2B] rounded-lg border border-[#9FC4AF] dark:border-[#49554D] w-full max-w-md max-h-[92dvh] flex flex-col overflow-hidden shadow-lg dark:shadow-none relative z-10 animate-fade-in">
         {/* Header */}
-        <div className="px-5 py-4 border-b border-slate-100 dark:border-zinc-800 flex items-center justify-between gap-3 bg-emerald-50/40 dark:bg-zinc-950/30">
+        <div className="retro-titlebar px-4 py-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-9 h-9 rounded-xl overflow-hidden bg-emerald-500/10 border border-emerald-200/80 dark:border-emerald-800/60 shadow-sm shadow-emerald-500/20 flex-shrink-0">
+            <div className="w-8 h-8 rounded-md overflow-hidden bg-[#E2F3E8] dark:bg-[#343D37] border border-[#9FC4AF] dark:border-[#49554D] flex-shrink-0 p-0.5">
               <img
                 src="/app-icon.jpg"
                 alt="SéaClover"
-                className="w-full h-full object-cover"
+                className="w-full h-full object-cover rounded-[3px]"
               />
             </div>
             <div className="min-w-0">
               <h3
                 id="auth-modal-title"
-                className="text-sm font-extrabold text-emerald-950 dark:text-zinc-100 truncate"
+                className="text-sm font-bold text-[#224C3B] dark:text-[#E4E1D8] truncate"
               >
                 {headerMeta.title}
               </h3>
-              <p className="text-[11px] text-slate-500 dark:text-zinc-400 truncate">
+              <p className="text-[11px] text-[#527062] dark:text-[#B8BDB5] truncate">
                 {headerMeta.subtitle}
               </p>
             </div>
@@ -624,7 +624,7 @@ export default function AuthModal({
             onClick={handleClose}
             disabled={isBusy}
             aria-label="Đóng hộp thoại tài khoản"
-            className="p-1.5 rounded-xl border border-slate-200 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 bg-white dark:bg-zinc-950 transition disabled:opacity-50 flex-shrink-0"
+            className="retro-btn p-1.5 text-[#39755D] dark:text-[#A3BDA8] disabled:opacity-50 flex-shrink-0 cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -633,15 +633,15 @@ export default function AuthModal({
         {/* Mode Switcher Tabs for Login / Register */}
         {(mode === 'login' || mode === 'register') && (
           <div className="px-5 pt-4">
-            <div className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-slate-100 dark:bg-zinc-950/60 border border-slate-200/70 dark:border-zinc-800">
+            <div className="grid grid-cols-2 gap-1.5 p-1 rounded-md bg-[#E2F3E8]/70 dark:bg-[#202423] border border-[#B8D7C5] dark:border-[#49554D]">
               <button
                 type="button"
                 disabled={isBusy}
                 onClick={() => onModeChange('login')}
-                className={`py-2 px-3 rounded-lg text-xs font-bold transition ${
+                className={`py-1.5 px-3 rounded text-xs font-bold transition cursor-pointer ${
                   mode === 'login'
-                    ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-600/20'
-                    : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200'
+                    ? 'retro-btn-primary'
+                    : 'text-[#4E6E60] dark:text-[#B8BDB5] hover:text-[#20372D] dark:hover:text-[#E4E1D8]'
                 }`}
               >
                 Đăng nhập
@@ -650,10 +650,10 @@ export default function AuthModal({
                 type="button"
                 disabled={isBusy}
                 onClick={() => onModeChange('register')}
-                className={`py-2 px-3 rounded-lg text-xs font-bold transition ${
+                className={`py-1.5 px-3 rounded text-xs font-bold transition cursor-pointer ${
                   mode === 'register'
-                    ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-600/20'
-                    : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200'
+                    ? 'retro-btn-primary'
+                    : 'text-[#4E6E60] dark:text-[#B8BDB5] hover:text-[#20372D] dark:hover:text-[#E4E1D8]'
                 }`}
               >
                 Đăng ký
@@ -665,7 +665,7 @@ export default function AuthModal({
         {/* Scrollable Content */}
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
           {!isConfigured && (
-            <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 text-amber-800 dark:text-amber-300 text-xs flex items-start gap-2.5">
+            <div className="retro-callout-warm p-3 text-[#6E5120] dark:text-[#D5B97A] text-xs flex items-start gap-2.5">
               <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
               <div>
                 <p className="font-bold">Chưa cấu hình kết nối Supabase</p>
@@ -678,7 +678,7 @@ export default function AuthModal({
           )}
 
           {errorMessage && (
-            <div className="p-3 rounded-2xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 text-red-700 dark:text-red-300 text-xs space-y-2">
+            <div className="p-3 rounded-md bg-[#FBECEE] dark:bg-[#292E2B] border border-[#E5B8BF] dark:border-[#6B4A4D] text-[#8E3240] dark:text-[#E4A6AA] text-xs space-y-2">
               <div className="flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
                 <span className="leading-relaxed">{errorMessage}</span>
@@ -691,7 +691,7 @@ export default function AuthModal({
                   onClick={() =>
                     handleResendVerification(pendingVerifyEmail || email)
                   }
-                  className="w-full py-2 px-3 rounded-xl bg-white dark:bg-zinc-900 border border-red-200 dark:border-red-800/70 text-red-700 dark:text-red-300 hover:bg-red-100/60 dark:hover:bg-red-950/50 text-xs font-bold flex items-center justify-center gap-1.5 transition disabled:opacity-60"
+                  className="retro-btn-danger w-full py-2 px-3 text-xs font-bold flex items-center justify-center gap-1.5 disabled:opacity-60 cursor-pointer"
                 >
                   {isResending ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -707,8 +707,8 @@ export default function AuthModal({
           )}
 
           {infoMessage && (
-            <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 text-emerald-800 dark:text-emerald-300 text-xs flex items-start gap-2">
-              <CheckCircle2 className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <div className="retro-callout-mint p-3 text-[#224C3B] dark:text-[#A3BDA8] text-xs flex items-start gap-2">
+              <CheckCircle2 className="w-4 h-4 text-[#39755D] dark:text-[#A3BDA8] flex-shrink-0 mt-0.5" />
               <span className="leading-relaxed">{infoMessage}</span>
             </div>
           )}
@@ -719,12 +719,12 @@ export default function AuthModal({
               <div className="space-y-1.5">
                 <label
                   htmlFor="auth-login-email"
-                  className="block text-xs font-semibold text-slate-700 dark:text-zinc-300"
+                  className="block text-xs font-semibold text-[#294B3D] dark:text-[#E4E1D8]"
                 >
                   Email
                 </label>
                 <div className="relative">
-                  <Mail className="w-4 h-4 text-slate-400 dark:text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <Mail className="w-4 h-4 text-[#5B7A6C] dark:text-[#B8BDB5] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     id="auth-login-email"
                     type="email"
@@ -733,7 +733,7 @@ export default function AuthModal({
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="ban@example.com"
-                    className="w-full pl-9 pr-3.5 py-2.5 text-xs rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-950/50 text-slate-900 dark:text-zinc-100 placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition disabled:opacity-60"
+                    className="retro-input w-full pl-9 pr-3.5 py-2 text-xs disabled:opacity-60"
                   />
                 </div>
               </div>
@@ -742,7 +742,7 @@ export default function AuthModal({
                 <div className="flex items-center justify-between">
                   <label
                     htmlFor="auth-login-password"
-                    className="block text-xs font-semibold text-slate-700 dark:text-zinc-300"
+                    className="block text-xs font-semibold text-[#294B3D] dark:text-[#E4E1D8]"
                   >
                     Mật khẩu
                   </label>
@@ -750,13 +750,13 @@ export default function AuthModal({
                     type="button"
                     disabled={isBusy}
                     onClick={() => onModeChange('forgot-password')}
-                    className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 hover:underline"
+                    className="text-[11px] font-semibold text-[#39755D] dark:text-[#A3BDA8] hover:underline cursor-pointer"
                   >
                     Quên mật khẩu?
                   </button>
                 </div>
                 <div className="relative">
-                  <Lock className="w-4 h-4 text-slate-400 dark:text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <Lock className="w-4 h-4 text-[#5B7A6C] dark:text-[#B8BDB5] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     id="auth-login-password"
                     type={showPassword ? 'text' : 'password'}
@@ -765,13 +765,13 @@ export default function AuthModal({
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Nhập mật khẩu"
-                    className="w-full pl-9 pr-10 py-2.5 text-xs rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-950/50 text-slate-900 dark:text-zinc-100 placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition disabled:opacity-60"
+                    className="retro-input w-full pl-9 pr-10 py-2 text-xs disabled:opacity-60"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword((prev) => !prev)}
                     aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-300 transition"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-[#5B7A6C] hover:text-[#224C3B] dark:text-[#B8BDB5] dark:hover:text-[#E4E1D8] transition cursor-pointer"
                   >
                     {showPassword ? (
                       <EyeOff className="w-4 h-4" />
@@ -785,7 +785,7 @@ export default function AuthModal({
               <button
                 type="submit"
                 disabled={isBusy || !isConfigured}
-                className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-600/20 flex items-center justify-center gap-2 transition active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed"
+                className="retro-btn-primary w-full py-2.5 px-4 text-xs font-bold flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
               >
                 {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
                 {isSubmitting ? 'Đang đăng nhập...' : 'Đăng nhập'}
@@ -793,7 +793,7 @@ export default function AuthModal({
 
               {renderGoogleOAuthSection()}
 
-              <p className="text-[11px] text-center text-slate-500 dark:text-zinc-400 pt-1">
+              <p className="text-[11px] text-center text-[#5B7A6C] dark:text-[#B8BDB5] pt-1">
                 Dữ liệu cục bộ trên trình duyệt của bạn không bị thay đổi khi đăng
                 nhập hay đăng xuất.
               </p>
@@ -810,15 +810,15 @@ export default function AuthModal({
               <div className="space-y-1.5">
                 <label
                   htmlFor="auth-register-name"
-                  className="block text-xs font-semibold text-slate-700 dark:text-zinc-300"
+                  className="block text-xs font-semibold text-[#294B3D] dark:text-[#E4E1D8]"
                 >
                   Tên hiển thị{' '}
-                  <span className="text-slate-400 dark:text-zinc-500 font-normal">
+                  <span className="text-[#668476] dark:text-[#B8BDB5] font-normal">
                     (không bắt buộc)
                   </span>
                 </label>
                 <div className="relative">
-                  <User className="w-4 h-4 text-slate-400 dark:text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <User className="w-4 h-4 text-[#5B7A6C] dark:text-[#B8BDB5] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     id="auth-register-name"
                     type="text"
@@ -828,7 +828,7 @@ export default function AuthModal({
                     value={displayName}
                     onChange={(e) => setDisplayName(e.target.value)}
                     placeholder="Ví dụ: Nhi Séa"
-                    className="w-full pl-9 pr-3.5 py-2.5 text-xs rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-950/50 text-slate-900 dark:text-zinc-100 placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition disabled:opacity-60"
+                    className="retro-input w-full pl-9 pr-3.5 py-2 text-xs disabled:opacity-60"
                   />
                 </div>
               </div>
@@ -836,12 +836,12 @@ export default function AuthModal({
               <div className="space-y-1.5">
                 <label
                   htmlFor="auth-register-email"
-                  className="block text-xs font-semibold text-slate-700 dark:text-zinc-300"
+                  className="block text-xs font-semibold text-[#294B3D] dark:text-[#E4E1D8]"
                 >
                   Email
                 </label>
                 <div className="relative">
-                  <Mail className="w-4 h-4 text-slate-400 dark:text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <Mail className="w-4 h-4 text-[#5B7A6C] dark:text-[#B8BDB5] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     id="auth-register-email"
                     type="email"
@@ -850,7 +850,7 @@ export default function AuthModal({
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="ban@example.com"
-                    className="w-full pl-9 pr-3.5 py-2.5 text-xs rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-950/50 text-slate-900 dark:text-zinc-100 placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition disabled:opacity-60"
+                    className="retro-input w-full pl-9 pr-3.5 py-2 text-xs disabled:opacity-60"
                   />
                 </div>
               </div>
@@ -858,12 +858,12 @@ export default function AuthModal({
               <div className="space-y-1.5">
                 <label
                   htmlFor="auth-register-password"
-                  className="block text-xs font-semibold text-slate-700 dark:text-zinc-300"
+                  className="block text-xs font-semibold text-[#294B3D] dark:text-[#E4E1D8]"
                 >
                   Mật khẩu
                 </label>
                 <div className="relative">
-                  <Lock className="w-4 h-4 text-slate-400 dark:text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <Lock className="w-4 h-4 text-[#5B7A6C] dark:text-[#B8BDB5] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     id="auth-register-password"
                     type={showPassword ? 'text' : 'password'}
@@ -872,13 +872,13 @@ export default function AuthModal({
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Tối thiểu 6 ký tự"
-                    className="w-full pl-9 pr-10 py-2.5 text-xs rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-950/50 text-slate-900 dark:text-zinc-100 placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition disabled:opacity-60"
+                    className="retro-input w-full pl-9 pr-10 py-2 text-xs disabled:opacity-60"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword((prev) => !prev)}
                     aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-300 transition"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-[#5B7A6C] hover:text-[#224C3B] dark:text-[#B8BDB5] dark:hover:text-[#E4E1D8] transition cursor-pointer"
                   >
                     {showPassword ? (
                       <EyeOff className="w-4 h-4" />
@@ -892,12 +892,12 @@ export default function AuthModal({
               <div className="space-y-1.5">
                 <label
                   htmlFor="auth-register-confirm"
-                  className="block text-xs font-semibold text-slate-700 dark:text-zinc-300"
+                  className="block text-xs font-semibold text-[#294B3D] dark:text-[#E4E1D8]"
                 >
                   Xác nhận mật khẩu
                 </label>
                 <div className="relative">
-                  <Lock className="w-4 h-4 text-slate-400 dark:text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <Lock className="w-4 h-4 text-[#5B7A6C] dark:text-[#B8BDB5] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     id="auth-register-confirm"
                     type={showConfirmPassword ? 'text' : 'password'}
@@ -906,7 +906,7 @@ export default function AuthModal({
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="Nhập lại mật khẩu"
-                    className="w-full pl-9 pr-10 py-2.5 text-xs rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-950/50 text-slate-900 dark:text-zinc-100 placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition disabled:opacity-60"
+                    className="retro-input w-full pl-9 pr-10 py-2 text-xs disabled:opacity-60"
                   />
                   <button
                     type="button"
@@ -916,7 +916,7 @@ export default function AuthModal({
                         ? 'Ẩn mật khẩu xác nhận'
                         : 'Hiện mật khẩu xác nhận'
                     }
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-300 transition"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-[#5B7A6C] hover:text-[#224C3B] dark:text-[#B8BDB5] dark:hover:text-[#E4E1D8] transition cursor-pointer"
                   >
                     {showConfirmPassword ? (
                       <EyeOff className="w-4 h-4" />
@@ -930,7 +930,7 @@ export default function AuthModal({
               <button
                 type="submit"
                 disabled={isBusy || !isConfigured}
-                className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-600/20 flex items-center justify-center gap-2 transition active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed"
+                className="retro-btn-primary w-full py-2.5 px-4 text-xs font-bold flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
               >
                 {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
                 {isSubmitting ? 'Đang tạo tài khoản...' : 'Đăng ký tài khoản'}
@@ -943,17 +943,17 @@ export default function AuthModal({
           {/* VERIFY EMAIL VIEW */}
           {mode === 'verify-email' && (
             <div className="space-y-4 text-center py-2">
-              <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto">
+              <div className="w-12 h-12 rounded-lg bg-[#E2F3E8] dark:bg-[#343D37] border border-[#9FC4AF] dark:border-[#49554D] text-[#39755D] dark:text-[#A3BDA8] flex items-center justify-center mx-auto">
                 <MailCheck className="w-6 h-6" />
               </div>
 
               <div className="space-y-1.5">
-                <h4 className="text-sm font-bold text-slate-800 dark:text-zinc-100">
+                <h4 className="text-sm font-bold text-[#224C3B] dark:text-[#E4E1D8]">
                   Kiểm tra hộp thư của bạn
                 </h4>
-                <p className="text-xs text-slate-600 dark:text-zinc-400 leading-relaxed">
+                <p className="text-xs text-[#4C6A5C] dark:text-[#B8BDB5] leading-relaxed">
                   Chúng tôi đã gửi liên kết xác minh tới{' '}
-                  <span className="font-bold text-emerald-700 dark:text-emerald-400 break-all">
+                  <span className="font-bold text-[#2B5A47] dark:text-[#A3BDA8] break-all">
                     {pendingVerifyEmail || email}
                   </span>
                   . Hãy nhấn vào liên kết trong email (kiểm tra cả mục Thư rác /
@@ -968,7 +968,7 @@ export default function AuthModal({
                   onClick={() =>
                     handleResendVerification(pendingVerifyEmail || email)
                   }
-                  className="w-full py-2.5 px-4 rounded-xl border border-emerald-200 dark:border-emerald-900 bg-emerald-50/70 dark:bg-emerald-950/30 hover:bg-emerald-100/80 dark:hover:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400 text-xs font-bold flex items-center justify-center gap-2 transition disabled:opacity-60"
+                  className="retro-btn retro-btn-active w-full py-2.5 px-4 text-xs font-bold flex items-center justify-center gap-2 disabled:opacity-60 cursor-pointer"
                 >
                   {isResending ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -983,7 +983,7 @@ export default function AuthModal({
                 <button
                   type="button"
                   onClick={() => onModeChange('login')}
-                  className="w-full py-2 px-4 rounded-xl text-xs font-semibold text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800 flex items-center justify-center gap-1.5 transition"
+                  className="retro-btn w-full py-2 px-4 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <ArrowLeft className="w-3.5 h-3.5" />
                   Quay lại đăng nhập
@@ -999,7 +999,7 @@ export default function AuthModal({
               className="space-y-3.5"
               noValidate
             >
-              <p className="text-xs text-slate-600 dark:text-zinc-400 leading-relaxed">
+              <p className="text-xs text-[#4C6A5C] dark:text-[#B8BDB5] leading-relaxed">
                 Nhập email đã đăng ký. Hệ thống sẽ gửi liên kết để bạn đặt lại
                 mật khẩu mới.
               </p>
@@ -1007,12 +1007,12 @@ export default function AuthModal({
               <div className="space-y-1.5">
                 <label
                   htmlFor="auth-forgot-email"
-                  className="block text-xs font-semibold text-slate-700 dark:text-zinc-300"
+                  className="block text-xs font-semibold text-[#294B3D] dark:text-[#E4E1D8]"
                 >
                   Email tài khoản
                 </label>
                 <div className="relative">
-                  <Mail className="w-4 h-4 text-slate-400 dark:text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <Mail className="w-4 h-4 text-[#5B7A6C] dark:text-[#B8BDB5] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     id="auth-forgot-email"
                     type="email"
@@ -1021,7 +1021,7 @@ export default function AuthModal({
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="ban@example.com"
-                    className="w-full pl-9 pr-3.5 py-2.5 text-xs rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-950/50 text-slate-900 dark:text-zinc-100 placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition disabled:opacity-60"
+                    className="retro-input w-full pl-9 pr-3.5 py-2 text-xs disabled:opacity-60"
                   />
                 </div>
               </div>
@@ -1029,7 +1029,7 @@ export default function AuthModal({
               <button
                 type="submit"
                 disabled={isBusy || !isConfigured || resetCooldown > 0}
-                className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-600/20 flex items-center justify-center gap-2 transition active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed"
+                className="retro-btn-primary w-full py-2.5 px-4 text-xs font-bold flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
               >
                 {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
                 {isSubmitting
@@ -1043,7 +1043,7 @@ export default function AuthModal({
                 type="button"
                 disabled={isBusy}
                 onClick={() => onModeChange('login')}
-                className="w-full py-2 px-4 rounded-xl text-xs font-semibold text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800 flex items-center justify-center gap-1.5 transition"
+                className="retro-btn w-full py-2 px-4 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
                 Quay lại đăng nhập
@@ -1058,8 +1058,8 @@ export default function AuthModal({
               className="space-y-3.5"
               noValidate
             >
-              <div className="p-3 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40 text-xs text-slate-600 dark:text-zinc-300 flex items-start gap-2">
-                <KeyRound className="w-4 h-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
+              <div className="retro-callout-mint p-3 text-xs text-[#2B463A] dark:text-[#E4E1D8] flex items-start gap-2">
+                <KeyRound className="w-4 h-4 text-[#39755D] dark:text-[#A3BDA8] flex-shrink-0 mt-0.5" />
                 <span>
                   {isRecoveryMode
                     ? 'Liên kết khôi phục hợp lệ. Hãy nhập mật khẩu mới cho tài khoản của bạn.'
@@ -1070,12 +1070,12 @@ export default function AuthModal({
               <div className="space-y-1.5">
                 <label
                   htmlFor="auth-reset-password"
-                  className="block text-xs font-semibold text-slate-700 dark:text-zinc-300"
+                  className="block text-xs font-semibold text-[#294B3D] dark:text-[#E4E1D8]"
                 >
                   Mật khẩu mới
                 </label>
                 <div className="relative">
-                  <Lock className="w-4 h-4 text-slate-400 dark:text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <Lock className="w-4 h-4 text-[#5B7A6C] dark:text-[#B8BDB5] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     id="auth-reset-password"
                     type={showPassword ? 'text' : 'password'}
@@ -1084,13 +1084,13 @@ export default function AuthModal({
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Tối thiểu 6 ký tự"
-                    className="w-full pl-9 pr-10 py-2.5 text-xs rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-950/50 text-slate-900 dark:text-zinc-100 placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition disabled:opacity-60"
+                    className="retro-input w-full pl-9 pr-10 py-2 text-xs disabled:opacity-60"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword((prev) => !prev)}
                     aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-300 transition"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-[#5B7A6C] hover:text-[#224C3B] dark:text-[#B8BDB5] dark:hover:text-[#E4E1D8] transition cursor-pointer"
                   >
                     {showPassword ? (
                       <EyeOff className="w-4 h-4" />
@@ -1104,12 +1104,12 @@ export default function AuthModal({
               <div className="space-y-1.5">
                 <label
                   htmlFor="auth-reset-confirm"
-                  className="block text-xs font-semibold text-slate-700 dark:text-zinc-300"
+                  className="block text-xs font-semibold text-[#294B3D] dark:text-[#E4E1D8]"
                 >
                   Xác nhận mật khẩu mới
                 </label>
                 <div className="relative">
-                  <Lock className="w-4 h-4 text-slate-400 dark:text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <Lock className="w-4 h-4 text-[#5B7A6C] dark:text-[#B8BDB5] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     id="auth-reset-confirm"
                     type={showConfirmPassword ? 'text' : 'password'}
@@ -1118,7 +1118,7 @@ export default function AuthModal({
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="Nhập lại mật khẩu mới"
-                    className="w-full pl-9 pr-10 py-2.5 text-xs rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-950/50 text-slate-900 dark:text-zinc-100 placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition disabled:opacity-60"
+                    className="retro-input w-full pl-9 pr-10 py-2 text-xs disabled:opacity-60"
                   />
                   <button
                     type="button"
@@ -1128,7 +1128,7 @@ export default function AuthModal({
                         ? 'Ẩn mật khẩu xác nhận'
                         : 'Hiện mật khẩu xác nhận'
                     }
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-300 transition"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-[#5B7A6C] hover:text-[#224C3B] dark:text-[#B8BDB5] dark:hover:text-[#E4E1D8] transition cursor-pointer"
                   >
                     {showConfirmPassword ? (
                       <EyeOff className="w-4 h-4" />
@@ -1142,7 +1142,7 @@ export default function AuthModal({
               <button
                 type="submit"
                 disabled={isBusy || !isConfigured}
-                className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-600/20 flex items-center justify-center gap-2 transition active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed"
+                className="retro-btn-primary w-full py-2.5 px-4 text-xs font-bold flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
               >
                 {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
                 {isSubmitting ? 'Đang cập nhật...' : 'Lưu mật khẩu mới'}

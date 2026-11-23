@@ -36,6 +36,7 @@ import type {
 } from '../types/auth';
 
 export interface AuthContextValue extends AuthStateSnapshot {
+  isAdmin: boolean;
   isAuthReady: boolean;
   isProfileLoading: boolean;
   authError: string | null;
@@ -492,6 +493,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       profile,
       userId: user?.id ?? null,
       isAuthenticated: Boolean(user && session),
+      isAdmin: Boolean(user && session && profile?.role === 'admin'),
       isConfigured: isSupabaseConfigured,
       isLoading,
       isAuthReady,

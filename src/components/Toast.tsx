@@ -18,31 +18,34 @@ export default function Toast({ message, type = 'success', duration = 3000, onCl
   }, [duration, onClose]);
 
   const bgColor = {
-    success: 'bg-emerald-600 dark:bg-emerald-500',
-    info: 'bg-zinc-800 dark:bg-zinc-700',
-    error: 'bg-red-600 dark:bg-red-500',
+    success:
+      'bg-[#39755D] border-[#265240] text-[#FFF9EA] dark:bg-[#343D37] dark:border-[#A3BDA8] dark:text-[#E4E1D8]',
+    info:
+      'bg-[#264236] border-[#39755D] text-[#FFF9EA] dark:bg-[#292E2B] dark:border-[#49554D] dark:text-[#E4E1D8]',
+    error:
+      'bg-[#9E3543] border-[#782430] text-[#FFF9EA] dark:bg-[#292E2B] dark:border-[#9A666B] dark:text-[#E4A6AA]',
   };
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 pointer-events-none">
+    <div className="fixed bottom-5 right-5 z-50 pointer-events-none max-w-[calc(100vw-2.5rem)]">
       <AnimatePresence>
         <motion.div
-          initial={{ opacity: 0, y: 15, scale: 0.95 }}
+          initial={{ opacity: 0, y: 12, scale: 0.97 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: -10, scale: 0.95 }}
-          transition={{ type: 'spring', stiffness: 350, damping: 25 }}
-          className={`flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg shadow-emerald-950/10 text-white font-medium pointer-events-auto ${bgColor[type]}`}
+          exit={{ opacity: 0, y: -8, scale: 0.97 }}
+          transition={{ type: 'spring', stiffness: 360, damping: 26 }}
+          className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-md border shadow-md dark:shadow-none font-medium pointer-events-auto ${bgColor[type]}`}
         >
           {type === 'success' ? (
-            <div className="p-1 rounded-full bg-white/20">
-              <Check className="w-4 h-4 text-white" />
+            <div className="p-1 rounded bg-white/15 dark:bg-[#202423] flex-shrink-0">
+              <Check className="w-3.5 h-3.5 text-[#FFF9EA] dark:text-[#A3BDA8]" />
             </div>
           ) : (
-            <div className="p-1 rounded-full bg-white/20">
-              <Info className="w-4 h-4 text-white" />
+            <div className="p-1 rounded bg-white/15 dark:bg-[#202423] flex-shrink-0">
+              <Info className="w-3.5 h-3.5 text-[#FFF9EA] dark:text-[#A3BDA8]" />
             </div>
           )}
-          <span className="text-sm tracking-wide">{message}</span>
+          <span className="text-xs sm:text-sm leading-snug">{message}</span>
         </motion.div>
       </AnimatePresence>
     </div>

@@ -8,7 +8,7 @@ import {
   UploadCloud,
   X,
 } from 'lucide-react';
-import type { Character, Idea, Note } from '../../types';
+import type { Character, Idea, LibraryPrompt, Note } from '../../types';
 import type { ConflictDetail } from '../../services/userDataService';
 
 interface ConflictResolutionModalProps {
@@ -61,6 +61,16 @@ function summarizeItem(kind: ConflictDetail['kind'], item: unknown): { title: st
       copyText: `${n.title}\n\n${n.command}\n\n${n.content}`,
     };
   }
+  if (kind === 'library_prompt') {
+    const p = item as LibraryPrompt;
+    return {
+      title: `${p.icon || '📚'} ${p.title}`,
+      preview: p.description || p.steps?.[0]?.content || '(Trống)',
+      copyText: [p.title, p.description, p.howToUse, ...(p.steps || []).map((s) => `${s.label}\n${s.content}`)]
+        .filter(Boolean)
+        .join('\n\n'),
+    };
+  }
   const i = item as Idea;
   return {
     title: i.title,
@@ -88,30 +98,32 @@ export default function ConflictResolutionModal({
       ? 'nhân vật'
       : conflict.kind === 'note'
         ? 'ghi chú'
-        : 'ý tưởng';
+        : conflict.kind === 'library_prompt'
+          ? 'câu lệnh thư viện'
+          : 'ý tưởng';
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-fade-in"
+      className="fixed inset-0 z-50 bg-[#14221B]/55 dark:bg-[#141716]/75 backdrop-blur-[2px] flex items-center justify-center p-3 sm:p-4 animate-fade-in"
       role="dialog"
       aria-modal="true"
       aria-labelledby="conflict-modal-title"
     >
-      <div className="w-full max-w-xl max-h-[92vh] bg-white dark:bg-zinc-900 border border-amber-200 dark:border-amber-900/60 rounded-3xl shadow-2xl overflow-hidden flex flex-col">
+      <div className="w-full max-w-xl max-h-[92vh] bg-[#FFF9EA] dark:bg-[#292E2B] border border-[#9FC4AF] dark:border-[#49554D] rounded-lg shadow-lg dark:shadow-none overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="px-5 py-4 bg-amber-50/90 dark:bg-amber-950/35 border-b border-amber-200/70 dark:border-amber-900/50 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-2xl bg-amber-500 text-white flex items-center justify-center flex-shrink-0 shadow-md shadow-amber-500/20">
-              <AlertTriangle className="w-5 h-5" />
+        <div className="retro-titlebar px-4 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-md bg-[#F7E8C3] dark:bg-[#292E2B] border border-[#DEC07D] dark:border-[#49554D] text-[#8E6418] dark:text-[#D5B97A] flex items-center justify-center flex-shrink-0">
+              <AlertTriangle className="w-4 h-4" />
             </div>
             <div className="min-w-0">
               <h2
                 id="conflict-modal-title"
-                className="text-sm sm:text-base font-bold text-slate-900 dark:text-zinc-100"
+                className="text-sm font-bold text-[#224C3B] dark:text-[#E4E1D8]"
               >
                 Phát hiện xung đột chỉnh sửa giữa các thiết bị
               </h2>
-              <p className="text-[11px] text-amber-800 dark:text-amber-300">
+              <p className="text-[11px] text-[#527062] dark:text-[#B8BDB5]">
                 {conflict.serverDeleted
                   ? `Một trình duyệt hoặc thiết bị khác vừa xóa ${kindText} này.`
                   : `Một trình duyệt hoặc thiết bị khác vừa cập nhật ${kindText} này trong lúc bạn đang sửa.`}
@@ -122,64 +134,64 @@ export default function ConflictResolutionModal({
             type="button"
             disabled={isResolving}
             onClick={onCancel}
-            className="p-1.5 rounded-xl text-slate-500 hover:bg-white/70 dark:hover:bg-zinc-800 disabled:opacity-40 transition"
+            className="retro-btn p-1.5 text-[#39755D] dark:text-[#A3BDA8] disabled:opacity-40 cursor-pointer flex-shrink-0"
             aria-label="Đóng"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-4">
-          <p className="text-xs text-slate-600 dark:text-zinc-300 leading-relaxed">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
+          <p className="text-xs text-[#3C5C4E] dark:text-[#E4E1D8] leading-relaxed">
             Nội dung bạn đang soạn <strong>vẫn được giữ nguyên trong biểu mẫu</strong>. Hãy chọn cách
             xử lý để không bị mất dữ liệu ở bất kỳ thiết bị nào:
           </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {/* Local draft */}
-            <div className="p-3.5 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/50 space-y-2">
+            <div className="retro-callout-mint p-3.5 space-y-2">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
+                <span className="text-[11px] font-bold text-[#255442] dark:text-[#A3BDA8]">
                   Bản trên thiết bị này
                 </span>
                 <button
                   type="button"
                   onClick={() => onCopyLocalDraft(localSummary.copyText)}
-                  className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 hover:underline flex items-center gap-1"
+                  className="text-[10px] font-semibold text-[#39755D] dark:text-[#A3BDA8] hover:underline flex items-center gap-1 cursor-pointer"
                   title="Sao chép nhanh nội dung bạn đang soạn"
                 >
                   <Copy className="w-3 h-3" />
                   Sao chép
                 </button>
               </div>
-              <p className="text-xs font-bold text-slate-800 dark:text-zinc-100 truncate">
+              <p className="text-xs font-bold text-[#20372D] dark:text-[#E4E1D8] truncate">
                 {localSummary.title}
               </p>
-              <p className="text-[11px] text-slate-600 dark:text-zinc-400 line-clamp-4 whitespace-pre-wrap">
+              <p className="text-[11px] text-[#4C6A5C] dark:text-[#B8BDB5] line-clamp-4 whitespace-pre-wrap">
                 {localSummary.preview}
               </p>
             </div>
 
             {/* Latest server version */}
-            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-zinc-950/60 border border-slate-200 dark:border-zinc-800 space-y-2">
+            <div className="retro-callout-warm p-3.5 space-y-2">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-[11px] font-bold text-slate-700 dark:text-zinc-300">
+                <span className="text-[11px] font-bold text-[#6E5120] dark:text-[#D5B97A]">
                   Bản mới nhất trên máy chủ
                 </span>
                 {conflict.serverVersion > 0 && (
-                  <span className="text-[10px] font-mono text-slate-500 dark:text-zinc-400">
+                  <span className="text-[10px] font-mono text-[#6B5A3A] dark:text-[#B8BDB5]">
                     v{conflict.serverVersion}
                   </span>
                 )}
               </div>
-              <p className="text-xs font-bold text-slate-800 dark:text-zinc-100 truncate">
+              <p className="text-xs font-bold text-[#20372D] dark:text-[#E4E1D8] truncate">
                 {serverSummary.title}
               </p>
-              <p className="text-[10px] text-slate-400 dark:text-zinc-500">
+              <p className="text-[10px] font-mono text-[#6B5A3A] dark:text-[#B8BDB5]">
                 Cập nhật lúc: {formatTime(conflict.serverUpdatedAt)}
               </p>
-              <p className="text-[11px] text-slate-600 dark:text-zinc-400 line-clamp-3 whitespace-pre-wrap">
+              <p className="text-[11px] text-[#4C4535] dark:text-[#E4E1D8] line-clamp-3 whitespace-pre-wrap">
                 {serverSummary.preview}
               </p>
             </div>
@@ -191,7 +203,7 @@ export default function ConflictResolutionModal({
               type="button"
               disabled={isResolving}
               onClick={onSaveAsCopy}
-              className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-md shadow-emerald-600/20 disabled:opacity-60 transition"
+              className="retro-btn-primary w-full py-2.5 px-4 text-xs font-bold flex items-center justify-center gap-2 disabled:opacity-60 cursor-pointer"
             >
               {isResolving ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -205,7 +217,7 @@ export default function ConflictResolutionModal({
               type="button"
               disabled={isResolving}
               onClick={onOverwriteServer}
-              className="w-full py-2.5 px-4 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50/70 dark:bg-amber-950/25 hover:bg-amber-100/70 dark:hover:bg-amber-950/40 text-amber-800 dark:text-amber-300 text-xs font-bold flex items-center justify-center gap-2 disabled:opacity-60 transition"
+              className="retro-btn w-full py-2.5 px-4 text-xs font-bold text-[#7A5416] dark:text-[#D5B97A] flex items-center justify-center gap-2 disabled:opacity-60 cursor-pointer"
             >
               <UploadCloud className="w-4 h-4" />
               {conflict.serverDeleted
@@ -217,9 +229,9 @@ export default function ConflictResolutionModal({
               type="button"
               disabled={isResolving}
               onClick={onKeepServer}
-              className="w-full py-2.5 px-4 rounded-xl border border-slate-200 dark:border-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-200 text-xs font-semibold flex items-center justify-center gap-2 disabled:opacity-60 transition"
+              className="retro-btn w-full py-2.5 px-4 text-xs font-semibold flex items-center justify-center gap-2 disabled:opacity-60 cursor-pointer"
             >
-              <RefreshCw className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              <RefreshCw className="w-4 h-4 text-[#39755D] dark:text-[#A3BDA8]" />
               Tải bản mới nhất từ máy chủ (Hủy chỉnh sửa hiện tại)
             </button>
           </div>

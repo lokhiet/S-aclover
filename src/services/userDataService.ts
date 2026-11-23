@@ -1,8 +1,9 @@
 import { supabase } from '../lib/supabase';
-import type { Character, Idea, LibraryPrompt, Note, PromptStep } from '../types';
+import type { Character, Idea, LibraryPrompt, Note, PromptStep, PublicProfile } from '../types';
 import { initialCharacters, initialIdeas } from '../initialData';
 import { defaultLibraryPrompts } from '../promptsData';
 import type { ImportChunk, ImportJobPlan } from '../utils/localDataDiff';
+import { fetchPublicProfilesMap, isMissingCommunitySchemaError } from './communityService';
 
 export type DataEntityKind = 'character' | 'note' | 'idea' | 'library_prompt';
 
@@ -32,10 +33,20 @@ export interface CloudUserDataSnapshot {
   versions: SyncedVersionMap;
 }
 
+export interface PublicCommunitySnapshot {
+  characters: Character[];
+  notes: Note[];
+  ideas: Idea[];
+  libraryPrompts: LibraryPrompt[];
+  versions: SyncedVersionMap;
+  schemaReady: boolean;
+}
+
 export interface DataServiceError {
   code: string;
   message: string;
   isMissingTable?: boolean;
+  isMissingMigration003?: boolean;
   isNetworkError?: boolean;
   isAuthError?: boolean;
 }
@@ -43,6 +54,7 @@ export interface DataServiceError {
 export interface ConflictDetail<T = Character | Note | Idea | LibraryPrompt> {
   kind: DataEntityKind;
   itemId: string;
+  ownerId?: string;
   localItem: T;
   serverItem: T | null;
   serverDeleted: boolean;
@@ -63,10 +75,16 @@ export interface SaveOptions {
   expectedVersion?: number;
   isFirstOverride?: boolean;
   forceOverwrite?: boolean;
+  isPublic?: boolean;
+  isSystem?: boolean;
 }
 
-export function versionKey(kind: DataEntityKind, itemId: string): string {
-  return `${kind}:${itemId}`;
+export function versionKey(kind: DataEntityKind, itemId: string, ownerId?: string): string {
+  return ownerId ? `${kind}:${ownerId}:${itemId}` : `${kind}:${itemId}`;
+}
+
+export function buildCloudKey(ownerId: string | undefined, itemId: string): string {
+  return ownerId ? `${ownerId}:${itemId}` : `local:${itemId}`;
 }
 
 function toSafeIsoTimestamp(value?: string | null): string {
@@ -132,11 +150,27 @@ function parsePromptSteps(value: unknown): PromptStep[] {
     });
 }
 
+function isMissingVisibilityColumnError(error: unknown): boolean {
+  const errObj = error as { code?: string; message?: string } | null;
+  const code = String(errObj?.code || '');
+  const lower = String(errObj?.message || '').toLowerCase();
+  return (
+    (code === '42703' || code === 'PGRST204') &&
+    (lower.includes('is_public') || lower.includes('is_system') || lower.includes('published_at'))
+  );
+}
+
 // ----------------------------------------------------------------------------
-// Row <-> TypeScript Mappers (100% lossless round-trip)
+// Row <-> TypeScript Mappers (100% lossless round-trip + visibility metadata)
 // ----------------------------------------------------------------------------
 
-interface CharacterRow {
+interface VisibilityColumns {
+  is_public?: boolean;
+  is_system?: boolean;
+  published_at?: string | null;
+}
+
+interface CharacterRow extends VisibilityColumns {
   user_id: string;
   item_id: string;
   name: string;
@@ -164,7 +198,7 @@ interface CharacterRow {
   updated_at: string;
 }
 
-interface NoteRow {
+interface NoteRow extends VisibilityColumns {
   user_id: string;
   item_id: string;
   title: string;
@@ -180,7 +214,7 @@ interface NoteRow {
   updated_at: string;
 }
 
-interface IdeaRow {
+interface IdeaRow extends VisibilityColumns {
   user_id: string;
   item_id: string;
   title: string;
@@ -193,7 +227,7 @@ interface IdeaRow {
   updated_at: string;
 }
 
-interface LibraryPromptRow {
+interface LibraryPromptRow extends VisibilityColumns {
   user_id: string;
   item_id: string;
   title: string;
@@ -210,8 +244,29 @@ interface LibraryPromptRow {
   updated_at: string;
 }
 
-function characterToRowPayload(userId: string, char: Character, isDeleted = false) {
+function attachAuthorMeta(
+  row: { user_id: string; item_id: string } & VisibilityColumns,
+  profilesMap?: Record<string, PublicProfile>,
+) {
+  const profile = profilesMap?.[row.user_id];
   return {
+    ownerId: row.user_id,
+    isPublic: Boolean(row.is_public || row.is_system),
+    isSystem: Boolean(row.is_system),
+    publishedAt: nullToUndefined(row.published_at),
+    authorDisplayName: profile?.display_name || undefined,
+    authorRole: profile?.role || (row.is_system ? ('admin' as const) : undefined),
+    cloudKey: buildCloudKey(row.user_id, row.item_id),
+  };
+}
+
+function characterToRowPayload(
+  userId: string,
+  char: Character,
+  isDeleted = false,
+  visibility?: { isPublic?: boolean; isSystem?: boolean; omitVisibility?: boolean },
+) {
+  const base: Record<string, unknown> = {
     user_id: userId,
     item_id: char.id,
     name: char.name,
@@ -235,9 +290,23 @@ function characterToRowPayload(userId: string, char: Character, isDeleted = fals
     item_created_at: toSafeIsoTimestamp(char.createdAt),
     is_deleted: isDeleted,
   };
+
+  if (!visibility?.omitVisibility) {
+    const isSystem = Boolean(visibility?.isSystem ?? char.isSystem ?? false);
+    const isPublic = isSystem ? true : Boolean(visibility?.isPublic ?? char.isPublic ?? false);
+    if (isSystem || isPublic || visibility?.isPublic !== undefined || visibility?.isSystem !== undefined) {
+      base.is_system = isSystem;
+      base.is_public = isDeleted ? false : isPublic;
+    }
+  }
+
+  return base;
 }
 
-function rowToCharacter(row: CharacterRow): Character {
+function rowToCharacter(
+  row: CharacterRow,
+  profilesMap?: Record<string, PublicProfile>,
+): Character {
   return {
     id: row.item_id,
     name: row.name,
@@ -259,11 +328,17 @@ function rowToCharacter(row: CharacterRow): Character {
     userProfile: nullToUndefined(row.user_profile),
     userProfileTitle: nullToUndefined(row.user_profile_title),
     prompt: nullToUndefined(row.prompt),
+    ...attachAuthorMeta(row, profilesMap),
   };
 }
 
-function noteToRowPayload(userId: string, note: Note, isDeleted = false) {
-  return {
+function noteToRowPayload(
+  userId: string,
+  note: Note,
+  isDeleted = false,
+  visibility?: { isPublic?: boolean; isSystem?: boolean; omitVisibility?: boolean },
+) {
+  const base: Record<string, unknown> = {
     user_id: userId,
     item_id: note.id,
     title: note.title,
@@ -275,9 +350,20 @@ function noteToRowPayload(userId: string, note: Note, isDeleted = false) {
     item_created_at: toSafeIsoTimestamp(note.createdAt),
     is_deleted: isDeleted,
   };
+
+  if (!visibility?.omitVisibility) {
+    const isSystem = Boolean(visibility?.isSystem ?? note.isSystem ?? false);
+    const isPublic = isSystem ? true : Boolean(visibility?.isPublic ?? note.isPublic ?? false);
+    if (isSystem || isPublic || visibility?.isPublic !== undefined || visibility?.isSystem !== undefined) {
+      base.is_system = isSystem;
+      base.is_public = isDeleted ? false : isPublic;
+    }
+  }
+
+  return base;
 }
 
-function rowToNote(row: NoteRow): Note {
+function rowToNote(row: NoteRow, profilesMap?: Record<string, PublicProfile>): Note {
   return {
     id: row.item_id,
     title: row.title,
@@ -288,11 +374,17 @@ function rowToNote(row: NoteRow): Note {
     icon: nullToUndefined(row.icon),
     createdAt: row.item_created_at || row.created_at,
     updatedAt: row.updated_at || row.item_created_at || row.created_at,
+    ...attachAuthorMeta(row, profilesMap),
   };
 }
 
-function ideaToRowPayload(userId: string, idea: Idea, isDeleted = false) {
-  return {
+function ideaToRowPayload(
+  userId: string,
+  idea: Idea,
+  isDeleted = false,
+  visibility?: { isPublic?: boolean; isSystem?: boolean; omitVisibility?: boolean },
+) {
+  const base: Record<string, unknown> = {
     user_id: userId,
     item_id: idea.id,
     title: idea.title,
@@ -301,9 +393,20 @@ function ideaToRowPayload(userId: string, idea: Idea, isDeleted = false) {
     item_created_at: toSafeIsoTimestamp(idea.createdAt),
     is_deleted: isDeleted,
   };
+
+  if (!visibility?.omitVisibility) {
+    const isSystem = Boolean(visibility?.isSystem ?? idea.isSystem ?? false);
+    const isPublic = isSystem ? true : Boolean(visibility?.isPublic ?? idea.isPublic ?? false);
+    if (isSystem || isPublic || visibility?.isPublic !== undefined || visibility?.isSystem !== undefined) {
+      base.is_system = isSystem;
+      base.is_public = isDeleted ? false : isPublic;
+    }
+  }
+
+  return base;
 }
 
-function rowToIdea(row: IdeaRow): Idea {
+function rowToIdea(row: IdeaRow, profilesMap?: Record<string, PublicProfile>): Idea {
   return {
     id: row.item_id,
     title: row.title,
@@ -311,11 +414,17 @@ function rowToIdea(row: IdeaRow): Idea {
     tags: row.tags === null ? undefined : row.tags,
     createdAt: row.item_created_at || row.created_at,
     updatedAt: row.updated_at || row.item_created_at || row.created_at,
+    ...attachAuthorMeta(row, profilesMap),
   };
 }
 
-function libraryPromptToRowPayload(userId: string, prompt: LibraryPrompt, isDeleted = false) {
-  return {
+function libraryPromptToRowPayload(
+  userId: string,
+  prompt: LibraryPrompt,
+  isDeleted = false,
+  visibility?: { isPublic?: boolean; isSystem?: boolean; omitVisibility?: boolean },
+) {
+  const base: Record<string, unknown> = {
     user_id: userId,
     item_id: prompt.id,
     title: prompt.title,
@@ -328,9 +437,23 @@ function libraryPromptToRowPayload(userId: string, prompt: LibraryPrompt, isDele
     item_created_at: toSafeIsoTimestamp(prompt.createdAt),
     is_deleted: isDeleted,
   };
+
+  if (!visibility?.omitVisibility) {
+    const isSystem = Boolean(visibility?.isSystem ?? prompt.isSystem ?? false);
+    const isPublic = isSystem ? true : Boolean(visibility?.isPublic ?? prompt.isPublic ?? false);
+    if (isSystem || isPublic || visibility?.isPublic !== undefined || visibility?.isSystem !== undefined) {
+      base.is_system = isSystem;
+      base.is_public = isDeleted ? false : isPublic;
+    }
+  }
+
+  return base;
 }
 
-function rowToLibraryPrompt(row: LibraryPromptRow): LibraryPrompt {
+function rowToLibraryPrompt(
+  row: LibraryPromptRow,
+  profilesMap?: Record<string, PublicProfile>,
+): LibraryPrompt {
   return {
     id: row.item_id,
     title: row.title,
@@ -341,6 +464,7 @@ function rowToLibraryPrompt(row: LibraryPromptRow): LibraryPrompt {
     icon: nullToUndefined(row.icon),
     steps: parsePromptSteps(row.steps),
     createdAt: row.item_created_at || row.created_at,
+    ...attachAuthorMeta(row, profilesMap),
   };
 }
 
@@ -361,6 +485,15 @@ export function normalizeDataError(error: unknown, fallbackMessage: string): Dat
   const code = String(errObj?.code || '');
   const rawMessage = String(errObj?.message || '');
   const lower = rawMessage.toLowerCase();
+
+  if (isMissingVisibilityColumnError(error)) {
+    return {
+      code: code || 'MIGRATION_003_REQUIRED',
+      message:
+        'Cơ sở dữ liệu chưa chạy migration 003. Vui lòng chạy tệp 003_admin_and_community.sql trên Supabase để bật Công khai / Hệ thống.',
+      isMissingMigration003: true,
+    };
+  }
 
   if (
     code === '42P01' ||
@@ -394,7 +527,10 @@ export function normalizeDataError(error: unknown, fallbackMessage: string): Dat
   if (code === '42501' || errObj?.status === 403 || lower.includes('row-level security')) {
     return {
       code: code || 'FORBIDDEN',
-      message: 'Bạn không có quyền thực hiện thao tác này trên tài khoản hiện tại.',
+      message:
+        rawMessage && /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i.test(rawMessage)
+          ? rawMessage
+          : 'Bạn không có quyền thực hiện thao tác này trên tài khoản hiện tại.',
       isAuthError: true,
     };
   }
@@ -435,7 +571,7 @@ export function normalizeDataError(error: unknown, fallbackMessage: string): Dat
 }
 
 // ----------------------------------------------------------------------------
-// Fetch & User-Wins Merge with Built-in Defaults
+// Fetch Own User Data (User-Wins Merge with Built-in Defaults)
 // ----------------------------------------------------------------------------
 
 export async function fetchUserData(
@@ -486,6 +622,7 @@ export async function fetchUserData(
       };
     }
 
+    const profilesMap = await fetchPublicProfilesMap([userId]);
     const versions: SyncedVersionMap = {};
     const cloudItemIds = {
       characters: new Set<string>(),
@@ -499,19 +636,18 @@ export async function fetchUserData(
       libraryPrompts: new Set<string>(),
     };
 
-    // 1. Characters (User-Wins merge)
+    // 1. Characters
     const cloudCharRows = (charRes.data ?? []) as CharacterRow[];
     const cloudCharMap = new Map<string, Character>();
     for (const row of cloudCharRows) {
-      versions[versionKey('character', row.item_id)] = {
-        version: row.version,
-        updatedAt: row.updated_at,
-      };
+      const entry = { version: row.version, updatedAt: row.updated_at };
+      versions[versionKey('character', row.item_id)] = entry;
+      versions[versionKey('character', row.item_id, row.user_id)] = entry;
       if (row.is_deleted) {
         deletedIds.characters.add(row.item_id);
       } else {
         cloudItemIds.characters.add(row.item_id);
-        cloudCharMap.set(row.item_id, rowToCharacter(row));
+        cloudCharMap.set(row.item_id, rowToCharacter(row, profilesMap));
       }
     }
 
@@ -532,45 +668,41 @@ export async function fetchUserData(
       }
     }
 
-    // 2. Notes (fully personal)
+    // 2. Notes
     const cloudNoteRows = (noteRes.data ?? []) as NoteRow[];
     const mergedNotes: Note[] = [];
     for (const row of cloudNoteRows) {
-      versions[versionKey('note', row.item_id)] = {
-        version: row.version,
-        updatedAt: row.updated_at,
-      };
+      const entry = { version: row.version, updatedAt: row.updated_at };
+      versions[versionKey('note', row.item_id)] = entry;
+      versions[versionKey('note', row.item_id, row.user_id)] = entry;
       if (!row.is_deleted) {
         cloudItemIds.notes.add(row.item_id);
-        mergedNotes.push(rowToNote(row));
+        mergedNotes.push(rowToNote(row, profilesMap));
       }
     }
 
-    // 3. Ideas (User-Wins merge)
+    // 3. Ideas
     const cloudIdeaRows = (ideaRes.data ?? []) as IdeaRow[];
     const cloudIdeaMap = new Map<string, Idea>();
     for (const row of cloudIdeaRows) {
-      versions[versionKey('idea', row.item_id)] = {
-        version: row.version,
-        updatedAt: row.updated_at,
-      };
+      const entry = { version: row.version, updatedAt: row.updated_at };
+      versions[versionKey('idea', row.item_id)] = entry;
+      versions[versionKey('idea', row.item_id, row.user_id)] = entry;
       if (row.is_deleted) {
         deletedIds.ideas.add(row.item_id);
       } else {
         cloudItemIds.ideas.add(row.item_id);
-        cloudIdeaMap.set(row.item_id, rowToIdea(row));
+        cloudIdeaMap.set(row.item_id, rowToIdea(row, profilesMap));
       }
     }
 
     const mergedIdeas: Idea[] = [];
-    const seenIdeaIds = new Set<string>();
     for (const row of cloudIdeaRows) {
       if (row.is_deleted) continue;
       if (!initialIdeas.some((b) => b.id === row.item_id)) {
         const mapped = cloudIdeaMap.get(row.item_id);
         if (mapped) {
           mergedIdeas.push(mapped);
-          seenIdeaIds.add(row.item_id);
         }
       }
     }
@@ -578,22 +710,20 @@ export async function fetchUserData(
       if (deletedIds.ideas.has(builtin.id)) continue;
       const override = cloudIdeaMap.get(builtin.id);
       mergedIdeas.push(override ?? builtin);
-      seenIdeaIds.add(builtin.id);
     }
 
-    // 4. Library Prompts (User-Wins merge)
+    // 4. Library Prompts
     const cloudPromptRows = (promptRes.data ?? []) as LibraryPromptRow[];
     const cloudPromptMap = new Map<string, LibraryPrompt>();
     for (const row of cloudPromptRows) {
-      versions[versionKey('library_prompt', row.item_id)] = {
-        version: row.version,
-        updatedAt: row.updated_at,
-      };
+      const entry = { version: row.version, updatedAt: row.updated_at };
+      versions[versionKey('library_prompt', row.item_id)] = entry;
+      versions[versionKey('library_prompt', row.item_id, row.user_id)] = entry;
       if (row.is_deleted) {
         deletedIds.libraryPrompts.add(row.item_id);
       } else {
         cloudItemIds.libraryPrompts.add(row.item_id);
-        cloudPromptMap.set(row.item_id, rowToLibraryPrompt(row));
+        cloudPromptMap.set(row.item_id, rowToLibraryPrompt(row, profilesMap));
       }
     }
 
@@ -638,26 +768,254 @@ export async function fetchUserData(
 }
 
 // ----------------------------------------------------------------------------
-// OCC Single-Item Save & Delete Operations
+// Fetch System & Public Community Content (cho cả Khách chưa đăng nhập & User)
+// ----------------------------------------------------------------------------
+
+export async function fetchPublicAndSystemSnapshot(): Promise<
+  DataServiceResult<PublicCommunitySnapshot>
+> {
+  const empty: PublicCommunitySnapshot = {
+    characters: [],
+    notes: [],
+    ideas: [],
+    libraryPrompts: [],
+    versions: {},
+    schemaReady: false,
+  };
+
+  if (!supabase) {
+    return { ok: true, data: empty };
+  }
+
+  try {
+    const [charRes, noteRes, ideaRes, promptRes] = await Promise.all([
+      supabase
+        .from('user_characters')
+        .select('*')
+        .eq('is_deleted', false)
+        .or('is_system.eq.true,is_public.eq.true')
+        .order('is_system', { ascending: false })
+        .order('published_at', { ascending: false, nullsFirst: false }),
+      supabase
+        .from('user_notes')
+        .select('*')
+        .eq('is_deleted', false)
+        .or('is_system.eq.true,is_public.eq.true')
+        .order('is_system', { ascending: false })
+        .order('published_at', { ascending: false, nullsFirst: false }),
+      supabase
+        .from('user_ideas')
+        .select('*')
+        .eq('is_deleted', false)
+        .or('is_system.eq.true,is_public.eq.true')
+        .order('is_system', { ascending: false })
+        .order('published_at', { ascending: false, nullsFirst: false }),
+      supabase
+        .from('user_library_prompts')
+        .select('*')
+        .eq('is_deleted', false)
+        .or('is_system.eq.true,is_public.eq.true')
+        .order('is_system', { ascending: false })
+        .order('published_at', { ascending: false, nullsFirst: false }),
+    ]);
+
+    const firstError = charRes.error || noteRes.error || ideaRes.error || promptRes.error;
+    if (firstError) {
+      if (isMissingCommunitySchemaError(firstError) || firstError.code === '42501') {
+        // Migration 003 chưa chạy — giữ nguyên hoạt động bình thường mà không báo lỗi phá UI
+        return { ok: true, data: empty };
+      }
+      return {
+        ok: false,
+        error: normalizeDataError(firstError, 'Không thể tải dữ liệu cộng đồng từ Supabase.'),
+      };
+    }
+
+    const charRows = (charRes.data ?? []) as CharacterRow[];
+    const noteRows = (noteRes.data ?? []) as NoteRow[];
+    const ideaRows = (ideaRes.data ?? []) as IdeaRow[];
+    const promptRows = (promptRes.data ?? []) as LibraryPromptRow[];
+
+    const authorIds = [
+      ...charRows.map((r) => r.user_id),
+      ...noteRows.map((r) => r.user_id),
+      ...ideaRows.map((r) => r.user_id),
+      ...promptRows.map((r) => r.user_id),
+    ];
+    const profilesMap = await fetchPublicProfilesMap(authorIds);
+
+    const versions: SyncedVersionMap = {};
+    for (const r of charRows) {
+      versions[versionKey('character', r.item_id, r.user_id)] = {
+        version: r.version,
+        updatedAt: r.updated_at,
+      };
+    }
+    for (const r of noteRows) {
+      versions[versionKey('note', r.item_id, r.user_id)] = {
+        version: r.version,
+        updatedAt: r.updated_at,
+      };
+    }
+    for (const r of ideaRows) {
+      versions[versionKey('idea', r.item_id, r.user_id)] = {
+        version: r.version,
+        updatedAt: r.updated_at,
+      };
+    }
+    for (const r of promptRows) {
+      versions[versionKey('library_prompt', r.item_id, r.user_id)] = {
+        version: r.version,
+        updatedAt: r.updated_at,
+      };
+    }
+
+    return {
+      ok: true,
+      data: {
+        characters: charRows.map((r) => rowToCharacter(r, profilesMap)),
+        notes: noteRows.map((r) => rowToNote(r, profilesMap)),
+        ideas: ideaRows.map((r) => rowToIdea(r, profilesMap)),
+        libraryPrompts: promptRows.map((r) => rowToLibraryPrompt(r, profilesMap)),
+        versions,
+        schemaReady: true,
+      },
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: normalizeDataError(err, 'Không thể tải dữ liệu cộng đồng từ Supabase.'),
+    };
+  }
+}
+
+// ----------------------------------------------------------------------------
+// OCC Single-Item Save, Public Toggle & Delete Operations
 // ----------------------------------------------------------------------------
 
 async function fetchLatestSingleRow<RowT>(
   table: string,
-  userId: string,
+  ownerId: string,
   itemId: string,
 ): Promise<RowT | null> {
   if (!supabase) return null;
   const { data } = await supabase
     .from(table)
     .select('*')
-    .eq('user_id', userId)
+    .eq('user_id', ownerId)
     .eq('item_id', itemId)
     .maybeSingle();
   return (data as RowT | null) ?? null;
 }
 
+const TABLE_BY_KIND: Record<DataEntityKind, string> = {
+  character: 'user_characters',
+  note: 'user_notes',
+  idea: 'user_ideas',
+  library_prompt: 'user_library_prompts',
+};
+
+/**
+ * Bật / Tắt trạng thái Công khai (is_public) cho một mục cá nhân bằng cập nhật hẹp
+ * kèm kiểm tra version (OCC) để bảo đảm không mất nội dung và không ghi đè chỉnh sửa từ thiết bị khác.
+ */
+export async function toggleItemPublicStatus(
+  kind: DataEntityKind,
+  ownerId: string,
+  itemId: string,
+  nextIsPublic: boolean,
+  expectedVersion: number,
+): Promise<DataServiceResult<{ isPublic: boolean; publishedAt?: string }>> {
+  if (!supabase) {
+    return { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Supabase chưa được cấu hình.' } };
+  }
+
+  const table = TABLE_BY_KIND[kind];
+
+  try {
+    const { data, error } = await supabase
+      .from(table)
+      .update({ is_public: nextIsPublic })
+      .eq('user_id', ownerId)
+      .eq('item_id', itemId)
+      .eq('version', expectedVersion)
+      .eq('is_deleted', false)
+      .eq('is_system', false)
+      .select('is_public, published_at, version, updated_at')
+      .maybeSingle();
+
+    if (error) {
+      return {
+        ok: false,
+        error: normalizeDataError(
+          error,
+          'Không thể cập nhật trạng thái Công khai/Riêng tư cho mục này.',
+        ),
+      };
+    }
+
+    if (!data) {
+      const latest = await fetchLatestSingleRow<
+        CharacterRow | NoteRow | IdeaRow | LibraryPromptRow
+      >(table, ownerId, itemId);
+
+      const mappedServer =
+        latest && !latest.is_deleted
+          ? kind === 'character'
+            ? rowToCharacter(latest as CharacterRow)
+            : kind === 'note'
+              ? rowToNote(latest as NoteRow)
+              : kind === 'idea'
+                ? rowToIdea(latest as IdeaRow)
+                : rowToLibraryPrompt(latest as LibraryPromptRow)
+          : null;
+
+      return {
+        ok: false,
+        conflict: {
+          kind,
+          itemId,
+          ownerId,
+          localItem: mappedServer as any,
+          serverItem: mappedServer as any,
+          serverDeleted: !latest || latest.is_deleted,
+          serverVersion: latest?.version ?? 0,
+          serverUpdatedAt: latest?.updated_at ?? new Date().toISOString(),
+        },
+        error: {
+          code: 'VERSION_CONFLICT',
+          message:
+            'Mục này vừa được chỉnh sửa trên trình duyệt/thiết bị khác. Dữ liệu đã được làm mới để tránh mất thay đổi.',
+        },
+      };
+    }
+
+    const row = data as {
+      is_public: boolean;
+      published_at: string | null;
+      version: number;
+      updated_at: string;
+    };
+
+    return {
+      ok: true,
+      data: {
+        isPublic: Boolean(row.is_public),
+        publishedAt: row.published_at ?? undefined,
+      },
+      version: row.version,
+      updatedAt: row.updated_at,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: normalizeDataError(err, 'Không thể thay đổi trạng thái Công khai lúc này.'),
+    };
+  }
+}
+
 export async function saveCharacterToCloud(
-  userId: string,
+  ownerId: string,
   character: Character,
   options: SaveOptions = {},
 ): Promise<DataServiceResult<Character>> {
@@ -665,75 +1023,58 @@ export async function saveCharacterToCloud(
     return { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Supabase chưa được cấu hình.' } };
   }
 
-  const payload = characterToRowPayload(userId, character, false);
+  const wantsVisibility = Boolean(
+    options.isPublic || options.isSystem || character.isPublic || character.isSystem,
+  );
+  const runWrite = async (omitVisibility: boolean) => {
+    const payload = characterToRowPayload(ownerId, character, false, {
+      isPublic: options.isPublic,
+      isSystem: options.isSystem,
+      omitVisibility,
+    });
 
-  try {
-    // 1. Force overwrite (sau khi người dùng chủ động xác nhận ghi đè trong hộp thoại xung đột)
     if (options.forceOverwrite) {
-      const { data, error } = await supabase
+      return supabase!
         .from('user_characters')
         .upsert(payload, { onConflict: 'user_id,item_id' })
         .select('*')
         .single();
-
-      if (error) {
-        return { ok: false, error: normalizeDataError(error, 'Không thể lưu nhân vật lên máy chủ.') };
-      }
-      const row = data as CharacterRow;
-      return { ok: true, data: rowToCharacter(row), version: row.version, updatedAt: row.updated_at };
     }
 
-    // 2. Cập nhật bản ghi đã có trên cloud với kiểm tra version (OCC)
     if (typeof options.expectedVersion === 'number') {
-      const { data, error } = await supabase
+      return supabase!
         .from('user_characters')
         .update(payload)
-        .eq('user_id', userId)
+        .eq('user_id', ownerId)
         .eq('item_id', character.id)
         .eq('version', options.expectedVersion)
         .eq('is_deleted', false)
         .select('*')
         .maybeSingle();
-
-      if (error) {
-        return { ok: false, error: normalizeDataError(error, 'Không thể cập nhật nhân vật.') };
-      }
-
-      if (!data) {
-        const latest = await fetchLatestSingleRow<CharacterRow>('user_characters', userId, character.id);
-        return {
-          ok: false,
-          conflict: {
-            kind: 'character',
-            itemId: character.id,
-            localItem: character,
-            serverItem: latest && !latest.is_deleted ? rowToCharacter(latest) : null,
-            serverDeleted: !latest || latest.is_deleted,
-            serverVersion: latest?.version ?? 0,
-            serverUpdatedAt: latest?.updated_at ?? new Date().toISOString(),
-          },
-        };
-      }
-
-      const row = data as CharacterRow;
-      return { ok: true, data: rowToCharacter(row), version: row.version, updatedAt: row.updated_at };
     }
 
-    // 3. Tạo mới hoặc lần đầu tùy biến một nhân vật mặc định -> INSERT để phát hiện xung đột 23505
-    const { data, error } = await supabase
-      .from('user_characters')
-      .insert(payload)
-      .select('*')
-      .single();
+    return supabase!.from('user_characters').insert(payload).select('*').single();
+  };
+
+  try {
+    let { data, error } = await runWrite(false);
+
+    // Nếu chưa chạy migration 003 và người dùng chỉ lưu riêng tư -> tự lùi an toàn không gửi cột mới
+    if (error && isMissingVisibilityColumnError(error) && !wantsVisibility) {
+      const retry = await runWrite(true);
+      data = retry.data;
+      error = retry.error;
+    }
 
     if (error) {
-      if (error.code === '23505') {
-        const latest = await fetchLatestSingleRow<CharacterRow>('user_characters', userId, character.id);
+      if (error.code === '23505' && typeof options.expectedVersion !== 'number' && !options.forceOverwrite) {
+        const latest = await fetchLatestSingleRow<CharacterRow>('user_characters', ownerId, character.id);
         return {
           ok: false,
           conflict: {
             kind: 'character',
             itemId: character.id,
+            ownerId,
             localItem: character,
             serverItem: latest && !latest.is_deleted ? rowToCharacter(latest) : null,
             serverDeleted: !latest || latest.is_deleted,
@@ -742,20 +1083,44 @@ export async function saveCharacterToCloud(
           },
         };
       }
-      return { ok: false, error: normalizeDataError(error, 'Không thể lưu nhân vật mới lên máy chủ.') };
+      return { ok: false, error: normalizeDataError(error, 'Không thể lưu nhân vật lên máy chủ.') };
+    }
+
+    if (!data && typeof options.expectedVersion === 'number') {
+      const latest = await fetchLatestSingleRow<CharacterRow>('user_characters', ownerId, character.id);
+      return {
+        ok: false,
+        conflict: {
+          kind: 'character',
+          itemId: character.id,
+          ownerId,
+          localItem: character,
+          serverItem: latest && !latest.is_deleted ? rowToCharacter(latest) : null,
+          serverDeleted: !latest || latest.is_deleted,
+          serverVersion: latest?.version ?? 0,
+          serverUpdatedAt: latest?.updated_at ?? new Date().toISOString(),
+        },
+      };
     }
 
     const row = data as CharacterRow;
-    return { ok: true, data: rowToCharacter(row), version: row.version, updatedAt: row.updated_at };
+    const profilesMap = await fetchPublicProfilesMap([row.user_id]);
+    return {
+      ok: true,
+      data: rowToCharacter(row, profilesMap),
+      version: row.version,
+      updatedAt: row.updated_at,
+    };
   } catch (err) {
     return { ok: false, error: normalizeDataError(err, 'Không thể lưu nhân vật lên máy chủ.') };
   }
 }
 
 export async function deleteCharacterFromCloud(
-  userId: string,
+  ownerId: string,
   characterId: string,
   isBuiltin: boolean,
+  actingUserId?: string,
 ): Promise<DataServiceResult<{ id: string }>> {
   if (!supabase) {
     return { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Supabase chưa được cấu hình.' } };
@@ -765,7 +1130,7 @@ export async function deleteCharacterFromCloud(
     if (isBuiltin) {
       const { error } = await supabase.from('user_characters').upsert(
         {
-          user_id: userId,
+          user_id: ownerId,
           item_id: characterId,
           name: '[Đã ẩn]',
           role: '',
@@ -781,18 +1146,19 @@ export async function deleteCharacterFromCloud(
       const { error } = await supabase
         .from('user_characters')
         .delete()
-        .eq('user_id', userId)
+        .eq('user_id', ownerId)
         .eq('item_id', characterId);
       if (error) {
         return { ok: false, error: normalizeDataError(error, 'Không thể xóa nhân vật trên máy chủ.') };
       }
     }
 
-    // Gỡ liên kết character_id trong các ghi chú của chính tài khoản này
+    // Chỉ gỡ liên kết trong user_notes của chính người thao tác (tránh vi phạm RLS nếu Admin xóa char hệ thống của Admin khác)
+    const unlinkTargetUserId = actingUserId || ownerId;
     const { error: unlinkErr } = await supabase
       .from('user_notes')
       .update({ character_id: '' })
-      .eq('user_id', userId)
+      .eq('user_id', unlinkTargetUserId)
       .eq('character_id', characterId);
 
     if (unlinkErr) {
@@ -812,7 +1178,7 @@ export async function deleteCharacterFromCloud(
 }
 
 export async function saveNoteToCloud(
-  userId: string,
+  ownerId: string,
   note: Note,
   options: SaveOptions = {},
 ): Promise<DataServiceResult<Note>> {
@@ -820,72 +1186,56 @@ export async function saveNoteToCloud(
     return { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Supabase chưa được cấu hình.' } };
   }
 
-  const payload = noteToRowPayload(userId, note, false);
+  const wantsVisibility = Boolean(
+    options.isPublic || options.isSystem || note.isPublic || note.isSystem,
+  );
+  const runWrite = async (omitVisibility: boolean) => {
+    const payload = noteToRowPayload(ownerId, note, false, {
+      isPublic: options.isPublic,
+      isSystem: options.isSystem,
+      omitVisibility,
+    });
 
-  try {
     if (options.forceOverwrite) {
-      const { data, error } = await supabase
+      return supabase!
         .from('user_notes')
         .upsert(payload, { onConflict: 'user_id,item_id' })
         .select('*')
         .single();
-
-      if (error) {
-        return { ok: false, error: normalizeDataError(error, 'Không thể lưu ghi chú lên máy chủ.') };
-      }
-      const row = data as NoteRow;
-      return { ok: true, data: rowToNote(row), version: row.version, updatedAt: row.updated_at };
     }
 
     if (typeof options.expectedVersion === 'number') {
-      const { data, error } = await supabase
+      return supabase!
         .from('user_notes')
         .update(payload)
-        .eq('user_id', userId)
+        .eq('user_id', ownerId)
         .eq('item_id', note.id)
         .eq('version', options.expectedVersion)
         .eq('is_deleted', false)
         .select('*')
         .maybeSingle();
-
-      if (error) {
-        return { ok: false, error: normalizeDataError(error, 'Không thể cập nhật ghi chú.') };
-      }
-
-      if (!data) {
-        const latest = await fetchLatestSingleRow<NoteRow>('user_notes', userId, note.id);
-        return {
-          ok: false,
-          conflict: {
-            kind: 'note',
-            itemId: note.id,
-            localItem: note,
-            serverItem: latest && !latest.is_deleted ? rowToNote(latest) : null,
-            serverDeleted: !latest || latest.is_deleted,
-            serverVersion: latest?.version ?? 0,
-            serverUpdatedAt: latest?.updated_at ?? new Date().toISOString(),
-          },
-        };
-      }
-
-      const row = data as NoteRow;
-      return { ok: true, data: rowToNote(row), version: row.version, updatedAt: row.updated_at };
     }
 
-    const { data, error } = await supabase
-      .from('user_notes')
-      .insert(payload)
-      .select('*')
-      .single();
+    return supabase!.from('user_notes').insert(payload).select('*').single();
+  };
+
+  try {
+    let { data, error } = await runWrite(false);
+    if (error && isMissingVisibilityColumnError(error) && !wantsVisibility) {
+      const retry = await runWrite(true);
+      data = retry.data;
+      error = retry.error;
+    }
 
     if (error) {
-      if (error.code === '23505') {
-        const latest = await fetchLatestSingleRow<NoteRow>('user_notes', userId, note.id);
+      if (error.code === '23505' && typeof options.expectedVersion !== 'number' && !options.forceOverwrite) {
+        const latest = await fetchLatestSingleRow<NoteRow>('user_notes', ownerId, note.id);
         return {
           ok: false,
           conflict: {
             kind: 'note',
             itemId: note.id,
+            ownerId,
             localItem: note,
             serverItem: latest && !latest.is_deleted ? rowToNote(latest) : null,
             serverDeleted: !latest || latest.is_deleted,
@@ -894,18 +1244,41 @@ export async function saveNoteToCloud(
           },
         };
       }
-      return { ok: false, error: normalizeDataError(error, 'Không thể lưu ghi chú mới lên máy chủ.') };
+      return { ok: false, error: normalizeDataError(error, 'Không thể lưu ghi chú lên máy chủ.') };
+    }
+
+    if (!data && typeof options.expectedVersion === 'number') {
+      const latest = await fetchLatestSingleRow<NoteRow>('user_notes', ownerId, note.id);
+      return {
+        ok: false,
+        conflict: {
+          kind: 'note',
+          itemId: note.id,
+          ownerId,
+          localItem: note,
+          serverItem: latest && !latest.is_deleted ? rowToNote(latest) : null,
+          serverDeleted: !latest || latest.is_deleted,
+          serverVersion: latest?.version ?? 0,
+          serverUpdatedAt: latest?.updated_at ?? new Date().toISOString(),
+        },
+      };
     }
 
     const row = data as NoteRow;
-    return { ok: true, data: rowToNote(row), version: row.version, updatedAt: row.updated_at };
+    const profilesMap = await fetchPublicProfilesMap([row.user_id]);
+    return {
+      ok: true,
+      data: rowToNote(row, profilesMap),
+      version: row.version,
+      updatedAt: row.updated_at,
+    };
   } catch (err) {
     return { ok: false, error: normalizeDataError(err, 'Không thể lưu ghi chú lên máy chủ.') };
   }
 }
 
 export async function deleteNoteFromCloud(
-  userId: string,
+  ownerId: string,
   noteId: string,
 ): Promise<DataServiceResult<{ id: string }>> {
   if (!supabase) {
@@ -916,7 +1289,7 @@ export async function deleteNoteFromCloud(
     const { error } = await supabase
       .from('user_notes')
       .delete()
-      .eq('user_id', userId)
+      .eq('user_id', ownerId)
       .eq('item_id', noteId);
 
     if (error) {
@@ -930,7 +1303,7 @@ export async function deleteNoteFromCloud(
 }
 
 export async function saveIdeaToCloud(
-  userId: string,
+  ownerId: string,
   idea: Idea,
   options: SaveOptions = {},
 ): Promise<DataServiceResult<Idea>> {
@@ -938,72 +1311,56 @@ export async function saveIdeaToCloud(
     return { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Supabase chưa được cấu hình.' } };
   }
 
-  const payload = ideaToRowPayload(userId, idea, false);
+  const wantsVisibility = Boolean(
+    options.isPublic || options.isSystem || idea.isPublic || idea.isSystem,
+  );
+  const runWrite = async (omitVisibility: boolean) => {
+    const payload = ideaToRowPayload(ownerId, idea, false, {
+      isPublic: options.isPublic,
+      isSystem: options.isSystem,
+      omitVisibility,
+    });
 
-  try {
     if (options.forceOverwrite) {
-      const { data, error } = await supabase
+      return supabase!
         .from('user_ideas')
         .upsert(payload, { onConflict: 'user_id,item_id' })
         .select('*')
         .single();
-
-      if (error) {
-        return { ok: false, error: normalizeDataError(error, 'Không thể lưu ý tưởng lên máy chủ.') };
-      }
-      const row = data as IdeaRow;
-      return { ok: true, data: rowToIdea(row), version: row.version, updatedAt: row.updated_at };
     }
 
     if (typeof options.expectedVersion === 'number') {
-      const { data, error } = await supabase
+      return supabase!
         .from('user_ideas')
         .update(payload)
-        .eq('user_id', userId)
+        .eq('user_id', ownerId)
         .eq('item_id', idea.id)
         .eq('version', options.expectedVersion)
         .eq('is_deleted', false)
         .select('*')
         .maybeSingle();
-
-      if (error) {
-        return { ok: false, error: normalizeDataError(error, 'Không thể cập nhật ý tưởng.') };
-      }
-
-      if (!data) {
-        const latest = await fetchLatestSingleRow<IdeaRow>('user_ideas', userId, idea.id);
-        return {
-          ok: false,
-          conflict: {
-            kind: 'idea',
-            itemId: idea.id,
-            localItem: idea,
-            serverItem: latest && !latest.is_deleted ? rowToIdea(latest) : null,
-            serverDeleted: !latest || latest.is_deleted,
-            serverVersion: latest?.version ?? 0,
-            serverUpdatedAt: latest?.updated_at ?? new Date().toISOString(),
-          },
-        };
-      }
-
-      const row = data as IdeaRow;
-      return { ok: true, data: rowToIdea(row), version: row.version, updatedAt: row.updated_at };
     }
 
-    const { data, error } = await supabase
-      .from('user_ideas')
-      .insert(payload)
-      .select('*')
-      .single();
+    return supabase!.from('user_ideas').insert(payload).select('*').single();
+  };
+
+  try {
+    let { data, error } = await runWrite(false);
+    if (error && isMissingVisibilityColumnError(error) && !wantsVisibility) {
+      const retry = await runWrite(true);
+      data = retry.data;
+      error = retry.error;
+    }
 
     if (error) {
-      if (error.code === '23505') {
-        const latest = await fetchLatestSingleRow<IdeaRow>('user_ideas', userId, idea.id);
+      if (error.code === '23505' && typeof options.expectedVersion !== 'number' && !options.forceOverwrite) {
+        const latest = await fetchLatestSingleRow<IdeaRow>('user_ideas', ownerId, idea.id);
         return {
           ok: false,
           conflict: {
             kind: 'idea',
             itemId: idea.id,
+            ownerId,
             localItem: idea,
             serverItem: latest && !latest.is_deleted ? rowToIdea(latest) : null,
             serverDeleted: !latest || latest.is_deleted,
@@ -1012,18 +1369,41 @@ export async function saveIdeaToCloud(
           },
         };
       }
-      return { ok: false, error: normalizeDataError(error, 'Không thể lưu ý tưởng mới lên máy chủ.') };
+      return { ok: false, error: normalizeDataError(error, 'Không thể lưu ý tưởng lên máy chủ.') };
+    }
+
+    if (!data && typeof options.expectedVersion === 'number') {
+      const latest = await fetchLatestSingleRow<IdeaRow>('user_ideas', ownerId, idea.id);
+      return {
+        ok: false,
+        conflict: {
+          kind: 'idea',
+          itemId: idea.id,
+          ownerId,
+          localItem: idea,
+          serverItem: latest && !latest.is_deleted ? rowToIdea(latest) : null,
+          serverDeleted: !latest || latest.is_deleted,
+          serverVersion: latest?.version ?? 0,
+          serverUpdatedAt: latest?.updated_at ?? new Date().toISOString(),
+        },
+      };
     }
 
     const row = data as IdeaRow;
-    return { ok: true, data: rowToIdea(row), version: row.version, updatedAt: row.updated_at };
+    const profilesMap = await fetchPublicProfilesMap([row.user_id]);
+    return {
+      ok: true,
+      data: rowToIdea(row, profilesMap),
+      version: row.version,
+      updatedAt: row.updated_at,
+    };
   } catch (err) {
     return { ok: false, error: normalizeDataError(err, 'Không thể lưu ý tưởng lên máy chủ.') };
   }
 }
 
 export async function deleteIdeaFromCloud(
-  userId: string,
+  ownerId: string,
   ideaId: string,
   isBuiltin: boolean,
 ): Promise<DataServiceResult<{ id: string }>> {
@@ -1035,7 +1415,7 @@ export async function deleteIdeaFromCloud(
     if (isBuiltin) {
       const { error } = await supabase.from('user_ideas').upsert(
         {
-          user_id: userId,
+          user_id: ownerId,
           item_id: ideaId,
           title: '[Đã ẩn]',
           content: '',
@@ -1050,7 +1430,7 @@ export async function deleteIdeaFromCloud(
       const { error } = await supabase
         .from('user_ideas')
         .delete()
-        .eq('user_id', userId)
+        .eq('user_id', ownerId)
         .eq('item_id', ideaId);
       if (error) {
         return { ok: false, error: normalizeDataError(error, 'Không thể xóa ý tưởng trên máy chủ.') };
@@ -1063,8 +1443,173 @@ export async function deleteIdeaFromCloud(
   }
 }
 
+export async function saveLibraryPromptToCloud(
+  ownerId: string,
+  prompt: LibraryPrompt,
+  options: SaveOptions = {},
+): Promise<DataServiceResult<LibraryPrompt>> {
+  if (!supabase) {
+    return { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Supabase chưa được cấu hình.' } };
+  }
+
+  const wantsVisibility = Boolean(
+    options.isPublic || options.isSystem || prompt.isPublic || prompt.isSystem,
+  );
+  const runWrite = async (omitVisibility: boolean) => {
+    const payload = libraryPromptToRowPayload(ownerId, prompt, false, {
+      isPublic: options.isPublic,
+      isSystem: options.isSystem,
+      omitVisibility,
+    });
+
+    if (options.forceOverwrite) {
+      return supabase!
+        .from('user_library_prompts')
+        .upsert(payload, { onConflict: 'user_id,item_id' })
+        .select('*')
+        .single();
+    }
+
+    if (typeof options.expectedVersion === 'number') {
+      return supabase!
+        .from('user_library_prompts')
+        .update(payload)
+        .eq('user_id', ownerId)
+        .eq('item_id', prompt.id)
+        .eq('version', options.expectedVersion)
+        .eq('is_deleted', false)
+        .select('*')
+        .maybeSingle();
+    }
+
+    return supabase!.from('user_library_prompts').insert(payload).select('*').single();
+  };
+
+  try {
+    let { data, error } = await runWrite(false);
+    if (error && isMissingVisibilityColumnError(error) && !wantsVisibility) {
+      const retry = await runWrite(true);
+      data = retry.data;
+      error = retry.error;
+    }
+
+    if (error) {
+      if (error.code === '23505' && typeof options.expectedVersion !== 'number' && !options.forceOverwrite) {
+        const latest = await fetchLatestSingleRow<LibraryPromptRow>(
+          'user_library_prompts',
+          ownerId,
+          prompt.id,
+        );
+        return {
+          ok: false,
+          conflict: {
+            kind: 'library_prompt',
+            itemId: prompt.id,
+            ownerId,
+            localItem: prompt,
+            serverItem: latest && !latest.is_deleted ? rowToLibraryPrompt(latest) : null,
+            serverDeleted: !latest || latest.is_deleted,
+            serverVersion: latest?.version ?? 0,
+            serverUpdatedAt: latest?.updated_at ?? new Date().toISOString(),
+          },
+        };
+      }
+      return {
+        ok: false,
+        error: normalizeDataError(error, 'Không thể lưu câu lệnh thư viện lên máy chủ.'),
+      };
+    }
+
+    if (!data && typeof options.expectedVersion === 'number') {
+      const latest = await fetchLatestSingleRow<LibraryPromptRow>(
+        'user_library_prompts',
+        ownerId,
+        prompt.id,
+      );
+      return {
+        ok: false,
+        conflict: {
+          kind: 'library_prompt',
+          itemId: prompt.id,
+          ownerId,
+          localItem: prompt,
+          serverItem: latest && !latest.is_deleted ? rowToLibraryPrompt(latest) : null,
+          serverDeleted: !latest || latest.is_deleted,
+          serverVersion: latest?.version ?? 0,
+          serverUpdatedAt: latest?.updated_at ?? new Date().toISOString(),
+        },
+      };
+    }
+
+    const row = data as LibraryPromptRow;
+    const profilesMap = await fetchPublicProfilesMap([row.user_id]);
+    return {
+      ok: true,
+      data: rowToLibraryPrompt(row, profilesMap),
+      version: row.version,
+      updatedAt: row.updated_at,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: normalizeDataError(err, 'Không thể lưu câu lệnh thư viện lên máy chủ.'),
+    };
+  }
+}
+
+export async function deleteLibraryPromptFromCloud(
+  ownerId: string,
+  promptId: string,
+  isBuiltin: boolean,
+): Promise<DataServiceResult<{ id: string }>> {
+  if (!supabase) {
+    return { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Supabase chưa được cấu hình.' } };
+  }
+
+  try {
+    if (isBuiltin) {
+      const { error } = await supabase.from('user_library_prompts').upsert(
+        {
+          user_id: ownerId,
+          item_id: promptId,
+          title: '[Đã ẩn]',
+          description: '',
+          how_to_use: '',
+          author: '',
+          tags: [],
+          steps: [],
+          is_deleted: true,
+        },
+        { onConflict: 'user_id,item_id' },
+      );
+      if (error) {
+        return { ok: false, error: normalizeDataError(error, 'Không thể ẩn câu lệnh mặc định.') };
+      }
+    } else {
+      const { error } = await supabase
+        .from('user_library_prompts')
+        .delete()
+        .eq('user_id', ownerId)
+        .eq('item_id', promptId);
+      if (error) {
+        return {
+          ok: false,
+          error: normalizeDataError(error, 'Không thể xóa câu lệnh thư viện trên máy chủ.'),
+        };
+      }
+    }
+    return { ok: true, data: { id: promptId } };
+  } catch (err) {
+    return {
+      ok: false,
+      error: normalizeDataError(err, 'Không thể xóa câu lệnh thư viện trên máy chủ.'),
+    };
+  }
+}
+
 // ----------------------------------------------------------------------------
 // Idempotent Chunk Upsert & Resumable Import Job Persistence (sessionStorage)
+// Bảo đảm dữ liệu nhập từ localStorage luôn ở trạng thái riêng tư (omitVisibility: true)
 // ----------------------------------------------------------------------------
 
 export async function upsertImportChunk(
@@ -1077,7 +1622,9 @@ export async function upsertImportChunk(
 
   try {
     if (chunk.kind === 'character') {
-      const rows = (chunk.items as Character[]).map((c) => characterToRowPayload(userId, c, false));
+      const rows = (chunk.items as Character[]).map((c) =>
+        characterToRowPayload(userId, c, false, { omitVisibility: true }),
+      );
       const { error } = await supabase
         .from('user_characters')
         .upsert(rows, { onConflict: 'user_id,item_id' });
@@ -1088,7 +1635,9 @@ export async function upsertImportChunk(
     }
 
     if (chunk.kind === 'note') {
-      const rows = (chunk.items as Note[]).map((n) => noteToRowPayload(userId, n, false));
+      const rows = (chunk.items as Note[]).map((n) =>
+        noteToRowPayload(userId, n, false, { omitVisibility: true }),
+      );
       const { error } = await supabase
         .from('user_notes')
         .upsert(rows, { onConflict: 'user_id,item_id' });
@@ -1099,7 +1648,9 @@ export async function upsertImportChunk(
     }
 
     if (chunk.kind === 'idea') {
-      const rows = (chunk.items as Idea[]).map((i) => ideaToRowPayload(userId, i, false));
+      const rows = (chunk.items as Idea[]).map((i) =>
+        ideaToRowPayload(userId, i, false, { omitVisibility: true }),
+      );
       const { error } = await supabase
         .from('user_ideas')
         .upsert(rows, { onConflict: 'user_id,item_id' });
@@ -1110,7 +1661,7 @@ export async function upsertImportChunk(
     }
 
     const rows = (chunk.items as LibraryPrompt[]).map((p) =>
-      libraryPromptToRowPayload(userId, p, false),
+      libraryPromptToRowPayload(userId, p, false, { omitVisibility: true }),
     );
     const { error } = await supabase
       .from('user_library_prompts')

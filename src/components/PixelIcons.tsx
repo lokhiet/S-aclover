@@ -15,27 +15,27 @@ export function PixelCloverIcon({ className = 'w-4 h-4' }: PixelIconProps) {
       aria-hidden="true"
     >
       {/* Top-left leaf */}
-      <rect x="3" y="2" width="3" height="1" fill="#39755D" />
-      <rect x="2" y="3" width="5" height="3" fill="#52A37E" />
-      <rect x="3" y="3" width="2" height="1" fill="#9FE0BE" />
-      <rect x="3" y="6" width="4" height="1" fill="#39755D" />
+      <rect x="3" y="2" width="3" height="1" fill="var(--clover-dark, #39755D)" />
+      <rect x="2" y="3" width="5" height="3" fill="var(--clover-mid, #52997A)" />
+      <rect x="3" y="3" width="2" height="1" fill="var(--clover-hi, #A6DAC0)" />
+      <rect x="3" y="6" width="4" height="1" fill="var(--clover-dark, #39755D)" />
       {/* Top-right leaf */}
-      <rect x="10" y="2" width="3" height="1" fill="#39755D" />
-      <rect x="9" y="3" width="5" height="3" fill="#52A37E" />
-      <rect x="10" y="3" width="2" height="1" fill="#9FE0BE" />
-      <rect x="9" y="6" width="4" height="1" fill="#39755D" />
+      <rect x="10" y="2" width="3" height="1" fill="var(--clover-dark, #39755D)" />
+      <rect x="9" y="3" width="5" height="3" fill="var(--clover-mid, #52997A)" />
+      <rect x="10" y="3" width="2" height="1" fill="var(--clover-hi, #A6DAC0)" />
+      <rect x="9" y="6" width="4" height="1" fill="var(--clover-dark, #39755D)" />
       {/* Bottom-left leaf */}
-      <rect x="2" y="8" width="5" height="3" fill="#46916E" />
-      <rect x="3" y="8" width="2" height="1" fill="#82CBA6" />
-      <rect x="3" y="11" width="3" height="1" fill="#39755D" />
+      <rect x="2" y="8" width="5" height="3" fill="var(--clover-soft, #468D6D)" />
+      <rect x="3" y="8" width="2" height="1" fill="var(--clover-hi, #A6DAC0)" />
+      <rect x="3" y="11" width="3" height="1" fill="var(--clover-dark, #39755D)" />
       {/* Bottom-right leaf */}
-      <rect x="9" y="8" width="5" height="3" fill="#46916E" />
-      <rect x="10" y="8" width="2" height="1" fill="#82CBA6" />
-      <rect x="10" y="11" width="3" height="1" fill="#39755D" />
+      <rect x="9" y="8" width="5" height="3" fill="var(--clover-soft, #468D6D)" />
+      <rect x="10" y="8" width="2" height="1" fill="var(--clover-hi, #A6DAC0)" />
+      <rect x="10" y="11" width="3" height="1" fill="var(--clover-dark, #39755D)" />
       {/* Center & stem */}
-      <rect x="7" y="6" width="2" height="3" fill="#2B5B47" />
-      <rect x="7" y="9" width="2" height="4" fill="#39755D" />
-      <rect x="8" y="13" width="2" height="1" fill="#2B5B47" />
+      <rect x="7" y="6" width="2" height="3" fill="var(--clover-core, #2B5B47)" />
+      <rect x="7" y="9" width="2" height="4" fill="var(--clover-dark, #39755D)" />
+      <rect x="8" y="13" width="2" height="1" fill="var(--clover-core, #2B5B47)" />
     </svg>
   );
 }

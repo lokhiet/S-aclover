@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { 
   Plus, 
   Trash2, 
@@ -29,17 +29,26 @@ import {
   Globe,
   Facebook,
   MessageSquare,
-  Link
+  Link,
+  Bell,
+  Lock,
+  ShieldCheck,
 } from 'lucide-react';
-import CloverRain from './components/CloverRain';
-import StarRain from './components/StarRain';
-import { Note, Idea, Character, AppState, LibraryPrompt } from './types';
-import { CharacterForm, NoteForm, IdeaForm } from './components/RepositoryForms';
+import CloverClickBurst from './components/CloverClickBurst';
+import { Note, Idea, Character, AppState, LibraryPrompt, SystemAnnouncement } from './types';
+import { CharacterForm, NoteForm, IdeaForm, LibraryPromptForm } from './components/RepositoryForms';
 import Toast from './components/Toast';
 import AccountButton from './components/auth/AccountButton';
 import AuthModal from './components/auth/AuthModal';
 import LocalDataMigrationModal from './components/auth/LocalDataMigrationModal';
 import ConflictResolutionModal from './components/auth/ConflictResolutionModal';
+import {
+  SystemAnnouncementsBanner,
+  SystemAnnouncementsModal,
+} from './components/community/SystemAnnouncementsBar';
+import { ContentInteractionBar } from './components/community/ContentInteractionBar';
+import { CharacterCommentsSection } from './components/community/CharacterCommentsSection';
+import { PromptRatingSection } from './components/community/PromptRatingSection';
 import {
   PixelCloverIcon,
   PixelCharacterIcon,
@@ -77,19 +86,40 @@ import {
   clearResumableImportJob,
   deleteCharacterFromCloud,
   deleteIdeaFromCloud,
+  deleteLibraryPromptFromCloud,
   deleteNoteFromCloud,
+  fetchPublicAndSystemSnapshot,
   fetchUserData,
   isMigrationPromptDismissed,
   loadResumableImportJob,
   saveCharacterToCloud,
   saveIdeaToCloud,
+  saveLibraryPromptToCloud,
   saveNoteToCloud,
   setMigrationPromptDismissed,
+  toggleItemPublicStatus,
   versionKey,
   type CloudUserDataSnapshot,
   type ConflictDetail,
+  type DataEntityKind,
+  type PublicCommunitySnapshot,
   type SyncedVersionMap,
 } from './services/userDataService';
+import { fetchSystemAnnouncements } from './services/communityService';
+
+const BUILTIN_LIB_PROMPT_IDS = new Set(defaultLibraryPrompts.map((p) => p.id));
+
+function getItemKey(item: { id: string; ownerId?: string; cloudKey?: string }): string {
+  return item.cloudKey || (item.ownerId ? `${item.ownerId}:${item.id}` : item.id);
+}
+
+function findBySelectedKey<T extends { id: string; ownerId?: string; cloudKey?: string }>(
+  list: T[],
+  selectedKey: string | null,
+): T | null {
+  if (!selectedKey) return null;
+  return list.find((item) => getItemKey(item) === selectedKey) || list.find((item) => item.id === selectedKey) || null;
+}
 
 // Helper function to resolve distinctive emoji icons for each library prompt
 const getLibraryPromptIcon = (prompt: LibraryPrompt) => {
@@ -292,29 +322,29 @@ export const getIdeaTopicInfo = (idea: Idea) => {
     return {
       name: 'Khác',
       icon: customIcon,
-      colorClass: 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400 border-emerald-500/20'
+      colorClass: 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20 dark:bg-[#343D37] dark:text-[#A3BDA8] dark:border-[#49554D]'
     };
   }
   
-  let colorClass = 'bg-zinc-100 text-zinc-600 dark:bg-zinc-950/40 dark:text-zinc-400 border-zinc-200 dark:border-zinc-900/40';
+  let colorClass = 'bg-zinc-100 text-zinc-700 border-zinc-200 dark:bg-[#343D37] dark:text-[#B8BDB5] dark:border-[#49554D]';
   switch (matchedTopic.id) {
     case 'cooking':
-      colorClass = 'bg-amber-500/10 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400 border-amber-500/20';
+      colorClass = 'bg-amber-500/10 text-amber-700 border-amber-500/20 dark:bg-[#343D37] dark:text-[#D5B97A] dark:border-[#49554D]';
       break;
     case 'sweet':
-      colorClass = 'bg-rose-500/10 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400 border-rose-500/20';
+      colorClass = 'bg-rose-500/10 text-rose-700 border-rose-500/20 dark:bg-[#343D37] dark:text-[#D9A7B8] dark:border-[#49554D]';
       break;
     case 'sexy':
-      colorClass = 'bg-red-500/10 text-red-600 dark:bg-red-500/10 dark:text-red-400 border-red-500/20';
+      colorClass = 'bg-red-500/10 text-red-700 border-red-500/20 dark:bg-[#343D37] dark:text-[#E4A6AA] dark:border-[#49554D]';
       break;
     case 'drama':
-      colorClass = 'bg-purple-500/10 text-purple-600 dark:bg-purple-500/10 dark:text-purple-400 border-purple-500/20';
+      colorClass = 'bg-purple-500/10 text-purple-700 border-purple-500/20 dark:bg-[#343D37] dark:text-[#D9A7B8] dark:border-[#49554D]';
       break;
     case 'funny':
-      colorClass = 'bg-amber-500/10 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400 border-amber-500/20';
+      colorClass = 'bg-amber-500/10 text-amber-700 border-amber-500/20 dark:bg-[#343D37] dark:text-[#D5B97A] dark:border-[#49554D]';
       break;
     case 'daily':
-      colorClass = 'bg-blue-500/10 text-blue-600 dark:bg-blue-500/10 dark:text-blue-400 border-blue-500/20';
+      colorClass = 'bg-blue-500/10 text-blue-700 border-blue-500/20 dark:bg-[#343D37] dark:text-[#A3BDA8] dark:border-[#49554D]';
       break;
   }
   
@@ -516,7 +546,7 @@ export default function App() {
   const [ideas, setIdeas] = useState<Idea[]>(() => initialLocalState.ideas);
   const [characters, setCharacters] = useState<Character[]>(() => initialLocalState.characters);
   const [theme, setTheme] = useState<'light' | 'dark'>(() => initialUiPrefs.theme);
-  const [cloverEffect, setCloverEffect] = useState<boolean>(() => initialUiPrefs.cloverEffect);
+  const [cloverEffect] = useState<boolean>(() => initialUiPrefs.cloverEffect);
   const [libraryPrompts, setLibraryPrompts] = useState<LibraryPrompt[]>(
     () => initialLocalState.libraryPrompts || defaultLibraryPrompts,
   );
@@ -555,6 +585,8 @@ export default function App() {
   // Form toggles
   const [isCreating, setIsCreating] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [isCreatingLibraryPrompt, setIsCreatingLibraryPrompt] = useState(false);
+  const [isEditingLibraryPrompt, setIsEditingLibraryPrompt] = useState(false);
 
   // Toast alert system
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
@@ -564,6 +596,7 @@ export default function App() {
     user,
     userId,
     isAuthenticated,
+    isAdmin,
     isAuthReady,
     isRecoveryMode,
     authError,
@@ -575,8 +608,15 @@ export default function App() {
   // Cloud synchronization state
   const [isSyncingCloud, setIsSyncingCloud] = useState(false);
   const [isSavingItem, setIsSavingItem] = useState(false);
+  const [isTogglingPublic, setIsTogglingPublic] = useState(false);
   const [cloudSnapshot, setCloudSnapshot] = useState<CloudUserDataSnapshot | null>(null);
+  const [publicSnapshot, setPublicSnapshot] = useState<PublicCommunitySnapshot | null>(null);
   const [syncedVersions, setSyncedVersions] = useState<SyncedVersionMap>({});
+
+  // Community & System Announcements state
+  const [announcements, setAnnouncements] = useState<SystemAnnouncement[]>([]);
+  const [isAnnouncementsModalOpen, setIsAnnouncementsModalOpen] = useState(false);
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'system' | 'community' | 'mine'>('all');
 
   // Conflict resolution modal state (Optimistic Concurrency Control)
   const [activeConflict, setActiveConflict] = useState<ConflictDetail | null>(null);
@@ -600,10 +640,22 @@ export default function App() {
     isEditingOrBusyRef.current =
       isCreating ||
       isEditing ||
+      isCreatingLibraryPrompt ||
+      isEditingLibraryPrompt ||
       isSavingItem ||
+      isTogglingPublic ||
       isMigrationModalOpen ||
       Boolean(activeConflict);
-  }, [isCreating, isEditing, isSavingItem, isMigrationModalOpen, activeConflict]);
+  }, [
+    isCreating,
+    isEditing,
+    isCreatingLibraryPrompt,
+    isEditingLibraryPrompt,
+    isSavingItem,
+    isTogglingPublic,
+    isMigrationModalOpen,
+    activeConflict,
+  ]);
 
   const openAuthModal = (mode: AuthModalMode = 'login') => {
     setAuthModalMode(mode);
@@ -643,6 +695,34 @@ export default function App() {
     }
   }, [theme]);
 
+  // Tải nội dung Hệ thống (Admin) và Cộng đồng công khai (dùng chung cho cả Khách và User)
+  const refreshPublicSnapshot = useCallback(async () => {
+    const res = await fetchPublicAndSystemSnapshot();
+    if (res.ok && res.data) {
+      setPublicSnapshot(res.data);
+      if (Object.keys(res.data.versions).length > 0) {
+        setSyncedVersions((prev) => ({ ...res.data!.versions, ...prev }));
+      }
+    }
+  }, []);
+
+  // Tải thông báo hệ thống (Admin thấy cả thông báo đang ẩn)
+  const refreshAnnouncements = useCallback(async () => {
+    const res = await fetchSystemAnnouncements(isAdmin);
+    if (res.ok && res.data) {
+      setAnnouncements(res.data);
+    }
+  }, [isAdmin]);
+
+  useEffect(() => {
+    void refreshPublicSnapshot();
+  }, [refreshPublicSnapshot]);
+
+  useEffect(() => {
+    if (!isAuthReady) return;
+    void refreshAnnouncements();
+  }, [isAuthReady, refreshAnnouncements]);
+
   // Tải & đồng bộ dữ liệu từ Supabase cho đúng tài khoản hiện tại
   const syncFromSupabase = useCallback(
     async (
@@ -673,8 +753,10 @@ export default function App() {
         setIdeas(snapshot.ideas);
         setLibraryPrompts(snapshot.libraryPrompts);
         setCloudSnapshot(snapshot);
-        setSyncedVersions(snapshot.versions);
+        setSyncedVersions((prev) => ({ ...prev, ...snapshot.versions }));
         lastFocusSyncAtRef.current = Date.now();
+        void refreshPublicSnapshot();
+        void refreshAnnouncements();
 
         // Kiểm tra thuần (read-only) xem localStorage có dữ liệu cá nhân hoặc phiên nhập bị gián đoạn không
         const personalLocal = extractPersonalLocalData();
@@ -707,7 +789,7 @@ export default function App() {
         }
       }
     },
-    [showToast],
+    [showToast, refreshPublicSnapshot, refreshAnnouncements],
   );
 
   // Chuyển đổi an toàn giữa chế độ Khách (localStorage) và Tài khoản (Supabase),
@@ -721,6 +803,8 @@ export default function App() {
         // Xóa sạch trạng thái tạm và dữ liệu phiên trước khỏi bộ nhớ ngay lập tức
         setIsCreating(false);
         setIsEditing(false);
+        setIsCreatingLibraryPrompt(false);
+        setIsEditingLibraryPrompt(false);
         setActiveConflict(null);
         setIsMigrationModalOpen(false);
         setSelectedNoteId(null);
@@ -744,6 +828,8 @@ export default function App() {
       activeSyncedUserIdRef.current = null;
       setIsCreating(false);
       setIsEditing(false);
+      setIsCreatingLibraryPrompt(false);
+      setIsEditingLibraryPrompt(false);
       setActiveConflict(null);
       setIsMigrationModalOpen(false);
       setCloudSnapshot(null);
@@ -754,14 +840,16 @@ export default function App() {
       setSelectedIdeaId(null);
       setSelectedCharId(null);
       setSelectedLibraryPromptId(null);
+      setSourceFilter('all');
 
       const guestState = loadState();
       setNotes(guestState.notes);
       setIdeas(guestState.ideas);
       setCharacters(guestState.characters);
       setLibraryPrompts(guestState.libraryPrompts || defaultLibraryPrompts);
+      void refreshPublicSnapshot();
     }
-  }, [isAuthReady, isAuthenticated, userId, syncFromSupabase]);
+  }, [isAuthReady, isAuthenticated, userId, syncFromSupabase, refreshPublicSnapshot]);
 
   // Tự động đồng bộ lại âm thầm khi người dùng quay lại tab (giảm xung đột giữa Edge/Chrome/thiết bị khác)
   useEffect(() => {
@@ -784,7 +872,7 @@ export default function App() {
 
   const handleManualSyncNow = () => {
     if (!isAuthenticated || !userId) return;
-    if (isCreating || isEditing) {
+    if (isCreating || isEditing || isCreatingLibraryPrompt || isEditingLibraryPrompt) {
       showToast('Hãy lưu hoặc đóng biểu mẫu đang chỉnh sửa trước khi đồng bộ lại.', 'info');
       return;
     }
@@ -871,8 +959,11 @@ export default function App() {
     setActiveTab(tab);
     setSearchQuery('');
     setSelectedLibTag(null);
+    setSourceFilter('all');
     setIsCreating(false);
     setIsEditing(false);
+    setIsCreatingLibraryPrompt(false);
+    setIsEditingLibraryPrompt(false);
     setSelectedTopicId('all');
     setSelectedFilterAuthor(null);
     setSelectedFilterTag(null);
@@ -892,20 +983,11 @@ export default function App() {
     setSelectedCharId(null);
     setIsCreating(false);
     setIsEditing(false);
+    setIsCreatingLibraryPrompt(false);
+    setIsEditingLibraryPrompt(false);
     setShowDetailOnMobile(true);
     setVisibleSteps({});
     setSearchQuery('');
-  };
-
-  // Toggle dynamic clover falling (tách cài đặt giao diện để không bao giờ ghi đè seaclover_state khi đã đăng nhập)
-  const handleCloverToggle = () => {
-    const nextVal = !cloverEffect;
-    setCloverEffect(nextVal);
-    saveUiPrefs({ theme, cloverEffect: nextVal });
-    if (!isAuthenticated) {
-      persistToLocalStorage({ notes, ideas, characters, theme, cloverEffect: nextVal, libraryPrompts });
-    }
-    showToast(nextVal ? 'Đã bật hiệu ứng cỏ bốn lá rơi 🍀' : 'Đã tắt hiệu ứng cỏ bốn lá rơi', 'info');
   };
 
   // Toggle dark theme
@@ -918,38 +1000,187 @@ export default function App() {
     }
   };
 
+  /* ----------------- MERGED DISPLAY LISTS (PERSONAL/GUEST + SYSTEM + COMMUNITY) ----------------- */
+
+  const displayCharacters = useMemo(() => {
+    const ownKeys = new Set(characters.map((c) => (c.ownerId ? `${c.ownerId}:${c.id}` : `local:${c.id}`)));
+    const extra = (publicSnapshot?.characters ?? []).filter((pub) => {
+      const k = pub.ownerId ? `${pub.ownerId}:${pub.id}` : `local:${pub.id}`;
+      return !ownKeys.has(k);
+    });
+    return [...extra.filter((c) => c.isSystem), ...characters, ...extra.filter((c) => !c.isSystem)];
+  }, [characters, publicSnapshot]);
+
+  const displayNotes = useMemo(() => {
+    const ownKeys = new Set(notes.map((n) => (n.ownerId ? `${n.ownerId}:${n.id}` : `local:${n.id}`)));
+    const extra = (publicSnapshot?.notes ?? []).filter((pub) => {
+      const k = pub.ownerId ? `${pub.ownerId}:${pub.id}` : `local:${pub.id}`;
+      return !ownKeys.has(k);
+    });
+    return [...extra.filter((n) => n.isSystem), ...notes, ...extra.filter((n) => !n.isSystem)];
+  }, [notes, publicSnapshot]);
+
+  const displayIdeas = useMemo(() => {
+    const ownKeys = new Set(ideas.map((i) => (i.ownerId ? `${i.ownerId}:${i.id}` : `local:${i.id}`)));
+    const extra = (publicSnapshot?.ideas ?? []).filter((pub) => {
+      const k = pub.ownerId ? `${pub.ownerId}:${pub.id}` : `local:${pub.id}`;
+      return !ownKeys.has(k);
+    });
+    return [...extra.filter((i) => i.isSystem), ...extra.filter((i) => !i.isSystem), ...ideas];
+  }, [ideas, publicSnapshot]);
+
+  const displayLibraryPrompts = useMemo(() => {
+    const ownKeys = new Set(
+      libraryPrompts.map((p) => (p.ownerId ? `${p.ownerId}:${p.id}` : `local:${p.id}`)),
+    );
+    const extra = (publicSnapshot?.libraryPrompts ?? []).filter((pub) => {
+      const k = pub.ownerId ? `${pub.ownerId}:${pub.id}` : `local:${pub.id}`;
+      return !ownKeys.has(k);
+    });
+    const ownSystemOrCustom = libraryPrompts.filter((p) => Boolean(p.ownerId));
+    const builtins = libraryPrompts.filter((p) => !p.ownerId);
+    return [...extra.filter((p) => p.isSystem), ...ownSystemOrCustom, ...extra.filter((p) => !p.isSystem), ...builtins];
+  }, [libraryPrompts, publicSnapshot]);
+
+  // Quyền sửa / xóa khớp 100% với RLS phía Supabase
+  const canEditOrDeleteItem = useCallback(
+    (
+      kind: 'character' | 'note' | 'idea',
+      item: { id: string; ownerId?: string; isSystem?: boolean } | null | undefined,
+    ): boolean => {
+      if (!item) return false;
+      if (item.isSystem) return Boolean(isAuthenticated && isAdmin);
+      if (item.ownerId) return Boolean(isAuthenticated && userId && item.ownerId === userId);
+      // Nội dung mặc định tích hợp sẵn (rp-1..rp-160) không cho sửa/xóa chéo khi đã đăng nhập
+      if (kind === 'idea' && BUILTIN_IDEA_MAP.has(item.id)) {
+        return !isAuthenticated;
+      }
+      return true;
+    },
+    [isAuthenticated, isAdmin, userId],
+  );
+
+  const canEditOrDeleteLibraryPrompt = useCallback(
+    (prompt: LibraryPrompt | null | undefined): boolean => {
+      if (!prompt || !isAuthenticated || !userId) return false;
+      if (prompt.isSystem) return isAdmin;
+      if (prompt.ownerId && prompt.ownerId === userId) return true;
+      return false;
+    },
+    [isAuthenticated, isAdmin, userId],
+  );
+
   /* ----------------- DATA MODIFICATIONS (C.R.U.D) ----------------- */
 
   // Helper cập nhật version & đánh dấu mục đã nằm trên cloud sau khi Supabase xác nhận
   const recordCloudVersion = (
-    kind: 'character' | 'note' | 'idea' | 'library_prompt',
+    kind: DataEntityKind,
     itemId: string,
     version?: number,
     updatedAt?: string,
+    ownerId?: string,
   ) => {
     if (typeof version === 'number') {
+      const entry = {
+        version,
+        updatedAt: updatedAt || new Date().toISOString(),
+      };
       setSyncedVersions((prev) => ({
         ...prev,
-        [versionKey(kind, itemId)]: {
-          version,
-          updatedAt: updatedAt || new Date().toISOString(),
-        },
+        [versionKey(kind, itemId)]: entry,
+        ...(ownerId ? { [versionKey(kind, itemId, ownerId)]: entry } : {}),
       }));
     }
-    setCloudSnapshot((prev) => {
-      if (!prev) return prev;
-      const nextIds = {
-        characters: new Set(prev.cloudItemIds.characters),
-        notes: new Set(prev.cloudItemIds.notes),
-        ideas: new Set(prev.cloudItemIds.ideas),
-        libraryPrompts: new Set(prev.cloudItemIds.libraryPrompts),
-      };
-      if (kind === 'character') nextIds.characters.add(itemId);
-      if (kind === 'note') nextIds.notes.add(itemId);
-      if (kind === 'idea') nextIds.ideas.add(itemId);
-      if (kind === 'library_prompt') nextIds.libraryPrompts.add(itemId);
-      return { ...prev, cloudItemIds: nextIds };
-    });
+    if (!ownerId || ownerId === userId) {
+      setCloudSnapshot((prev) => {
+        if (!prev) return prev;
+        const nextIds = {
+          characters: new Set(prev.cloudItemIds.characters),
+          notes: new Set(prev.cloudItemIds.notes),
+          ideas: new Set(prev.cloudItemIds.ideas),
+          libraryPrompts: new Set(prev.cloudItemIds.libraryPrompts),
+        };
+        if (kind === 'character') nextIds.characters.add(itemId);
+        if (kind === 'note') nextIds.notes.add(itemId);
+        if (kind === 'idea') nextIds.ideas.add(itemId);
+        if (kind === 'library_prompt') nextIds.libraryPrompts.add(itemId);
+        return { ...prev, cloudItemIds: nextIds };
+      });
+    }
+  };
+
+  // Bật / Tắt trạng thái Công khai (is_public) bằng cập nhật hẹp + kiểm tra version (OCC)
+  const handleTogglePublic = async (
+    kind: DataEntityKind,
+    item: { id: string; ownerId?: string; isSystem?: boolean },
+    nextIsPublic: boolean,
+  ) => {
+    if (!isAuthenticated || !userId || item.ownerId !== userId || item.isSystem) {
+      showToast('Chỉ tác giả của nội dung cá nhân mới có thể bật/tắt Công khai.', 'error');
+      return;
+    }
+    if (isTogglingPublic || isSavingItem) return;
+
+    const expectedVersion =
+      syncedVersions[versionKey(kind, item.id, userId)]?.version ??
+      syncedVersions[versionKey(kind, item.id)]?.version;
+
+    if (typeof expectedVersion !== 'number') {
+      await syncFromSupabase(userId, { silent: true, checkLocalPrompt: false });
+      showToast('Vừa làm mới phiên bản mới nhất, bạn hãy bấm lại một lần nữa nhé.', 'info');
+      return;
+    }
+
+    setIsTogglingPublic(true);
+    try {
+      const res = await toggleItemPublicStatus(kind, userId, item.id, nextIsPublic, expectedVersion);
+
+      if (res.conflict) {
+        await syncFromSupabase(userId, { silent: true, checkLocalPrompt: false });
+        await refreshPublicSnapshot();
+        showToast(
+          res.error?.message ||
+            'Mục này vừa được chỉnh sửa trên thiết bị khác. Đã tự động làm mới dữ liệu an toàn.',
+          'info',
+        );
+        return;
+      }
+
+      if (!res.ok || !res.data) {
+        showToast(res.error?.message || 'Không thể đổi trạng thái Công khai/Riêng tư.', 'error');
+        return;
+      }
+
+      const { isPublic: confirmedPublic, publishedAt } = res.data;
+      if (kind === 'character') {
+        setCharacters((prev) =>
+          prev.map((c) => (c.id === item.id ? { ...c, isPublic: confirmedPublic, publishedAt } : c)),
+        );
+      } else if (kind === 'note') {
+        setNotes((prev) =>
+          prev.map((n) => (n.id === item.id ? { ...n, isPublic: confirmedPublic, publishedAt } : n)),
+        );
+      } else if (kind === 'idea') {
+        setIdeas((prev) =>
+          prev.map((i) => (i.id === item.id ? { ...i, isPublic: confirmedPublic, publishedAt } : i)),
+        );
+      } else {
+        setLibraryPrompts((prev) =>
+          prev.map((p) => (p.id === item.id ? { ...p, isPublic: confirmedPublic, publishedAt } : p)),
+        );
+      }
+
+      recordCloudVersion(kind, item.id, res.version, res.updatedAt, userId);
+      void refreshPublicSnapshot();
+      showToast(
+        confirmedPublic
+          ? 'Đã bật Công khai — cộng đồng có thể xem và tương tác! 🍀'
+          : 'Đã chuyển về Riêng tư — chỉ mình bạn nhìn thấy.',
+        'success',
+      );
+    } finally {
+      setIsTogglingPublic(false);
+    }
   };
 
   // Characters
@@ -960,14 +1191,32 @@ export default function App() {
       setIsSavingItem(true);
       try {
         if (data.id) {
-          const existing = characters.find((c) => c.id === data.id);
-          if (!existing) return;
-          // Gộp với bản hiện có để bảo toàn tuyệt đối các trường không có trong form (discord2, web, other...)
-          const updatedChar: Character = { ...existing, ...data, id: existing.id };
-          const expectedVersion = syncedVersions[versionKey('character', existing.id)]?.version;
-          const res = await saveCharacterToCloud(userId, updatedChar, {
+          const existing =
+            findBySelectedKey(displayCharacters, selectedCharId)?.id === data.id
+              ? findBySelectedKey(displayCharacters, selectedCharId)
+              : displayCharacters.find((c) => c.id === data.id && canEditOrDeleteItem('character', c));
+          if (!existing || !canEditOrDeleteItem('character', existing)) {
+            showToast('Bạn không có quyền chỉnh sửa nhân vật này.', 'error');
+            return;
+          }
+          const targetOwnerId = existing.ownerId || userId;
+          const nextIsSystem = existing.isSystem ? true : Boolean(isAdmin && data.isSystem);
+          const nextIsPublic = nextIsSystem ? true : Boolean(data.isPublic);
+          const updatedChar: Character = {
+            ...existing,
+            ...data,
+            id: existing.id,
+            isSystem: nextIsSystem,
+            isPublic: nextIsPublic,
+          };
+          const expectedVersion =
+            syncedVersions[versionKey('character', existing.id, targetOwnerId)]?.version ??
+            (targetOwnerId === userId ? syncedVersions[versionKey('character', existing.id)]?.version : undefined);
+          const res = await saveCharacterToCloud(targetOwnerId, updatedChar, {
             expectedVersion,
             isFirstOverride: expectedVersion === undefined,
+            isPublic: nextIsPublic,
+            isSystem: nextIsSystem,
           });
 
           if (res.conflict) {
@@ -980,18 +1229,31 @@ export default function App() {
           }
 
           const confirmedChar = res.data;
-          setCharacters((prev) => prev.map((c) => (c.id === confirmedChar.id ? confirmedChar : c)));
-          recordCloudVersion('character', confirmedChar.id, res.version, res.updatedAt);
+          if (targetOwnerId === userId) {
+            setCharacters((prev) => prev.map((c) => (c.id === confirmedChar.id ? confirmedChar : c)));
+          }
+          recordCloudVersion('character', confirmedChar.id, res.version, res.updatedAt, targetOwnerId);
+          setSelectedCharId(getItemKey(confirmedChar));
+          if (existing.isPublic || existing.isSystem || confirmedChar.isPublic || confirmedChar.isSystem) {
+            void refreshPublicSnapshot();
+          }
           setIsCreating(false);
           setIsEditing(false);
           showToast('Đã cập nhật và đồng bộ nhân vật lên tài khoản! 🍀');
         } else {
+          const nextIsSystem = Boolean(isAdmin && data.isSystem);
+          const nextIsPublic = nextIsSystem ? true : Boolean(data.isPublic);
           const newChar: Character = {
             ...data,
             id: `char-${Date.now()}`,
             createdAt: new Date().toISOString(),
+            isSystem: nextIsSystem,
+            isPublic: nextIsPublic,
           };
-          const res = await saveCharacterToCloud(userId, newChar);
+          const res = await saveCharacterToCloud(userId, newChar, {
+            isPublic: nextIsPublic,
+            isSystem: nextIsSystem,
+          });
           if (!res.ok || !res.data) {
             showToast(res.error?.message || 'Không thể lưu nhân vật mới lên tài khoản.', 'error');
             return;
@@ -999,11 +1261,18 @@ export default function App() {
 
           const confirmedChar = res.data;
           setCharacters((prev) => [...prev, confirmedChar]);
-          recordCloudVersion('character', confirmedChar.id, res.version, res.updatedAt);
-          setSelectedCharId(confirmedChar.id);
+          recordCloudVersion('character', confirmedChar.id, res.version, res.updatedAt, userId);
+          setSelectedCharId(getItemKey(confirmedChar));
+          if (confirmedChar.isPublic || confirmedChar.isSystem) {
+            void refreshPublicSnapshot();
+          }
           setIsCreating(false);
           setIsEditing(false);
-          showToast('Đã tạo và đồng bộ nhân vật mới lên tài khoản! 🎉');
+          showToast(
+            confirmedChar.isSystem
+              ? 'Đã đăng nhân vật Hệ thống cho toàn bộ cộng đồng! 🍀'
+              : 'Đã tạo và đồng bộ nhân vật mới lên tài khoản! 🎉',
+          );
         }
       } finally {
         setIsSavingItem(false);
@@ -1027,14 +1296,18 @@ export default function App() {
       };
       const nextList = [...characters, newChar];
       syncState(notes, ideas, nextList);
-      setSelectedCharId(newChar.id);
+      setSelectedCharId(getItemKey(newChar));
       showToast('Đã gieo nhân vật mới thắng lợi! 🎉');
     }
     setIsCreating(false);
     setIsEditing(false);
   };
 
-  const handleDeleteCharacter = async (id: string) => {
+  const handleDeleteCharacter = async (target: Character) => {
+    if (!canEditOrDeleteItem('character', target)) {
+      showToast('Bạn không có quyền xóa nhân vật này.', 'error');
+      return;
+    }
     if (!confirm('Bạn chắc chắn muốn xóa nhân vật này? Các ghi chú liên đới sẽ mất kết nối nhân vật.')) {
       return;
     }
@@ -1043,32 +1316,36 @@ export default function App() {
       if (isSavingItem) return;
       setIsSavingItem(true);
       try {
-        const isBuiltin = BUILTIN_CHARACTER_MAP.has(id);
-        const res = await deleteCharacterFromCloud(userId, id, isBuiltin);
+        const targetOwnerId = target.ownerId || userId;
+        const isBuiltin = !target.ownerId && BUILTIN_CHARACTER_MAP.has(target.id);
+        const res = await deleteCharacterFromCloud(targetOwnerId, target.id, isBuiltin, userId);
         if (!res.ok) {
           showToast(res.error?.message || 'Không thể xóa nhân vật trên máy chủ.', 'error');
           return;
         }
-        const nextList = characters.filter((c) => c.id !== id);
-        const nextNotes = notes.map((n) => (n.characterId === id ? { ...n, characterId: '' } : n));
-        setCharacters(nextList);
-        setNotes(nextNotes);
-        setSelectedCharId(nextList.length > 0 ? nextList[0].id : null);
+        if (targetOwnerId === userId) {
+          setCharacters((prev) => prev.filter((c) => c.id !== target.id));
+        }
+        setNotes((prev) => prev.map((n) => (n.characterId === target.id ? { ...n, characterId: '' } : n)));
+        if (target.isPublic || target.isSystem) {
+          void refreshPublicSnapshot();
+        }
+        setSelectedCharId(null);
         setShowDetailOnMobile(false);
-        showToast('Đã xóa nhân vật và đồng bộ lên tài khoản.', 'info');
+        showToast('Đã xóa nhân vật và đồng bộ lên máy chủ.', 'info');
       } finally {
         setIsSavingItem(false);
       }
       return;
     }
 
-    if (BUILTIN_CHARACTER_MAP.has(id)) {
-      markGuestItemDeleted('character', id);
+    if (BUILTIN_CHARACTER_MAP.has(target.id)) {
+      markGuestItemDeleted('character', target.id);
     }
-    const nextList = characters.filter((c) => c.id !== id);
-    const nextNotes = notes.map((n) => (n.characterId === id ? { ...n, characterId: '' } : n));
+    const nextList = characters.filter((c) => c.id !== target.id);
+    const nextNotes = notes.map((n) => (n.characterId === target.id ? { ...n, characterId: '' } : n));
     syncState(nextNotes, ideas, nextList);
-    setSelectedCharId(nextList.length > 0 ? nextList[0].id : null);
+    setSelectedCharId(nextList.length > 0 ? getItemKey(nextList[0]) : null);
     setShowDetailOnMobile(false);
     showToast('Đã hóa giải liên kết và xóa nhân vật.', 'info');
   };
@@ -1080,9 +1357,17 @@ export default function App() {
       setIsSavingItem(true);
       try {
         if (data.id) {
-          const existing = notes.find((n) => n.id === data.id);
-          if (!existing) return;
-          // Giữ lại các thuộc tính tùy chọn như categoryOffline khi chỉnh sửa
+          const existing =
+            findBySelectedKey(displayNotes, selectedNoteId)?.id === data.id
+              ? findBySelectedKey(displayNotes, selectedNoteId)
+              : displayNotes.find((n) => n.id === data.id && canEditOrDeleteItem('note', n));
+          if (!existing || !canEditOrDeleteItem('note', existing)) {
+            showToast('Bạn không có quyền chỉnh sửa ghi chú này.', 'error');
+            return;
+          }
+          const targetOwnerId = existing.ownerId || userId;
+          const nextIsSystem = existing.isSystem ? true : Boolean(isAdmin && data.isSystem);
+          const nextIsPublic = nextIsSystem ? true : Boolean(data.isPublic);
           const updatedNote: Note = {
             ...existing,
             title: data.title,
@@ -1090,12 +1375,18 @@ export default function App() {
             content: data.content,
             characterId: data.characterId,
             icon: data.icon,
+            isSystem: nextIsSystem,
+            isPublic: nextIsPublic,
             updatedAt: new Date().toISOString(),
           };
-          const expectedVersion = syncedVersions[versionKey('note', existing.id)]?.version;
-          const res = await saveNoteToCloud(userId, updatedNote, {
+          const expectedVersion =
+            syncedVersions[versionKey('note', existing.id, targetOwnerId)]?.version ??
+            (targetOwnerId === userId ? syncedVersions[versionKey('note', existing.id)]?.version : undefined);
+          const res = await saveNoteToCloud(targetOwnerId, updatedNote, {
             expectedVersion,
             isFirstOverride: expectedVersion === undefined,
+            isPublic: nextIsPublic,
+            isSystem: nextIsSystem,
           });
 
           if (res.conflict) {
@@ -1108,12 +1399,20 @@ export default function App() {
           }
 
           const confirmedNote = res.data;
-          setNotes((prev) => prev.map((n) => (n.id === confirmedNote.id ? confirmedNote : n)));
-          recordCloudVersion('note', confirmedNote.id, res.version, res.updatedAt);
+          if (targetOwnerId === userId) {
+            setNotes((prev) => prev.map((n) => (n.id === confirmedNote.id ? confirmedNote : n)));
+          }
+          recordCloudVersion('note', confirmedNote.id, res.version, res.updatedAt, targetOwnerId);
+          setSelectedNoteId(getItemKey(confirmedNote));
+          if (existing.isPublic || existing.isSystem || confirmedNote.isPublic || confirmedNote.isSystem) {
+            void refreshPublicSnapshot();
+          }
           setIsCreating(false);
           setIsEditing(false);
           showToast('Đã sửa và đồng bộ prompt/ghi chú lên tài khoản! ☘️');
         } else {
+          const nextIsSystem = Boolean(isAdmin && data.isSystem);
+          const nextIsPublic = nextIsSystem ? true : Boolean(data.isPublic);
           const newNote: Note = {
             id: `note-${Date.now()}`,
             title: data.title,
@@ -1121,10 +1420,15 @@ export default function App() {
             content: data.content,
             characterId: data.characterId,
             icon: data.icon || '☘️',
+            isSystem: nextIsSystem,
+            isPublic: nextIsPublic,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           };
-          const res = await saveNoteToCloud(userId, newNote);
+          const res = await saveNoteToCloud(userId, newNote, {
+            isPublic: nextIsPublic,
+            isSystem: nextIsSystem,
+          });
           if (!res.ok || !res.data) {
             showToast(res.error?.message || 'Không thể lưu ghi chú mới lên tài khoản.', 'error');
             return;
@@ -1132,8 +1436,12 @@ export default function App() {
 
           const confirmedNote = res.data;
           setNotes((prev) => [...prev, confirmedNote]);
-          recordCloudVersion('note', confirmedNote.id, res.version, res.updatedAt);
-          setSelectedNoteId(confirmedNote.id);
+          recordCloudVersion('note', confirmedNote.id, res.version, res.updatedAt, userId);
+          setSelectedNoteId(getItemKey(confirmedNote));
+          setSelectedLibraryPromptId(null);
+          if (confirmedNote.isPublic || confirmedNote.isSystem) {
+            void refreshPublicSnapshot();
+          }
           setIsCreating(false);
           setIsEditing(false);
           showToast('Đã thêm và đồng bộ ghi chú/prompt lên tài khoản! ☘️');
@@ -1173,14 +1481,18 @@ export default function App() {
       };
       const nextList = [...notes, newNote];
       syncState(nextList, ideas, characters);
-      setSelectedNoteId(newNote.id);
+      setSelectedNoteId(getItemKey(newNote));
       showToast('Đã thêm ghi chú/prompt thành công! ☘️');
     }
     setIsCreating(false);
     setIsEditing(false);
   };
 
-  const handleDeleteNote = async (id: string) => {
+  const handleDeleteNote = async (target: Note) => {
+    if (!canEditOrDeleteItem('note', target)) {
+      showToast('Bạn không có quyền xóa ghi chú này.', 'error');
+      return;
+    }
     if (!confirm('Bạn có đồng ý xóa vĩnh viễn ghi chú lệnh này?')) {
       return;
     }
@@ -1189,27 +1501,163 @@ export default function App() {
       if (isSavingItem) return;
       setIsSavingItem(true);
       try {
-        const res = await deleteNoteFromCloud(userId, id);
+        const targetOwnerId = target.ownerId || userId;
+        const res = await deleteNoteFromCloud(targetOwnerId, target.id);
         if (!res.ok) {
           showToast(res.error?.message || 'Không thể xóa ghi chú trên máy chủ.', 'error');
           return;
         }
-        const nextList = notes.filter((n) => n.id !== id);
-        setNotes(nextList);
-        setSelectedNoteId(nextList.length > 0 ? nextList[0].id : null);
+        if (targetOwnerId === userId) {
+          setNotes((prev) => prev.filter((n) => n.id !== target.id));
+        }
+        if (target.isPublic || target.isSystem) {
+          void refreshPublicSnapshot();
+        }
+        setSelectedNoteId(null);
         setShowDetailOnMobile(false);
-        showToast('Đã xóa ghi chú và đồng bộ lên tài khoản.', 'info');
+        showToast('Đã xóa ghi chú và đồng bộ lên máy chủ.', 'info');
       } finally {
         setIsSavingItem(false);
       }
       return;
     }
 
-    const nextList = notes.filter((n) => n.id !== id);
+    const nextList = notes.filter((n) => n.id !== target.id);
     syncState(nextList, ideas, characters);
-    setSelectedNoteId(nextList.length > 0 ? nextList[0].id : null);
+    setSelectedNoteId(nextList.length > 0 ? getItemKey(nextList[0]) : null);
     setShowDetailOnMobile(false);
     showToast('Đã xóa bỏ câu lệnh/ghi chú thành công.', 'info');
+  };
+
+  // System / Cloud Library Prompts (Kho Lệnh Thư Viện — Admin quản lý nội dung hệ thống)
+  const handleSaveLibraryPrompt = async (
+    data: Omit<LibraryPrompt, 'id' | 'createdAt'> & { id?: string },
+  ) => {
+    if (!isAuthenticated || !userId) {
+      openAuthModal('login');
+      return;
+    }
+    if (isSavingItem) return;
+    setIsSavingItem(true);
+    try {
+      if (data.id) {
+        const existing = findBySelectedKey(displayLibraryPrompts, selectedLibraryPromptId);
+        if (!existing || existing.id !== data.id || !canEditOrDeleteLibraryPrompt(existing)) {
+          showToast('Bạn không có quyền chỉnh sửa câu lệnh thư viện này.', 'error');
+          return;
+        }
+        const targetOwnerId = existing.ownerId || userId;
+        const nextIsSystem = existing.isSystem ? true : Boolean(isAdmin && data.isSystem);
+        const nextIsPublic = nextIsSystem ? true : Boolean(data.isPublic);
+        const updatedPrompt: LibraryPrompt = {
+          ...existing,
+          ...data,
+          id: existing.id,
+          isSystem: nextIsSystem,
+          isPublic: nextIsPublic,
+        };
+        const expectedVersion =
+          syncedVersions[versionKey('library_prompt', existing.id, targetOwnerId)]?.version ??
+          (targetOwnerId === userId
+            ? syncedVersions[versionKey('library_prompt', existing.id)]?.version
+            : undefined);
+
+        const res = await saveLibraryPromptToCloud(targetOwnerId, updatedPrompt, {
+          expectedVersion,
+          isFirstOverride: expectedVersion === undefined,
+          isPublic: nextIsPublic,
+          isSystem: nextIsSystem,
+        });
+
+        if (res.conflict) {
+          setActiveConflict(res.conflict);
+          return;
+        }
+        if (!res.ok || !res.data) {
+          showToast(res.error?.message || 'Không thể lưu câu lệnh thư viện.', 'error');
+          return;
+        }
+
+        const confirmed = res.data;
+        if (targetOwnerId === userId) {
+          setLibraryPrompts((prev) =>
+            prev.some((p) => p.id === confirmed.id && p.ownerId === targetOwnerId)
+              ? prev.map((p) => (p.id === confirmed.id && p.ownerId === targetOwnerId ? confirmed : p))
+              : [confirmed, ...prev],
+          );
+        }
+        recordCloudVersion('library_prompt', confirmed.id, res.version, res.updatedAt, targetOwnerId);
+        setSelectedLibraryPromptId(getItemKey(confirmed));
+        void refreshPublicSnapshot();
+        setIsCreatingLibraryPrompt(false);
+        setIsEditingLibraryPrompt(false);
+        showToast('Đã cập nhật câu lệnh Kho Lệnh! 🍀');
+      } else {
+        const nextIsSystem = Boolean(isAdmin && data.isSystem);
+        const nextIsPublic = nextIsSystem ? true : Boolean(data.isPublic);
+        const newPrompt: LibraryPrompt = {
+          ...data,
+          id: `sys-lib-${Date.now()}`,
+          createdAt: new Date().toISOString(),
+          isSystem: nextIsSystem,
+          isPublic: nextIsPublic,
+        };
+        const res = await saveLibraryPromptToCloud(userId, newPrompt, {
+          isPublic: nextIsPublic,
+          isSystem: nextIsSystem,
+        });
+        if (!res.ok || !res.data) {
+          showToast(res.error?.message || 'Không thể đăng câu lệnh thư viện.', 'error');
+          return;
+        }
+
+        const confirmed = res.data;
+        setLibraryPrompts((prev) => [confirmed, ...prev]);
+        recordCloudVersion('library_prompt', confirmed.id, res.version, res.updatedAt, userId);
+        setSelectedLibraryPromptId(getItemKey(confirmed));
+        setSelectedNoteId(null);
+        void refreshPublicSnapshot();
+        setIsCreatingLibraryPrompt(false);
+        setIsEditingLibraryPrompt(false);
+        showToast(
+          confirmed.isSystem
+            ? 'Đã đăng câu lệnh Hệ thống vào Kho Lệnh! 🍀'
+            : 'Đã lưu câu lệnh thư viện lên tài khoản! 🍀',
+        );
+      }
+    } finally {
+      setIsSavingItem(false);
+    }
+  };
+
+  const handleDeleteLibraryPrompt = async (target: LibraryPrompt) => {
+    if (!canEditOrDeleteLibraryPrompt(target) || !userId) {
+      showToast('Bạn không có quyền xóa câu lệnh này.', 'error');
+      return;
+    }
+    if (!confirm('Bạn có chắc chắn muốn xóa câu lệnh này khỏi Kho Lệnh?')) {
+      return;
+    }
+    if (isSavingItem) return;
+    setIsSavingItem(true);
+    try {
+      const targetOwnerId = target.ownerId || userId;
+      const isBuiltin = !target.ownerId && BUILTIN_LIB_PROMPT_IDS.has(target.id);
+      const res = await deleteLibraryPromptFromCloud(targetOwnerId, target.id, isBuiltin);
+      if (!res.ok) {
+        showToast(res.error?.message || 'Không thể xóa câu lệnh thư viện.', 'error');
+        return;
+      }
+      if (targetOwnerId === userId) {
+        setLibraryPrompts((prev) => prev.filter((p) => !(p.id === target.id && p.ownerId === targetOwnerId)));
+      }
+      void refreshPublicSnapshot();
+      setSelectedLibraryPromptId(null);
+      setShowDetailOnMobile(false);
+      showToast('Đã xóa câu lệnh khỏi Kho Lệnh.', 'info');
+    } finally {
+      setIsSavingItem(false);
+    }
   };
 
   // Ideas
@@ -1219,19 +1667,34 @@ export default function App() {
       setIsSavingItem(true);
       try {
         if (data.id) {
-          const existing = ideas.find((i) => i.id === data.id);
-          if (!existing) return;
+          const existing =
+            findBySelectedKey(displayIdeas, selectedIdeaId)?.id === data.id
+              ? findBySelectedKey(displayIdeas, selectedIdeaId)
+              : displayIdeas.find((i) => i.id === data.id && canEditOrDeleteItem('idea', i));
+          if (!existing || !canEditOrDeleteItem('idea', existing)) {
+            showToast('Bạn không có quyền chỉnh sửa ý tưởng này.', 'error');
+            return;
+          }
+          const targetOwnerId = existing.ownerId || userId;
+          const nextIsSystem = existing.isSystem ? true : Boolean(isAdmin && data.isSystem);
+          const nextIsPublic = nextIsSystem ? true : Boolean(data.isPublic);
           const updatedIdea: Idea = {
             ...existing,
             title: data.title,
             content: data.content,
             tags: data.tags,
+            isSystem: nextIsSystem,
+            isPublic: nextIsPublic,
             updatedAt: new Date().toISOString(),
           };
-          const expectedVersion = syncedVersions[versionKey('idea', existing.id)]?.version;
-          const res = await saveIdeaToCloud(userId, updatedIdea, {
+          const expectedVersion =
+            syncedVersions[versionKey('idea', existing.id, targetOwnerId)]?.version ??
+            (targetOwnerId === userId ? syncedVersions[versionKey('idea', existing.id)]?.version : undefined);
+          const res = await saveIdeaToCloud(targetOwnerId, updatedIdea, {
             expectedVersion,
             isFirstOverride: expectedVersion === undefined,
+            isPublic: nextIsPublic,
+            isSystem: nextIsSystem,
           });
 
           if (res.conflict) {
@@ -1244,21 +1707,34 @@ export default function App() {
           }
 
           const confirmedIdea = res.data;
-          setIdeas((prev) => prev.map((i) => (i.id === confirmedIdea.id ? confirmedIdea : i)));
-          recordCloudVersion('idea', confirmedIdea.id, res.version, res.updatedAt);
+          if (targetOwnerId === userId) {
+            setIdeas((prev) => prev.map((i) => (i.id === confirmedIdea.id ? confirmedIdea : i)));
+          }
+          recordCloudVersion('idea', confirmedIdea.id, res.version, res.updatedAt, targetOwnerId);
+          setSelectedIdeaId(getItemKey(confirmedIdea));
+          if (existing.isPublic || existing.isSystem || confirmedIdea.isPublic || confirmedIdea.isSystem) {
+            void refreshPublicSnapshot();
+          }
           setIsCreating(false);
           setIsEditing(false);
           showToast('Ý tưởng đã được cập nhật và đồng bộ lên tài khoản! 💡');
         } else {
+          const nextIsSystem = Boolean(isAdmin && data.isSystem);
+          const nextIsPublic = nextIsSystem ? true : Boolean(data.isPublic);
           const newIdea: Idea = {
             id: `idea-${Date.now()}`,
             title: data.title,
             content: data.content,
             tags: data.tags,
+            isSystem: nextIsSystem,
+            isPublic: nextIsPublic,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           };
-          const res = await saveIdeaToCloud(userId, newIdea);
+          const res = await saveIdeaToCloud(userId, newIdea, {
+            isPublic: nextIsPublic,
+            isSystem: nextIsSystem,
+          });
           if (!res.ok || !res.data) {
             showToast(res.error?.message || 'Không thể lưu ý tưởng mới lên tài khoản.', 'error');
             return;
@@ -1266,11 +1742,18 @@ export default function App() {
 
           const confirmedIdea = res.data;
           setIdeas((prev) => [confirmedIdea, ...prev]);
-          recordCloudVersion('idea', confirmedIdea.id, res.version, res.updatedAt);
-          setSelectedIdeaId(confirmedIdea.id);
+          recordCloudVersion('idea', confirmedIdea.id, res.version, res.updatedAt, userId);
+          setSelectedIdeaId(getItemKey(confirmedIdea));
+          if (confirmedIdea.isPublic || confirmedIdea.isSystem) {
+            void refreshPublicSnapshot();
+          }
           setIsCreating(false);
           setIsEditing(false);
-          showToast('Hạt giống ý tưởng mới đã được lưu vào tài khoản! 💡');
+          showToast(
+            confirmedIdea.isSystem
+              ? 'Đã đăng ý tưởng Hệ thống cho cộng đồng! 💡'
+              : 'Hạt giống ý tưởng mới đã được lưu vào tài khoản! 💡',
+          );
         }
       } finally {
         setIsSavingItem(false);
@@ -1306,14 +1789,18 @@ export default function App() {
       };
       const nextList = [...ideas, newIdea];
       syncState(notes, nextList, characters);
-      setSelectedIdeaId(newIdea.id);
+      setSelectedIdeaId(getItemKey(newIdea));
       showToast('Hạt giống ý tưởng mới đã được nảy mầm! 💡');
     }
     setIsCreating(false);
     setIsEditing(false);
   };
 
-  const handleDeleteIdea = async (id: string) => {
+  const handleDeleteIdea = async (target: Idea) => {
+    if (!canEditOrDeleteItem('idea', target)) {
+      showToast('Bạn không có quyền xóa ý tưởng này.', 'error');
+      return;
+    }
     if (!confirm('Bạn có chắc chắn muốn giải phóng và xóa ý tưởng này?')) {
       return;
     }
@@ -1322,29 +1809,34 @@ export default function App() {
       if (isSavingItem) return;
       setIsSavingItem(true);
       try {
-        const isBuiltin = BUILTIN_IDEA_MAP.has(id);
-        const res = await deleteIdeaFromCloud(userId, id, isBuiltin);
+        const targetOwnerId = target.ownerId || userId;
+        const isBuiltin = !target.ownerId && BUILTIN_IDEA_MAP.has(target.id);
+        const res = await deleteIdeaFromCloud(targetOwnerId, target.id, isBuiltin);
         if (!res.ok) {
           showToast(res.error?.message || 'Không thể xóa ý tưởng trên máy chủ.', 'error');
           return;
         }
-        const nextList = ideas.filter((i) => i.id !== id);
-        setIdeas(nextList);
-        setSelectedIdeaId(nextList.length > 0 ? nextList[0].id : null);
+        if (targetOwnerId === userId) {
+          setIdeas((prev) => prev.filter((i) => i.id !== target.id));
+        }
+        if (target.isPublic || target.isSystem) {
+          void refreshPublicSnapshot();
+        }
+        setSelectedIdeaId(null);
         setShowDetailOnMobile(false);
-        showToast('Đã xóa ý tưởng và đồng bộ lên tài khoản.', 'info');
+        showToast('Đã xóa ý tưởng và đồng bộ lên máy chủ.', 'info');
       } finally {
         setIsSavingItem(false);
       }
       return;
     }
 
-    if (BUILTIN_IDEA_MAP.has(id)) {
-      markGuestItemDeleted('idea', id);
+    if (BUILTIN_IDEA_MAP.has(target.id)) {
+      markGuestItemDeleted('idea', target.id);
     }
-    const nextList = ideas.filter((i) => i.id !== id);
+    const nextList = ideas.filter((i) => i.id !== target.id);
     syncState(notes, nextList, characters);
-    setSelectedIdeaId(nextList.length > 0 ? nextList[0].id : null);
+    setSelectedIdeaId(nextList.length > 0 ? getItemKey(nextList[0]) : null);
     setShowDetailOnMobile(false);
     showToast('Đã dọn dẹp ý tưởng khỏi kho.', 'info');
   };
@@ -1358,7 +1850,10 @@ export default function App() {
       setActiveConflict(null);
       setIsEditing(false);
       setIsCreating(false);
+      setIsCreatingLibraryPrompt(false);
+      setIsEditingLibraryPrompt(false);
       await syncFromSupabase(userId, { silent: false, checkLocalPrompt: false });
+      await refreshPublicSnapshot();
       showToast('Đã tải bản mới nhất từ máy chủ.', 'info');
     } finally {
       setIsResolvingConflict(false);
@@ -1368,66 +1863,99 @@ export default function App() {
   const handleConflictOverwriteServer = async () => {
     if (!activeConflict || !userId) return;
     setIsResolvingConflict(true);
+    const targetOwnerId = activeConflict.ownerId || userId;
     try {
       if (activeConflict.kind === 'character') {
-        const res = await saveCharacterToCloud(
-          userId,
-          activeConflict.localItem as Character,
-          { forceOverwrite: true },
-        );
+        const localChar = activeConflict.localItem as Character;
+        const res = await saveCharacterToCloud(targetOwnerId, localChar, {
+          forceOverwrite: true,
+          isPublic: localChar.isPublic,
+          isSystem: localChar.isSystem,
+        });
         if (!res.ok || !res.data) {
           showToast(res.error?.message || 'Không thể ghi đè nhân vật lên máy chủ.', 'error');
           return;
         }
         const confirmed = res.data;
-        setCharacters((prev) => {
-          const exists = prev.some((c) => c.id === confirmed.id);
-          return exists
-            ? prev.map((c) => (c.id === confirmed.id ? confirmed : c))
-            : [...prev, confirmed];
-        });
-        recordCloudVersion('character', confirmed.id, res.version, res.updatedAt);
+        if (targetOwnerId === userId) {
+          setCharacters((prev) => {
+            const exists = prev.some((c) => c.id === confirmed.id);
+            return exists
+              ? prev.map((c) => (c.id === confirmed.id ? confirmed : c))
+              : [...prev, confirmed];
+          });
+        }
+        recordCloudVersion('character', confirmed.id, res.version, res.updatedAt, targetOwnerId);
       } else if (activeConflict.kind === 'note') {
-        const res = await saveNoteToCloud(
-          userId,
-          activeConflict.localItem as Note,
-          { forceOverwrite: true },
-        );
+        const localNote = activeConflict.localItem as Note;
+        const res = await saveNoteToCloud(targetOwnerId, localNote, {
+          forceOverwrite: true,
+          isPublic: localNote.isPublic,
+          isSystem: localNote.isSystem,
+        });
         if (!res.ok || !res.data) {
           showToast(res.error?.message || 'Không thể ghi đè ghi chú lên máy chủ.', 'error');
           return;
         }
         const confirmed = res.data;
-        setNotes((prev) => {
-          const exists = prev.some((n) => n.id === confirmed.id);
-          return exists
-            ? prev.map((n) => (n.id === confirmed.id ? confirmed : n))
-            : [...prev, confirmed];
-        });
-        recordCloudVersion('note', confirmed.id, res.version, res.updatedAt);
+        if (targetOwnerId === userId) {
+          setNotes((prev) => {
+            const exists = prev.some((n) => n.id === confirmed.id);
+            return exists
+              ? prev.map((n) => (n.id === confirmed.id ? confirmed : n))
+              : [...prev, confirmed];
+          });
+        }
+        recordCloudVersion('note', confirmed.id, res.version, res.updatedAt, targetOwnerId);
       } else if (activeConflict.kind === 'idea') {
-        const res = await saveIdeaToCloud(
-          userId,
-          activeConflict.localItem as Idea,
-          { forceOverwrite: true },
-        );
+        const localIdea = activeConflict.localItem as Idea;
+        const res = await saveIdeaToCloud(targetOwnerId, localIdea, {
+          forceOverwrite: true,
+          isPublic: localIdea.isPublic,
+          isSystem: localIdea.isSystem,
+        });
         if (!res.ok || !res.data) {
           showToast(res.error?.message || 'Không thể ghi đè ý tưởng lên máy chủ.', 'error');
           return;
         }
         const confirmed = res.data;
-        setIdeas((prev) => {
-          const exists = prev.some((i) => i.id === confirmed.id);
-          return exists
-            ? prev.map((i) => (i.id === confirmed.id ? confirmed : i))
-            : [confirmed, ...prev];
+        if (targetOwnerId === userId) {
+          setIdeas((prev) => {
+            const exists = prev.some((i) => i.id === confirmed.id);
+            return exists
+              ? prev.map((i) => (i.id === confirmed.id ? confirmed : i))
+              : [confirmed, ...prev];
+          });
+        }
+        recordCloudVersion('idea', confirmed.id, res.version, res.updatedAt, targetOwnerId);
+      } else if (activeConflict.kind === 'library_prompt') {
+        const localPrompt = activeConflict.localItem as LibraryPrompt;
+        const res = await saveLibraryPromptToCloud(targetOwnerId, localPrompt, {
+          forceOverwrite: true,
+          isPublic: localPrompt.isPublic,
+          isSystem: localPrompt.isSystem,
         });
-        recordCloudVersion('idea', confirmed.id, res.version, res.updatedAt);
+        if (!res.ok || !res.data) {
+          showToast(res.error?.message || 'Không thể ghi đè câu lệnh thư viện lên máy chủ.', 'error');
+          return;
+        }
+        const confirmed = res.data;
+        if (targetOwnerId === userId) {
+          setLibraryPrompts((prev) =>
+            prev.some((p) => p.id === confirmed.id && p.ownerId === targetOwnerId)
+              ? prev.map((p) => (p.id === confirmed.id && p.ownerId === targetOwnerId ? confirmed : p))
+              : [confirmed, ...prev],
+          );
+        }
+        recordCloudVersion('library_prompt', confirmed.id, res.version, res.updatedAt, targetOwnerId);
       }
 
       setActiveConflict(null);
       setIsEditing(false);
       setIsCreating(false);
+      setIsCreatingLibraryPrompt(false);
+      setIsEditingLibraryPrompt(false);
+      void refreshPublicSnapshot();
       showToast('Đã lưu và ghi đè bản trên thiết bị này lên tài khoản! 🍀', 'success');
     } finally {
       setIsResolvingConflict(false);
@@ -1445,51 +1973,75 @@ export default function App() {
           ...localChar,
           id: `char-${Date.now()}`,
           name: localChar.name.endsWith(' (Bản sao)') ? localChar.name : `${localChar.name} (Bản sao)`,
+          isPublic: false,
+          isSystem: false,
           createdAt: nowIso,
         };
-        const res = await saveCharacterToCloud(userId, copyChar);
+        const res = await saveCharacterToCloud(userId, copyChar, { isPublic: false, isSystem: false });
         if (!res.ok || !res.data) {
           showToast(res.error?.message || 'Không thể tạo bản sao nhân vật.', 'error');
           return;
         }
-        setSelectedCharId(res.data.id);
+        setSelectedCharId(getItemKey(res.data));
       } else if (activeConflict.kind === 'note') {
         const localNote = activeConflict.localItem as Note;
         const copyNote: Note = {
           ...localNote,
           id: `note-${Date.now()}`,
           title: localNote.title.endsWith(' (Bản sao)') ? localNote.title : `${localNote.title} (Bản sao)`,
+          isPublic: false,
+          isSystem: false,
           createdAt: nowIso,
           updatedAt: nowIso,
         };
-        const res = await saveNoteToCloud(userId, copyNote);
+        const res = await saveNoteToCloud(userId, copyNote, { isPublic: false, isSystem: false });
         if (!res.ok || !res.data) {
           showToast(res.error?.message || 'Không thể tạo bản sao ghi chú.', 'error');
           return;
         }
-        setSelectedNoteId(res.data.id);
+        setSelectedNoteId(getItemKey(res.data));
       } else if (activeConflict.kind === 'idea') {
         const localIdea = activeConflict.localItem as Idea;
         const copyIdea: Idea = {
           ...localIdea,
           id: `idea-${Date.now()}`,
           title: localIdea.title.endsWith(' (Bản sao)') ? localIdea.title : `${localIdea.title} (Bản sao)`,
+          isPublic: false,
+          isSystem: false,
           createdAt: nowIso,
           updatedAt: nowIso,
         };
-        const res = await saveIdeaToCloud(userId, copyIdea);
+        const res = await saveIdeaToCloud(userId, copyIdea, { isPublic: false, isSystem: false });
         if (!res.ok || !res.data) {
           showToast(res.error?.message || 'Không thể tạo bản sao ý tưởng.', 'error');
           return;
         }
-        setSelectedIdeaId(res.data.id);
+        setSelectedIdeaId(getItemKey(res.data));
+      } else if (activeConflict.kind === 'library_prompt') {
+        const localPrompt = activeConflict.localItem as LibraryPrompt;
+        const copyPrompt: LibraryPrompt = {
+          ...localPrompt,
+          id: `sys-lib-${Date.now()}`,
+          title: localPrompt.title.endsWith(' (Bản sao)') ? localPrompt.title : `${localPrompt.title} (Bản sao)`,
+          isPublic: false,
+          isSystem: false,
+          createdAt: nowIso,
+        };
+        const res = await saveLibraryPromptToCloud(userId, copyPrompt, { isPublic: false, isSystem: false });
+        if (!res.ok || !res.data) {
+          showToast(res.error?.message || 'Không thể tạo bản sao câu lệnh thư viện.', 'error');
+          return;
+        }
+        setSelectedLibraryPromptId(getItemKey(res.data));
       }
 
       setActiveConflict(null);
       setIsEditing(false);
       setIsCreating(false);
+      setIsCreatingLibraryPrompt(false);
+      setIsEditingLibraryPrompt(false);
       await syncFromSupabase(userId, { silent: true, checkLocalPrompt: false });
-      showToast('Đã lưu thành bản sao mới và giữ nguyên bản trên máy chủ! 🍀', 'success');
+      showToast('Đã lưu thành bản sao riêng tư mới và giữ nguyên bản trên máy chủ! 🍀', 'success');
     } finally {
       setIsResolvingConflict(false);
     }
@@ -1497,17 +2049,31 @@ export default function App() {
 
   /* ----------------- SELECTION & FILTER SEARCH ----------------- */
 
+  const matchesSourceFilter = (item: { ownerId?: string; isPublic?: boolean; isSystem?: boolean }) => {
+    if (sourceFilter === 'all') return true;
+    if (sourceFilter === 'system') return Boolean(item.isSystem || !item.ownerId);
+    if (sourceFilter === 'community') return Boolean(item.isPublic && !item.isSystem);
+    if (sourceFilter === 'mine') {
+      return Boolean(isAuthenticated && userId && item.ownerId === userId && !item.isSystem);
+    }
+    return true;
+  };
+
   // Filtration logic for active left lists
   const queryLower = searchQuery.toLowerCase();
 
-  const filteredNotes = selectedLibTopicId === 'all' ? notes.filter(n => 
-    n.title.toLowerCase().includes(queryLower) || 
-    n.command.toLowerCase().includes(queryLower) ||
-    n.content.toLowerCase().includes(queryLower)
-  ) : [];
+  const filteredNotes = selectedLibTopicId === 'all' ? displayNotes.filter((n) => {
+    if (!matchesSourceFilter(n)) return false;
+    return (
+      n.title.toLowerCase().includes(queryLower) ||
+      n.command.toLowerCase().includes(queryLower) ||
+      n.content.toLowerCase().includes(queryLower)
+    );
+  }) : [];
 
   const activeTopic = TOPICS.find(t => t.id === selectedTopicId) || TOPICS[0];
-  const filteredIdeas = ideas
+  const filteredIdeas = displayIdeas
+    .filter(matchesSourceFilter)
     .filter(activeTopic.match)
     .filter(i => 
       i.title.toLowerCase().includes(queryLower) ||
@@ -1515,7 +2081,8 @@ export default function App() {
       (i.tags && i.tags.some(t => t.toLowerCase().includes(queryLower)))
     );
 
-  const filteredCharacters = characters.filter(c => {
+  const filteredCharacters = displayCharacters.filter(c => {
+    if (!matchesSourceFilter(c)) return false;
     const matchesText = searchQuery === '' || 
       c.name.toLowerCase().includes(queryLower) ||
       c.role.toLowerCase().includes(queryLower) || 
@@ -1530,7 +2097,8 @@ export default function App() {
   });
 
   const activeLibTopic = LIB_TOPICS.find(t => t.id === selectedLibTopicId) || LIB_TOPICS[0];
-  const filteredLibraryPrompts = libraryPrompts
+  const filteredLibraryPrompts = displayLibraryPrompts
+    .filter(matchesSourceFilter)
     .filter(activeLibTopic.match)
     .filter(p => {
       const matchesQuery = p.title.toLowerCase().includes(queryLower) ||
@@ -1551,18 +2119,31 @@ export default function App() {
   });
 
   // Active object selection resolution
-  const activeNote = notes.find(n => n.id === selectedNoteId) || null;
-  const activeIdea = ideas.find(i => i.id === selectedIdeaId) || null;
-  const activeChar = characters.find(c => c.id === selectedCharId) || null;
-  const activeLibraryPrompt = libraryPrompts.find(p => p.id === selectedLibraryPromptId) || null;
+  const activeNote = findBySelectedKey(displayNotes, selectedNoteId);
+  const activeIdea = findBySelectedKey(displayIdeas, selectedIdeaId);
+  const activeChar = findBySelectedKey(displayCharacters, selectedCharId);
+  const activeLibraryPrompt = findBySelectedKey(displayLibraryPrompts, selectedLibraryPromptId);
   const activeAuthor = authorsList.find(a => a.id === (selectedAuthorId || (filteredAuthors.length > 0 ? filteredAuthors[0].id : authorsList[0]?.id))) || null;
 
-  const isWelcomeScreen = !isCreating && !isEditing && (
-    (activeTab === 'notes' && !activeNote && !activeLibraryPrompt) ||
-    (activeTab === 'ideas' && !activeIdea) ||
-    (activeTab === 'characters' && !activeChar) ||
-    (activeTab === 'authors' && !activeAuthor)
-  );
+  const activeAnnouncementCount = announcements.filter((a) => a.isActive).length;
+
+  // Scroll detail viewport back to top whenever tab, selected item, or form mode changes
+  const detailScrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    detailScrollRef.current?.scrollTo({ top: 0, behavior: 'auto' });
+  }, [
+    activeTab,
+    selectedNoteId,
+    selectedLibraryPromptId,
+    selectedIdeaId,
+    selectedCharId,
+    selectedAuthorId,
+    isCreating,
+    isEditing,
+    isCreatingLibraryPrompt,
+    isEditingLibraryPrompt,
+  ]);
 
   // Direct prompt link traversal from character profile helper
   const navigateToPrompt = (noteId: string) => {
@@ -1571,17 +2152,16 @@ export default function App() {
     setSelectedLibraryPromptId(null);
     setIsCreating(false);
     setIsEditing(false);
+    setIsCreatingLibraryPrompt(false);
+    setIsEditingLibraryPrompt(false);
     setShowDetailOnMobile(true); // Jump to detail on mobile
   };
 
   return (
-    <div className="h-[100dvh] overflow-hidden flex flex-col bg-[#ECF5EF] dark:bg-[#111C17] text-[#20372D] dark:text-[#F4EDDC] transition-theme relative">
-      
-      {/* Clover Rain Canvas Backing Overlay */}
-      <CloverRain active={cloverEffect} />
-      
-      {/* Star Rain falling stars on dark mode */}
-      <StarRain active={theme === 'dark'} />
+    <div className="h-[100dvh] w-full overflow-hidden flex flex-col bg-[#ECF5EF] dark:bg-[#202423] text-[#20372D] dark:text-[#E4E1D8] transition-theme relative">
+
+      {/* Global left-click pixel clover burst (pointer-events: none, max 2 concurrent bursts) */}
+      <CloverClickBurst />
 
       {/* RETRO EARLY-2000s WINDOW TITLE BAR */}
       <header className="retro-titlebar px-3 sm:px-4 py-2 flex items-center justify-between gap-2 flex-shrink-0 z-30">
@@ -1600,10 +2180,10 @@ export default function App() {
             type="button"
             onClick={handleGoHome}
             title="Mở lại lá thư chào mừng SéaClover"
-            className="flex items-center gap-2 min-w-0 px-1.5 py-0.5 rounded hover:bg-white/45 dark:hover:bg-white/5 transition-colors cursor-pointer select-none"
+            className="flex items-center gap-2 min-w-0 px-1.5 py-0.5 rounded hover:bg-white/45 dark:hover:bg-[#343D37] transition-colors cursor-pointer select-none"
           >
             <PixelCloverIcon className="w-4 h-4 flex-shrink-0" />
-            <span className="font-mono text-xs sm:text-[13px] font-semibold tracking-tight text-[#254B3C] dark:text-[#D5EFE2] truncate">
+            <span className="font-mono text-xs sm:text-[13px] font-semibold tracking-tight text-[#254B3C] dark:text-[#E4E1D8] truncate">
               SéaClover.exe
             </span>
           </button>
@@ -1611,19 +2191,6 @@ export default function App() {
 
         {/* Utility buttons: soft square corners with gentle sunken press */}
         <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
-          {/* Clover switch */}
-          <button
-            type="button"
-            onClick={handleCloverToggle}
-            title={cloverEffect ? 'Tắt cỏ rơi' : 'Mở cỏ rơi'}
-            className={`retro-btn px-2.5 py-1.5 flex items-center gap-1.5 text-xs font-semibold whitespace-nowrap shrink-0 cursor-pointer ${
-              cloverEffect ? 'retro-btn-active' : ''
-            }`}
-          >
-            <PixelCloverIcon className="w-3.5 h-3.5 flex-shrink-0" />
-            <span className="hidden sm:inline">Cỏ Rơi</span>
-          </button>
-
           {/* Dark / Light switch */}
           <button
             type="button"
@@ -1635,7 +2202,7 @@ export default function App() {
             {theme === 'light' ? (
               <Moon className="w-3.5 h-3.5 text-[#39755D]" />
             ) : (
-              <Sun className="w-3.5 h-3.5 text-[#F6D57E]" />
+              <Sun className="w-3.5 h-3.5 text-[#D5B97A]" />
             )}
           </button>
 
@@ -1653,19 +2220,19 @@ export default function App() {
       </header>
 
       {/* 2-COLUMN WORKSPACE SHELL (1 column on mobile) */}
-      <div className="flex-1 min-h-0 flex flex-col md:flex-row relative z-20">
+      <div className="flex-1 min-h-0 flex flex-col md:flex-row overflow-hidden relative z-20">
         
-        {/* LEFT COLUMN: RETRO FOLDER BROWSER SIDEBAR */}
-        <aside className={`w-full md:w-[324px] lg:w-[336px] h-full flex-shrink-0 bg-[#FAF6EA] dark:bg-[#16241E] border-b md:border-b-0 md:border-r border-[#B8D7C5] dark:border-[#2C473A] flex flex-col ${showDetailOnMobile ? 'hidden md:flex' : 'flex'}`}>
+        {/* LEFT COLUMN: RETRO FOLDER BROWSER SIDEBAR (308px - 328px on desktop) */}
+        <aside className={`w-full md:w-[308px] lg:w-[328px] h-full flex-shrink-0 bg-[#FAF6EA] dark:bg-[#292E2B] border-b md:border-b-0 md:border-r border-[#B8D7C5] dark:border-[#49554D] flex flex-col overflow-hidden ${showDetailOnMobile ? 'hidden md:flex' : 'flex'}`}>
           
           {/* Brand Identity Header inside Folder Browser */}
-          <div className="px-3.5 py-3 border-b border-[#D5E6DC] dark:border-[#263F33] bg-[#FFF9EA] dark:bg-[#192A22] flex items-center justify-between gap-2">
+          <div className="px-3.5 py-3 border-b border-[#D5E6DC] dark:border-[#49554D] bg-[#FFF9EA] dark:bg-[#292E2B] flex items-center justify-between gap-2">
             <div 
               onClick={handleGoHome}
               className="flex items-center gap-2.5 cursor-pointer group select-none min-w-0"
               title="Về lá thư chào mừng"
             >
-              <div className="w-10 h-10 rounded-md overflow-hidden bg-[#E2F3E8] dark:bg-[#22382E] border border-[#9FC4AF] dark:border-[#3A5C4C] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] flex-shrink-0 p-0.5">
+              <div className="w-10 h-10 rounded-md overflow-hidden bg-[#E2F3E8] dark:bg-[#343D37] border border-[#9FC4AF] dark:border-[#49554D] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:shadow-none flex-shrink-0 p-0.5">
                 <img
                   src="/app-icon.jpg"
                   alt="SéaClover"
@@ -1673,10 +2240,10 @@ export default function App() {
                 />
               </div>
               <div className="min-w-0">
-                <h1 className="text-[17px] font-extrabold text-[#2B5A47] dark:text-[#98DAB9] tracking-tight leading-tight group-hover:text-[#39755D] dark:group-hover:text-[#B9EDD4] transition-colors truncate">
+                <h1 className="text-[17px] font-extrabold text-[#2B5A47] dark:text-[#E4E1D8] tracking-tight leading-tight group-hover:text-[#39755D] dark:group-hover:text-[#A3BDA8] transition-colors truncate">
                   SéaClover
                 </h1>
-                <p className="text-[10px] text-[#567466] dark:text-[#8FB0A1] font-mono tracking-wider mt-0.5 truncate">
+                <p className="text-[10px] text-[#567466] dark:text-[#B8BDB5] font-mono tracking-wider mt-0.5 truncate">
                   credit by Nhi Séa
                 </p>
               </div>
@@ -1686,7 +2253,7 @@ export default function App() {
             <button
               type="button"
               onClick={handleGoHome}
-              className="md:hidden retro-btn px-2 py-1 text-[11px] font-semibold text-[#39755D] dark:text-[#98DAB9] whitespace-nowrap shrink-0 cursor-pointer"
+              className="md:hidden retro-btn px-2 py-1 text-[11px] font-semibold text-[#39755D] dark:text-[#A3BDA8] whitespace-nowrap shrink-0 cursor-pointer"
               title="Đọc lá thư chào mừng"
             >
               Thư chào
@@ -1694,14 +2261,14 @@ export default function App() {
           </div>
 
           {/* 4 Directory Folder Tabs with Crisp Pixel Icons */}
-          <div className="p-2 border-b border-[#D5E6DC] dark:border-[#263F33] bg-[#F1F8F3] dark:bg-[#13201A] grid grid-cols-4 gap-1.5">
+          <div className="p-2 border-b border-[#D5E6DC] dark:border-[#49554D] bg-[#F1F8F3] dark:bg-[#202423] grid grid-cols-4 gap-1.5">
             <button
               type="button"
               onClick={() => handleTabChange('characters')}
               className={`py-2 px-1 rounded-md border text-[10px] sm:text-[11px] font-semibold flex flex-col items-center gap-1 transition-all cursor-pointer active:translate-y-px ${
                 activeTab === 'characters'
-                  ? 'bg-[#E2F3E8] dark:bg-[#233C31] border-[#39755D] dark:border-[#7BC4A4] text-[#214C3B] dark:text-[#E5F7EE] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] dark:shadow-none'
-                  : 'bg-[#FFF9EA]/80 dark:bg-[#192922] border-[#C9DFD1] dark:border-[#2A4437] text-[#4C6A5C] dark:text-[#9CB8AB] hover:bg-[#E2F3E8]/60 dark:hover:bg-[#20342B] hover:border-[#7AA994]'
+                  ? 'bg-[#E2F3E8] dark:bg-[#343D37] border-[#39755D] dark:border-[#A3BDA8] text-[#214C3B] dark:text-[#E4E1D8] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] dark:shadow-none'
+                  : 'bg-[#FFF9EA]/80 dark:bg-[#292E2B] border-[#C9DFD1] dark:border-[#49554D] text-[#4C6A5C] dark:text-[#B8BDB5] hover:bg-[#E2F3E8]/60 dark:hover:bg-[#343D37] hover:border-[#7AA994]'
               }`}
             >
               <PixelCharacterIcon className="w-4 h-4 flex-shrink-0" />
@@ -1714,8 +2281,8 @@ export default function App() {
               onClick={() => handleTabChange('authors')}
               className={`py-2 px-1 rounded-md border text-[10px] sm:text-[11px] font-semibold flex flex-col items-center gap-1 transition-all cursor-pointer active:translate-y-px ${
                 activeTab === 'authors'
-                  ? 'bg-[#E2F3E8] dark:bg-[#233C31] border-[#39755D] dark:border-[#7BC4A4] text-[#214C3B] dark:text-[#E5F7EE] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] dark:shadow-none'
-                  : 'bg-[#FFF9EA]/80 dark:bg-[#192922] border-[#C9DFD1] dark:border-[#2A4437] text-[#4C6A5C] dark:text-[#9CB8AB] hover:bg-[#E2F3E8]/60 dark:hover:bg-[#20342B] hover:border-[#7AA994]'
+                  ? 'bg-[#E2F3E8] dark:bg-[#343D37] border-[#39755D] dark:border-[#A3BDA8] text-[#214C3B] dark:text-[#E4E1D8] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] dark:shadow-none'
+                  : 'bg-[#FFF9EA]/80 dark:bg-[#292E2B] border-[#C9DFD1] dark:border-[#49554D] text-[#4C6A5C] dark:text-[#B8BDB5] hover:bg-[#E2F3E8]/60 dark:hover:bg-[#343D37] hover:border-[#7AA994]'
               }`}
             >
               <PixelAuthorIcon className="w-4 h-4 flex-shrink-0" />
@@ -1728,8 +2295,8 @@ export default function App() {
               onClick={() => handleTabChange('notes')}
               className={`py-2 px-1 rounded-md border text-[10px] sm:text-[11px] font-semibold flex flex-col items-center gap-1 transition-all cursor-pointer active:translate-y-px ${
                 activeTab === 'notes'
-                  ? 'bg-[#E2F3E8] dark:bg-[#233C31] border-[#39755D] dark:border-[#7BC4A4] text-[#214C3B] dark:text-[#E5F7EE] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] dark:shadow-none'
-                  : 'bg-[#FFF9EA]/80 dark:bg-[#192922] border-[#C9DFD1] dark:border-[#2A4437] text-[#4C6A5C] dark:text-[#9CB8AB] hover:bg-[#E2F3E8]/60 dark:hover:bg-[#20342B] hover:border-[#7AA994]'
+                  ? 'bg-[#E2F3E8] dark:bg-[#343D37] border-[#39755D] dark:border-[#A3BDA8] text-[#214C3B] dark:text-[#E4E1D8] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] dark:shadow-none'
+                  : 'bg-[#FFF9EA]/80 dark:bg-[#292E2B] border-[#C9DFD1] dark:border-[#49554D] text-[#4C6A5C] dark:text-[#B8BDB5] hover:bg-[#E2F3E8]/60 dark:hover:bg-[#343D37] hover:border-[#7AA994]'
               }`}
             >
               <PixelCommandIcon className="w-4 h-4 flex-shrink-0" />
@@ -1742,8 +2309,8 @@ export default function App() {
               onClick={() => handleTabChange('ideas')}
               className={`py-2 px-1 rounded-md border text-[10px] sm:text-[11px] font-semibold flex flex-col items-center gap-1 transition-all cursor-pointer active:translate-y-px ${
                 activeTab === 'ideas'
-                  ? 'bg-[#E2F3E8] dark:bg-[#233C31] border-[#39755D] dark:border-[#7BC4A4] text-[#214C3B] dark:text-[#E5F7EE] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] dark:shadow-none'
-                  : 'bg-[#FFF9EA]/80 dark:bg-[#192922] border-[#C9DFD1] dark:border-[#2A4437] text-[#4C6A5C] dark:text-[#9CB8AB] hover:bg-[#E2F3E8]/60 dark:hover:bg-[#20342B] hover:border-[#7AA994]'
+                  ? 'bg-[#E2F3E8] dark:bg-[#343D37] border-[#39755D] dark:border-[#A3BDA8] text-[#214C3B] dark:text-[#E4E1D8] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] dark:shadow-none'
+                  : 'bg-[#FFF9EA]/80 dark:bg-[#292E2B] border-[#C9DFD1] dark:border-[#49554D] text-[#4C6A5C] dark:text-[#B8BDB5] hover:bg-[#E2F3E8]/60 dark:hover:bg-[#343D37] hover:border-[#7AA994]'
               }`}
             >
               <PixelIdeaIcon className="w-4 h-4 flex-shrink-0" />
@@ -1753,9 +2320,9 @@ export default function App() {
           </div>
 
           {/* Compact Search & Tag Filter Bar */}
-          <div className="p-2.5 border-b border-[#E0ECE4] dark:border-[#22392E] bg-[#FAF6EA] dark:bg-[#16241E]">
+          <div className="p-2.5 border-b border-[#E0ECE4] dark:border-[#49554D] bg-[#FAF6EA] dark:bg-[#292E2B]">
             <div className="relative">
-              <PixelSearchIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#4E7A66] dark:text-[#86B8A1] pointer-events-none" />
+              <PixelSearchIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#4E7A66] dark:text-[#B8BDB5] pointer-events-none" />
               <input
                 type="text"
                 value={searchQuery}
@@ -1765,7 +2332,7 @@ export default function App() {
                   activeTab === 'ideas' ? 'Tìm kiếm ý tưởng...' : 
                   activeTab === 'characters' ? 'Tìm nhân vật...' : 'Tìm kiếm tác giả...'
                 }
-                className="retro-input w-full pl-8 pr-3 py-1.5 text-xs placeholder:text-[#6B887A] dark:placeholder:text-[#789688] transition-theme"
+                className="retro-input w-full pl-8 pr-3 py-1.5 text-xs placeholder:text-[#6B887A] dark:placeholder:text-[#B8BDB5] transition-theme"
               />
             </div>
 
@@ -1783,7 +2350,7 @@ export default function App() {
                       selectedFilterTag ? 'retro-btn-active' : ''
                     }`}
                   >
-                    <PixelTagIcon className="w-3.5 h-3.5 text-[#39755D] dark:text-[#7BC4A4]" />
+                    <PixelTagIcon className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
                     <span>{selectedFilterTag ? `Tag: #${selectedFilterTag}` : 'Tìm theo Tag'}</span>
                   </button>
 
@@ -1796,7 +2363,7 @@ export default function App() {
                         setCharacterFilterType(null);
                         showToast('Xóa bộ lọc nhân vật', 'info');
                       }}
-                      className="retro-btn px-2.5 text-red-700 dark:text-red-400 cursor-pointer"
+                      className="retro-btn px-2.5 text-red-700 dark:text-[#E4A6AA] cursor-pointer"
                       title="Xóa bộ lọc"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -1806,12 +2373,12 @@ export default function App() {
 
                 {/* Active search filter badge indicator */}
                 {selectedFilterTag && (
-                  <div className="flex flex-wrap items-center gap-1.5 px-2 py-1 bg-[#FFF9EA] dark:bg-[#1A2B23] rounded border border-[#D4E4DA] dark:border-[#2C473A] text-[10px] text-[#527062] dark:text-[#A4BFB2]">
+                  <div className="flex flex-wrap items-center gap-1.5 px-2 py-1 bg-[#FFF9EA] dark:bg-[#292E2B] rounded border border-[#D4E4DA] dark:border-[#49554D] text-[10px] text-[#527062] dark:text-[#B8BDB5]">
                     <span className="font-medium">Đang lọc:</span>
                     <button
                       type="button"
                       onClick={() => setSelectedFilterTag(null)}
-                      className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-[#F2CDDA]/45 dark:bg-[#3A2831] text-[#6B374B] dark:text-[#F0C2D3] rounded border border-[#E5B6C6] dark:border-[#5D3D4B] hover:opacity-85 cursor-pointer transition font-semibold"
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-[#F2CDDA]/45 dark:bg-[#343D37] text-[#6B374B] dark:text-[#D9A7B8] rounded border border-[#E5B6C6] dark:border-[#49554D] hover:opacity-85 cursor-pointer transition font-semibold"
                     >
                       #{selectedFilterTag} ×
                     </button>
@@ -1823,13 +2390,13 @@ export default function App() {
 
           {/* Categories / Topics Horizontal Scroll Bar specifically for Prompt Library (Notes Tab) */}
           {activeTab === 'notes' && (
-            <div className="px-2.5 py-2 border-b border-[#E3EFE7] dark:border-[#22392E] flex items-center gap-1.5 overflow-x-auto snap-x snap-mandatory scrollbar-none">
+            <div className="px-2.5 py-2 border-b border-[#E3EFE7] dark:border-[#49554D] flex items-center gap-1.5 overflow-x-auto snap-x snap-mandatory scrollbar-none">
               {LIB_TOPICS.map((topic) => {
                 const isActive = selectedLibTopicId === topic.id;
                 const count = libraryPrompts.filter(topic.match).length + (topic.id === 'all' ? notes.length : 0);
                 
                 const renderLucideIcon = () => {
-                  const css = `w-3 h-3 flex-shrink-0 ${isActive ? 'text-[#39755D] dark:text-[#8CD2B3]' : 'text-[#5A786A] dark:text-[#8BA89B]'}`;
+                  const css = `w-3 h-3 flex-shrink-0 ${isActive ? 'text-[#39755D] dark:text-[#A3BDA8]' : 'text-[#5A786A] dark:text-[#B8BDB5]'}`;
                   switch (topic.id) {
                     case 'all': return <Sparkles className={css} />;
                     case 'story': return <BookOpen className={css} />;
@@ -1851,8 +2418,8 @@ export default function App() {
                     onClick={() => setSelectedLibTopicId(topic.id)}
                     className={`flex items-center gap-1 px-2.5 py-1 rounded-md border text-[11px] font-semibold whitespace-nowrap snap-start transition-all cursor-pointer active:translate-y-px ${
                       isActive
-                        ? 'border-[#39755D] bg-[#E2F3E8] text-[#224C3B] dark:bg-[#233C31] dark:text-[#D9F3E6] dark:border-[#7BC4A4]'
-                        : 'border-[#CFE2D6] dark:border-[#2B4639] bg-[#FFF9EA] dark:bg-[#192A22] text-[#4C6A5C] dark:text-[#A4BFB2] hover:bg-[#E2F3E8]/55 dark:hover:bg-[#20352B]'
+                        ? 'border-[#39755D] bg-[#E2F3E8] text-[#224C3B] dark:bg-[#343D37] dark:text-[#E4E1D8] dark:border-[#A3BDA8]'
+                        : 'border-[#CFE2D6] dark:border-[#49554D] bg-[#FFF9EA] dark:bg-[#292E2B] text-[#4C6A5C] dark:text-[#B8BDB5] hover:bg-[#E2F3E8]/55 dark:hover:bg-[#343D37]'
                     }`}
                   >
                     {renderLucideIcon()}
@@ -1866,13 +2433,13 @@ export default function App() {
 
           {/* Categories / Topics Horizontal Scroll Bar specifically for Ideas Tab */}
           {activeTab === 'ideas' && (
-            <div className="px-2.5 py-2 border-b border-[#E3EFE7] dark:border-[#22392E] flex items-center gap-1.5 overflow-x-auto snap-x snap-mandatory scrollbar-none">
+            <div className="px-2.5 py-2 border-b border-[#E3EFE7] dark:border-[#49554D] flex items-center gap-1.5 overflow-x-auto snap-x snap-mandatory scrollbar-none">
               {TOPICS.map((topic) => {
                 const isActive = selectedTopicId === topic.id;
                 const count = ideas.filter(topic.match).length;
                 
                 const renderLucideIcon = () => {
-                  const css = `w-3 h-3 flex-shrink-0 ${isActive ? 'text-[#39755D] dark:text-[#8CD2B3]' : 'text-[#5A786A] dark:text-[#8BA89B]'}`;
+                  const css = `w-3 h-3 flex-shrink-0 ${isActive ? 'text-[#39755D] dark:text-[#A3BDA8]' : 'text-[#5A786A] dark:text-[#B8BDB5]'}`;
                   switch (topic.id) {
                     case 'all': return <Sparkles className={css} />;
                     case 'cooking': return <Utensils className={css} />;
@@ -1892,8 +2459,8 @@ export default function App() {
                     onClick={() => setSelectedTopicId(topic.id)}
                     className={`flex items-center gap-1 px-2.5 py-1 rounded-md border text-[11px] font-semibold whitespace-nowrap snap-start transition-all cursor-pointer active:translate-y-px ${
                       isActive
-                        ? 'border-[#39755D] bg-[#E2F3E8] text-[#224C3B] dark:bg-[#233C31] dark:text-[#D9F3E6] dark:border-[#7BC4A4]'
-                        : 'border-[#CFE2D6] dark:border-[#2B4639] bg-[#FFF9EA] dark:bg-[#192A22] text-[#4C6A5C] dark:text-[#A4BFB2] hover:bg-[#E2F3E8]/55 dark:hover:bg-[#20352B]'
+                        ? 'border-[#39755D] bg-[#E2F3E8] text-[#224C3B] dark:bg-[#343D37] dark:text-[#E4E1D8] dark:border-[#A3BDA8]'
+                        : 'border-[#CFE2D6] dark:border-[#49554D] bg-[#FFF9EA] dark:bg-[#292E2B] text-[#4C6A5C] dark:text-[#B8BDB5] hover:bg-[#E2F3E8]/55 dark:hover:bg-[#343D37]'
                     }`}
                   >
                     {renderLucideIcon()}
@@ -1924,14 +2491,14 @@ export default function App() {
                       }}
                       className={`group relative w-full text-left p-2.5 rounded-md transition flex items-start gap-2.5 border cursor-pointer select-none ${
                         isSelected
-                          ? 'bg-[#E2F3E8] border-[#39755D] dark:bg-[#223A2F] dark:border-[#7BC4A4] text-[#1E4434] dark:text-[#E5F7EE]'
-                          : 'bg-[#FFF9EA]/70 dark:bg-[#1A2A23]/60 border-transparent hover:border-[#B8D7C5] dark:hover:border-[#314E40] hover:bg-[#E2F3E8]/45 dark:hover:bg-[#1E3129] text-[#284237] dark:text-[#DCEAE1]'
+                          ? 'bg-[#E2F3E8] border-[#39755D] dark:bg-[#343D37] dark:border-[#A3BDA8] text-[#1E4434] dark:text-[#E4E1D8]'
+                          : 'bg-[#FFF9EA]/70 dark:bg-[#292E2B] border-transparent hover:border-[#B8D7C5] dark:hover:border-[#A3BDA8] hover:bg-[#E2F3E8]/45 dark:hover:bg-[#343D37] text-[#284237] dark:text-[#E4E1D8]'
                       }`}
                     >
                       <span className="text-lg mt-0.5 leading-none">{note.icon || '☘️'}</span>
                       <div className="flex-1 min-w-0 pr-6">
                         <p className="font-semibold text-xs truncate leading-snug">{note.title}</p>
-                        <p className="text-[10px] text-[#587568] dark:text-[#96B2A4] mt-1 truncate tabular-nums-mono">
+                        <p className="text-[10px] text-[#587568] dark:text-[#B8BDB5] mt-1 truncate tabular-nums-mono">
                           {correlatedChar ? `${correlatedChar.name} • ` : ''}{new Date(note.updatedAt).toLocaleDateString('vi-VN')}
                         </p>
                       </div>
@@ -1966,19 +2533,19 @@ export default function App() {
                     }}
                     className={`w-full text-left p-2.5 rounded-md transition flex items-start gap-2.5 border cursor-pointer ${
                       selectedLibraryPromptId === p.id && !selectedNoteId && !isCreating
-                        ? 'bg-[#E2F3E8] border-[#39755D] dark:bg-[#223A2F] dark:border-[#7BC4A4] text-[#1E4434] dark:text-[#E5F7EE]'
-                        : 'bg-[#FFF9EA]/70 dark:bg-[#1A2A23]/60 border-transparent hover:border-[#B8D7C5] dark:hover:border-[#314E40] hover:bg-[#E2F3E8]/45 dark:hover:bg-[#1E3129] text-[#284237] dark:text-[#DCEAE1]'
+                        ? 'bg-[#E2F3E8] border-[#39755D] dark:bg-[#343D37] dark:border-[#A3BDA8] text-[#1E4434] dark:text-[#E4E1D8]'
+                        : 'bg-[#FFF9EA]/70 dark:bg-[#292E2B] border-transparent hover:border-[#B8D7C5] dark:hover:border-[#A3BDA8] hover:bg-[#E2F3E8]/45 dark:hover:bg-[#343D37] text-[#284237] dark:text-[#E4E1D8]'
                     }`}
                   >
                     <span className="text-lg mt-0.5 leading-none">{getLibraryPromptIcon(p)}</span>
                     <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-[12.5px] leading-snug text-[#23503E] dark:text-[#A3DFC3]">{p.title}</p>
-                      <p className="text-[10.5px] text-[#587568] dark:text-[#98B4A7] mt-1 line-clamp-2 leading-relaxed">
+                      <p className="font-semibold text-[12.5px] leading-snug text-[#23503E] dark:text-[#A3BDA8]">{p.title}</p>
+                      <p className="text-[10.5px] text-[#587568] dark:text-[#B8BDB5] mt-1 line-clamp-2 leading-relaxed">
                         {p.description}
                       </p>
-                      <div className="mt-1.5 flex items-center justify-between text-[10px] text-[#648174] dark:text-[#87A597]">
-                        <span className="truncate">Tác giả: <strong className="text-[#2D5544] dark:text-[#CBE7D8]">{p.author}</strong></span>
-                        <span className="flex items-center gap-1 font-semibold text-[#39755D] dark:text-[#86CFAF] tabular-nums-mono shrink-0">
+                      <div className="mt-1.5 flex items-center justify-between text-[10px] text-[#648174] dark:text-[#B8BDB5]">
+                        <span className="truncate">Tác giả: <strong className="text-[#2D5544] dark:text-[#E4E1D8]">{p.author}</strong></span>
+                        <span className="flex items-center gap-1 font-semibold text-[#39755D] dark:text-[#A3BDA8] tabular-nums-mono shrink-0">
                           <Terminal className="w-3 h-3" />
                           {p.steps.length} phần
                         </span>
@@ -1988,7 +2555,7 @@ export default function App() {
                 ))}
 
                 {filteredNotes.length === 0 && filteredLibraryPrompts.length === 0 && (
-                  <div className="p-6 text-center text-[#6B877A] dark:text-[#7E9B8D] text-xs">
+                  <div className="p-6 text-center text-[#6B877A] dark:text-[#B8BDB5] text-xs">
                     Thư mục này chưa có câu lệnh phù hợp.
                   </div>
                 )}
@@ -1998,7 +2565,7 @@ export default function App() {
             {activeTab === 'ideas' && (
               <>
                 {filteredIdeas.length === 0 ? (
-                  <div className="p-6 text-center text-[#6B877A] dark:text-[#7E9B8D] text-xs">
+                  <div className="p-6 text-center text-[#6B877A] dark:text-[#B8BDB5] text-xs">
                     Không có ý tưởng nào khớp.
                   </div>
                 ) : (
@@ -2016,8 +2583,8 @@ export default function App() {
                           }}
                           className={`group relative text-left p-3 rounded-lg transition-all duration-150 flex flex-col gap-2 border cursor-pointer select-none ${
                             isActive
-                              ? 'bg-[#E2F3E8] border-[#39755D] dark:bg-[#223A2F] dark:border-[#7BC4A4]'
-                              : 'bg-[#FFF9EA] dark:bg-[#1B2C24] border-[#CFE2D6] dark:border-[#2B4639] hover:border-[#8AB69F] dark:hover:border-[#497560]'
+                              ? 'bg-[#E2F3E8] border-[#39755D] dark:bg-[#343D37] dark:border-[#A3BDA8]'
+                              : 'bg-[#FFF9EA] dark:bg-[#292E2B] border-[#CFE2D6] dark:border-[#49554D] hover:border-[#8AB69F] dark:hover:border-[#A3BDA8]'
                           }`}
                         >
                           {/* Card Header (Icon, Topic & Actions) */}
@@ -2040,7 +2607,7 @@ export default function App() {
                                   setIsCreating(false);
                                   setShowDetailOnMobile(true);
                                 }}
-                                className="p-1 rounded text-[#587568] hover:text-[#39755D] hover:bg-[#39755D]/10 dark:text-[#9CB8AB] dark:hover:text-[#98DAB9] transition"
+                                className="p-1 rounded text-[#587568] hover:text-[#39755D] hover:bg-[#39755D]/10 dark:text-[#B8BDB5] dark:hover:text-[#A3BDA8] transition"
                                 title="Sửa ý tưởng"
                               >
                                 <Edit3 className="w-3.5 h-3.5" />
@@ -2051,7 +2618,7 @@ export default function App() {
                                   e.stopPropagation();
                                   handleDeleteIdea(idea.id);
                                 }}
-                                className="p-1 rounded text-[#587568] hover:text-red-600 hover:bg-red-500/10 dark:text-[#9CB8AB] dark:hover:text-red-400 transition"
+                                className="p-1 rounded text-[#587568] hover:text-red-600 hover:bg-red-500/10 dark:text-[#B8BDB5] dark:hover:text-[#E4A6AA] transition"
                                 title="Xóa ý tưởng"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -2060,17 +2627,17 @@ export default function App() {
                           </div>
 
                           {/* Card Title */}
-                          <h4 className="font-bold text-xs text-[#20372D] dark:text-[#F4EDDC] leading-snug tracking-tight">
+                          <h4 className="font-bold text-xs text-[#20372D] dark:text-[#E4E1D8] leading-snug tracking-tight">
                             {idea.title}
                           </h4>
 
                           {/* Card Content */}
-                          <div className="text-[11px] text-[#3E5A4E] dark:text-[#C5D8CE] leading-relaxed whitespace-pre-wrap break-words bg-white/75 dark:bg-[#14221B] p-2.5 rounded border border-[#D8E7DD] dark:border-[#294236] max-h-[2400px] overflow-y-auto pr-1.5">
+                          <div className="text-[11px] text-[#3E5A4E] dark:text-[#E4E1D8] leading-relaxed whitespace-pre-wrap break-words bg-white/75 dark:bg-[#202423] p-2.5 rounded border border-[#D8E7DD] dark:border-[#49554D] max-h-[2400px] overflow-y-auto pr-1.5">
                             {idea.content}
                           </div>
 
                           {/* Card Footer */}
-                          <div className="flex items-center justify-between text-[9px] text-[#668476] dark:text-[#86A496] tabular-nums-mono pt-0.5">
+                          <div className="flex items-center justify-between text-[9px] text-[#668476] dark:text-[#B8BDB5] tabular-nums-mono pt-0.5">
                             <span>Gieo: {new Date(idea.createdAt).toLocaleDateString('vi-VN')}</span>
                             {idea.updatedAt && idea.updatedAt !== idea.createdAt && (
                               <span>đã sửa</span>
@@ -2087,7 +2654,7 @@ export default function App() {
             {activeTab === 'characters' && (
               <>
                 {filteredCharacters.length === 0 ? (
-                  <div className="p-6 text-center text-[#6B877A] dark:text-[#7E9B8D] text-xs">
+                  <div className="p-6 text-center text-[#6B877A] dark:text-[#B8BDB5] text-xs">
                     Chưa có nhân vật nào trong thư mục.
                   </div>
                 ) : (
@@ -2104,25 +2671,25 @@ export default function App() {
                         }}
                         className={`group relative w-full text-left p-2.5 rounded-md transition flex items-start gap-2.5 border cursor-pointer select-none ${
                           isSelected
-                            ? 'bg-[#E2F3E8] border-[#39755D] dark:bg-[#223A2F] dark:border-[#7BC4A4] text-[#1E4434] dark:text-[#E5F7EE]'
-                            : 'bg-[#FFF9EA]/70 dark:bg-[#1A2A23]/60 border-transparent hover:border-[#B8D7C5] dark:hover:border-[#314E40] hover:bg-[#E2F3E8]/45 dark:hover:bg-[#1E3129] text-[#284237] dark:text-[#DCEAE1]'
+                            ? 'bg-[#E2F3E8] border-[#39755D] dark:bg-[#343D37] dark:border-[#A3BDA8] text-[#1E4434] dark:text-[#E4E1D8]'
+                            : 'bg-[#FFF9EA]/70 dark:bg-[#292E2B] border-transparent hover:border-[#B8D7C5] dark:hover:border-[#A3BDA8] hover:bg-[#E2F3E8]/45 dark:hover:bg-[#343D37] text-[#284237] dark:text-[#E4E1D8]'
                         }`}
                       >
                         <div className="flex-1 min-w-0 pr-6">
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <p className="font-semibold text-xs truncate leading-snug text-[#20372D] dark:text-[#F4EDDC] group-hover:text-[#39755D] dark:group-hover:text-[#98DAB9] transition-colors">
+                            <p className="font-semibold text-xs truncate leading-snug text-[#20372D] dark:text-[#E4E1D8] group-hover:text-[#39755D] dark:group-hover:text-[#A3BDA8] transition-colors">
                               {char.name}
                             </p>
                             {char.author && (
                               <span
-                                className="px-1.5 py-0.5 text-[9px] bg-[#E2F3E8]/80 dark:bg-[#243B31] text-[#39755D] dark:text-[#9AD8BD] rounded border border-[#BDD9C9] dark:border-[#345646] font-medium max-w-[85px] truncate"
+                                className="px-1.5 py-0.5 text-[9px] bg-[#E2F3E8]/80 dark:bg-[#343D37] text-[#39755D] dark:text-[#A3BDA8] rounded border border-[#BDD9C9] dark:border-[#49554D] font-medium max-w-[85px] truncate"
                                 title={`Tác giả: ${char.author}`}
                               >
                                 {char.author}
                               </span>
                             )}
                           </div>
-                          <p className="text-[10px] text-[#5B786B] dark:text-[#94B1A3] mt-1 truncate">{char.role}</p>
+                          <p className="text-[10px] text-[#5B786B] dark:text-[#B8BDB5] mt-1 truncate">{char.role}</p>
                         </div>
 
                         {/* Quick Delete Character Button */}
@@ -2147,7 +2714,7 @@ export default function App() {
             {activeTab === 'authors' && (
               <>
                 {filteredAuthors.length === 0 ? (
-                  <div className="p-6 text-center text-[#6B877A] dark:text-[#7E9B8D] text-xs">
+                  <div className="p-6 text-center text-[#6B877A] dark:text-[#B8BDB5] text-xs">
                     Chưa có tác giả nào trong thư mục.
                   </div>
                 ) : (
@@ -2164,15 +2731,15 @@ export default function App() {
                         }}
                         className={`group relative w-full text-left p-2.5 rounded-md transition flex items-center gap-2.5 border cursor-pointer select-none ${
                           isSelected
-                            ? 'bg-[#E2F3E8] border-[#39755D] dark:bg-[#223A2F] dark:border-[#7BC4A4] text-[#1E4434] dark:text-[#E5F7EE]'
-                            : 'bg-[#FFF9EA]/70 dark:bg-[#1A2A23]/60 border-transparent hover:border-[#B8D7C5] dark:hover:border-[#314E40] hover:bg-[#E2F3E8]/45 dark:hover:bg-[#1E3129] text-[#284237] dark:text-[#DCEAE1]'
+                            ? 'bg-[#E2F3E8] border-[#39755D] dark:bg-[#343D37] dark:border-[#A3BDA8] text-[#1E4434] dark:text-[#E4E1D8]'
+                            : 'bg-[#FFF9EA]/70 dark:bg-[#292E2B] border-transparent hover:border-[#B8D7C5] dark:hover:border-[#A3BDA8] hover:bg-[#E2F3E8]/45 dark:hover:bg-[#343D37] text-[#284237] dark:text-[#E4E1D8]'
                         }`}
                       >
-                        <div className="w-8 h-8 rounded-md bg-[#FFF9EA] dark:bg-[#1D3027] flex items-center justify-center text-base border border-[#C6DFD0] dark:border-[#314E40]">
+                        <div className="w-8 h-8 rounded-md bg-[#FFF9EA] dark:bg-[#292E2B] flex items-center justify-center text-base border border-[#C6DFD0] dark:border-[#49554D]">
                           {author.avatarEmoji}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className={`font-semibold text-xs truncate leading-snug ${isSelected ? 'text-[#214C3B] dark:text-[#A3DFC3] font-bold' : 'text-[#20372D] dark:text-[#F4EDDC]'}`}>
+                          <p className={`font-semibold text-xs truncate leading-snug ${isSelected ? 'text-[#214C3B] dark:text-[#A3BDA8] font-bold' : 'text-[#20372D] dark:text-[#E4E1D8]'}`}>
                             {author.name}
                           </p>
                         </div>
@@ -2186,7 +2753,7 @@ export default function App() {
 
           {/* Sidebar Creation Command Anchor */}
           {activeTab !== 'authors' && (
-            <div className="sticky bottom-0 p-2.5 border-t border-[#CBE0D3] dark:border-[#294336] bg-[#F1F8F3] dark:bg-[#14221B] flex justify-center z-10">
+            <div className="sticky bottom-0 p-2.5 border-t border-[#CBE0D3] dark:border-[#49554D] bg-[#F1F8F3] dark:bg-[#202423] flex justify-center z-10">
               <button
                 type="button"
                 onClick={() => {
@@ -2207,15 +2774,18 @@ export default function App() {
         </aside>
 
         {/* RIGHT COLUMN: MAIN LETTER & DETAIL VIEWPORT */}
-        <main className={`flex-1 h-full flex flex-col min-w-0 bg-[#EDF6F0] dark:bg-[#111C17] ${showDetailOnMobile ? 'flex' : 'hidden md:flex'}`}>
+        <main className={`flex-1 min-w-0 h-full flex flex-col overflow-hidden bg-[#EDF6F0] dark:bg-[#202423] ${showDetailOnMobile ? 'flex' : 'hidden md:flex'}`}>
           
-          {/* DETAILS OR FORM EDITOR VIEW */}
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8">
-            <div className="max-w-4xl mx-auto space-y-6">
+          {/* DETAILS OR FORM EDITOR VIEW (Scroll container begins strictly below top bar) */}
+          <div
+            ref={detailScrollRef}
+            className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3.5 sm:p-5"
+          >
+            <div className="max-w-5xl w-full mx-auto space-y-4">
               
               {/* 1. CREATION / FORM SECTOR */}
               {isCreating && (
-                <div className="bg-[#FFF9EA] dark:bg-[#172620] rounded-lg border border-[#B8D7C5] dark:border-[#2E4B3D] p-1">
+                <div className="w-full">
                   {activeTab === 'notes' && (
                     <NoteForm 
                       characters={characters}
@@ -2243,7 +2813,7 @@ export default function App() {
 
               {/* 2. CHOSEN EDIT STATE */}
               {isEditing && (
-                <div className="bg-[#FFF9EA] dark:bg-[#172620] rounded-lg border border-[#B8D7C5] dark:border-[#2E4B3D] p-1">
+                <div className="w-full">
                   {activeTab === 'notes' && activeNote && (
                     <NoteForm 
                       initialData={activeNote}
@@ -2280,45 +2850,38 @@ export default function App() {
                     (activeTab === 'ideas' && !activeIdea) || 
                     (activeTab === 'characters' && !activeChar) ||
                     (activeTab === 'authors' && !activeAuthor)) && (
-                    <section className="letter-paper relative rounded-lg px-5 py-6 sm:px-9 sm:py-8 md:px-11 md:py-10 animate-fade-in overflow-hidden">
+                    <section className="letter-paper relative rounded-lg px-5 py-5 sm:px-8 sm:py-7 animate-fade-in overflow-hidden">
                       {/* Soft blush-pink masking-tape accent at top-left paper corner */}
                       <span
                         aria-hidden="true"
-                        className="pointer-events-none absolute -top-1 left-6 w-16 h-3.5 bg-[#F2CDDA]/85 dark:bg-[#C98CA3]/45 border-x border-b border-[#E3B2C4]/70 dark:border-[#DDA6BA]/35 rounded-b-[2px] -rotate-2"
+                        className="pointer-events-none absolute -top-1 left-6 w-16 h-3.5 bg-[#F2CDDA]/85 dark:bg-[#9E7786]/45 border-x border-b border-[#E3B2C4]/70 dark:border-[#9E7786]/40 rounded-b-[2px] -rotate-2"
                       />
 
-                      {/* Letter Header Row: Left-aligned greeting + Top-right postage stamp & "おてがみ" postmark */}
-                      <div className="flex flex-col-reverse sm:flex-row sm:items-start justify-between gap-6">
-                        {/* Left-aligned personal letter copy */}
-                        <div className="flex-1 min-w-0 text-left pt-1 sm:pt-3 max-w-xl">
-                          <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-[#5B7D6E] dark:text-[#8FB9A5] mb-3">
+                      {/* Header Row ONLY shares width with postage stamp & "おてがみ" postmark */}
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1 min-w-0 text-left pt-2">
+                          <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-[#5B7D6E] dark:text-[#B8BDB5] mb-1.5">
                             Dear friend — SéaClover
                           </p>
-                          <h2 className="text-xl sm:text-2xl font-bold text-[#2B5A47] dark:text-[#A5DFC4] tracking-tight leading-snug">
+                          <h2 className="text-xl sm:text-2xl font-bold text-[#2B5A47] dark:text-[#E4E1D8] tracking-tight leading-snug">
                             Gửi bạn, từ SéaClover
                           </h2>
-                          <div className="mt-4 space-y-1.5 text-sm sm:text-[15px] leading-8 text-[#2B463A] dark:text-[#EFE8D7]">
-                            <p>Mình để dành ở đây những nhân vật, câu lệnh và ý tưởng mình thích.</p>
-                            <p>Bạn cứ mở một thư mục và xem từ từ nhé. 🍀</p>
-                          </div>
                         </div>
 
                         {/* Top-right Perforated Postage Stamp + Circular "おてがみ" Postmark */}
-                        <div className="flex items-center justify-end self-end sm:self-start flex-shrink-0 select-none">
-                          {/* Circular Japanese postmark slightly overlapping stamp edge */}
-                          <div className="-mr-5 z-10 text-[#39755D] dark:text-[#A5DFC4] pointer-events-none">
-                            <OtegamiPostmark className="w-20 h-16 sm:w-24 sm:h-[76px]" />
+                        <div className="flex items-center justify-end flex-shrink-0 select-none">
+                          <div className="-mr-4 sm:-mr-5 z-10 text-[#39755D] dark:text-[#A3BDA8] pointer-events-none">
+                            <OtegamiPostmark className="w-16 h-14 sm:w-24 sm:h-[74px]" />
                           </div>
 
-                          {/* Perforated postage stamp frame holding current mascot */}
                           <div className="postage-stamp rotate-[2deg]">
-                            <div className="bg-[#FFF9EA] dark:bg-[#182720] p-1 border border-[#D89AB1] dark:border-[#9E6A7D]">
+                            <div className="bg-[#FFF9EA] dark:bg-[#292E2B] p-1 border border-[#D89AB1] dark:border-[#8C6876]">
                               <img
                                 src="/app-icon.jpg"
                                 alt="Mascot cỏ bốn lá SéaClover"
-                                className="w-[70px] h-[70px] sm:w-[82px] sm:h-[82px] object-cover block"
+                                className="w-[58px] h-[58px] sm:w-[74px] sm:h-[74px] object-cover block"
                               />
-                              <div className="flex items-center justify-between pt-1 px-0.5 font-mono text-[8px] font-semibold text-[#8A4E64] dark:text-[#E8B8CA] leading-none">
+                              <div className="flex items-center justify-between pt-1 px-0.5 font-mono text-[7.5px] font-semibold text-[#8A4E64] dark:text-[#D9A7B8] leading-none">
                                 <span>CLOVER</span>
                                 <span>04</span>
                               </div>
@@ -2327,13 +2890,18 @@ export default function App() {
                         </div>
                       </div>
 
+                      {/* Full-width natural-wrapping letter body below header & stamp */}
+                      <p className="mt-4 w-full text-left text-[15px] sm:text-base leading-7 text-[#2B463A] dark:text-[#E4E1D8]">
+                        Mình để dành ở đây những nhân vật, câu lệnh và ý tưởng mình thích. Bạn cứ mở một thư mục và xem từ từ nhé. 🍀
+                      </p>
+
                       {/* Hairline stationery rule separating letter body & 4 mini folder shortcuts */}
-                      <div className="mt-8 pt-6 border-t border-dashed border-[#B7D4C3] dark:border-[#325142]">
-                        <div className="flex items-center justify-between gap-2 mb-3.5">
-                          <span className="font-mono text-[11px] font-semibold tracking-wider text-[#4C7060] dark:text-[#96BDAA]">
+                      <div className="mt-6 pt-5 border-t border-dashed border-[#B7D4C3] dark:border-[#49554D]">
+                        <div className="flex items-center justify-between gap-2 mb-3">
+                          <span className="font-mono text-[11px] font-semibold tracking-wider text-[#4C7060] dark:text-[#B8BDB5]">
                             Mở nhanh thư mục
                           </span>
-                          <span className="font-mono text-[10px] text-[#6B8A7B] dark:text-[#7FA292] tabular-nums-mono">
+                          <span className="font-mono text-[10px] text-[#6B8A7B] dark:text-[#B8BDB5] tabular-nums-mono">
                             4 thư mục
                           </span>
                         </div>
@@ -2345,22 +2913,22 @@ export default function App() {
                               setActiveTab('characters');
                               setShowDetailOnMobile(false);
                             }}
-                            className="retro-btn p-3.5 text-left flex flex-col items-start gap-2 cursor-pointer group"
+                            className="retro-btn p-3 text-left flex flex-col items-start gap-2 cursor-pointer group"
                           >
                             <div className="w-full flex items-center justify-between gap-2">
                               <PixelFolderShortcutIcon
                                 variant="characters"
                                 className="w-9 h-8 transition-transform duration-150 group-hover:-translate-y-0.5"
                               />
-                              <span className="tabular-nums-mono text-[10px] px-1.5 py-0.5 rounded bg-[#E2F3E8] dark:bg-[#233B30] text-[#2F634E] dark:text-[#A5DFC4] border border-[#BDDAC9] dark:border-[#355949]">
+                              <span className="tabular-nums-mono text-[10px] px-1.5 py-0.5 rounded bg-[#E2F3E8] dark:bg-[#343D37] text-[#2F634E] dark:text-[#A3BDA8] border border-[#BDDAC9] dark:border-[#49554D]">
                                 {characters.length}
                               </span>
                             </div>
                             <div className="min-w-0 w-full">
-                              <h3 className="text-xs font-bold text-[#224C3B] dark:text-[#E8F6EE] leading-snug">
+                              <h3 className="text-xs font-bold text-[#224C3B] dark:text-[#E4E1D8] leading-snug">
                                 Nhân Vật
                               </h3>
-                              <p className="text-[11px] text-[#587668] dark:text-[#9BB8AA] mt-0.5 leading-snug line-clamp-2">
+                              <p className="text-[11px] text-[#587668] dark:text-[#B8BDB5] mt-0.5 leading-snug line-clamp-2">
                                 Hồ sơ các nhân vật bạn lưu giữ
                               </p>
                             </div>
@@ -2372,22 +2940,22 @@ export default function App() {
                               setActiveTab('authors');
                               setShowDetailOnMobile(false);
                             }}
-                            className="retro-btn p-3.5 text-left flex flex-col items-start gap-2 cursor-pointer group"
+                            className="retro-btn p-3 text-left flex flex-col items-start gap-2 cursor-pointer group"
                           >
                             <div className="w-full flex items-center justify-between gap-2">
                               <PixelFolderShortcutIcon
                                 variant="authors"
                                 className="w-9 h-8 transition-transform duration-150 group-hover:-translate-y-0.5"
                               />
-                              <span className="tabular-nums-mono text-[10px] px-1.5 py-0.5 rounded bg-[#F2CDDA]/55 dark:bg-[#3A2831] text-[#7A3F55] dark:text-[#EBBFD0] border border-[#E6B8C8] dark:border-[#5D3D4B]">
+                              <span className="tabular-nums-mono text-[10px] px-1.5 py-0.5 rounded bg-[#F2CDDA]/55 dark:bg-[#343D37] text-[#7A3F55] dark:text-[#D9A7B8] border border-[#E6B8C8] dark:border-[#49554D]">
                                 {authorsList.length}
                               </span>
                             </div>
                             <div className="min-w-0 w-full">
-                              <h3 className="text-xs font-bold text-[#224C3B] dark:text-[#E8F6EE] leading-snug">
+                              <h3 className="text-xs font-bold text-[#224C3B] dark:text-[#E4E1D8] leading-snug">
                                 Tác Giả
                               </h3>
-                              <p className="text-[11px] text-[#587668] dark:text-[#9BB8AA] mt-0.5 leading-snug line-clamp-2">
+                              <p className="text-[11px] text-[#587668] dark:text-[#B8BDB5] mt-0.5 leading-snug line-clamp-2">
                                 Ghi chú về các tác giả yêu thích
                               </p>
                             </div>
@@ -2399,22 +2967,22 @@ export default function App() {
                               setActiveTab('notes');
                               setShowDetailOnMobile(false);
                             }}
-                            className="retro-btn p-3.5 text-left flex flex-col items-start gap-2 cursor-pointer group"
+                            className="retro-btn p-3 text-left flex flex-col items-start gap-2 cursor-pointer group"
                           >
                             <div className="w-full flex items-center justify-between gap-2">
                               <PixelFolderShortcutIcon
                                 variant="notes"
                                 className="w-9 h-8 transition-transform duration-150 group-hover:-translate-y-0.5"
                               />
-                              <span className="tabular-nums-mono text-[10px] px-1.5 py-0.5 rounded bg-[#E2F3E8] dark:bg-[#233B30] text-[#2F634E] dark:text-[#A5DFC4] border border-[#BDDAC9] dark:border-[#355949]">
+                              <span className="tabular-nums-mono text-[10px] px-1.5 py-0.5 rounded bg-[#E2F3E8] dark:bg-[#343D37] text-[#2F634E] dark:text-[#A3BDA8] border border-[#BDDAC9] dark:border-[#49554D]">
                                 {notes.length + libraryPrompts.length}
                               </span>
                             </div>
                             <div className="min-w-0 w-full">
-                              <h3 className="text-xs font-bold text-[#224C3B] dark:text-[#E8F6EE] leading-snug">
+                              <h3 className="text-xs font-bold text-[#224C3B] dark:text-[#E4E1D8] leading-snug">
                                 Kho Lệnh
                               </h3>
-                              <p className="text-[11px] text-[#587668] dark:text-[#9BB8AA] mt-0.5 leading-snug line-clamp-2">
+                              <p className="text-[11px] text-[#587668] dark:text-[#B8BDB5] mt-0.5 leading-snug line-clamp-2">
                                 Prompt mẫu & câu lệnh tiện dùng
                               </p>
                             </div>
@@ -2426,22 +2994,22 @@ export default function App() {
                               setActiveTab('ideas');
                               setShowDetailOnMobile(false);
                             }}
-                            className="retro-btn p-3.5 text-left flex flex-col items-start gap-2 cursor-pointer group"
+                            className="retro-btn p-3 text-left flex flex-col items-start gap-2 cursor-pointer group"
                           >
                             <div className="w-full flex items-center justify-between gap-2">
                               <PixelFolderShortcutIcon
                                 variant="ideas"
                                 className="w-9 h-8 transition-transform duration-150 group-hover:-translate-y-0.5"
                               />
-                              <span className="tabular-nums-mono text-[10px] px-1.5 py-0.5 rounded bg-[#E2F3E8] dark:bg-[#233B30] text-[#2F634E] dark:text-[#A5DFC4] border border-[#BDDAC9] dark:border-[#355949]">
+                              <span className="tabular-nums-mono text-[10px] px-1.5 py-0.5 rounded bg-[#E2F3E8] dark:bg-[#343D37] text-[#2F634E] dark:text-[#A3BDA8] border border-[#BDDAC9] dark:border-[#49554D]">
                                 {ideas.length}
                               </span>
                             </div>
                             <div className="min-w-0 w-full">
-                              <h3 className="text-xs font-bold text-[#224C3B] dark:text-[#E8F6EE] leading-snug">
+                              <h3 className="text-xs font-bold text-[#224C3B] dark:text-[#E4E1D8] leading-snug">
                                 Kho Idea
                               </h3>
-                              <p className="text-[11px] text-[#587668] dark:text-[#9BB8AA] mt-0.5 leading-snug line-clamp-2">
+                              <p className="text-[11px] text-[#587668] dark:text-[#B8BDB5] mt-0.5 leading-snug line-clamp-2">
                                 Những ý tưởng vui để chơi cùng char
                               </p>
                             </div>
@@ -2451,698 +3019,720 @@ export default function App() {
                     </section>
                   )}
 
-                {/* B. NOTE DETAILS COMPONENT DISPLAY */}
-                {activeTab === 'notes' && activeNote && (
-                  <article className="space-y-6 animate-fade-in" id="active-note-card">
-                    {/* Header */}
-                    <div className="flex flex-col sm:flex-row justify-between items-start gap-4 pb-4 border-b border-zinc-200 dark:border-zinc-800">
-                      <div>
-                        <h2 className="text-xl font-bold text-emerald-850 dark:text-emerald-400 leading-tight">{activeNote.title}</h2>
-                        <span className="text-[10px] font-mono text-zinc-400 dark:text-zinc-500 mt-2 block">
-                          Cập nhật cuối: {new Date(activeNote.updatedAt).toLocaleString('vi-VN')}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end">
-                        <button
-                          onClick={() => setIsEditing(true)}
-                          className="px-3.5 py-1.5 rounded-lg text-xs font-semibold border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5 transition"
-                        >
-                          <Edit3 className="w-3.5 h-3.5" />
-                          <span>Chỉnh sửa</span>
-                        </button>
-                        <button
-                          onClick={() => handleDeleteNote(activeNote.id)}
-                          className="px-3.5 py-1.5 rounded-lg text-xs font-semibold border border-red-200 dark:border-red-950/40 hover:bg-red-50 dark:hover:bg-red-950/20 text-red-600 dark:text-red-400 flex items-center gap-1.5 transition"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                          <span>Xóa bỏ</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Section Character reference */}
-                    <div className="bg-emerald-500/5 dark:bg-emerald-950/10 rounded-2xl p-4 border border-emerald-500/10 flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        <div className="text-3xl">
-                          {characters.find(c => c.id === activeNote.characterId)?.avatar || '🍀'}
-                        </div>
-                        <div>
-                          <p className="text-[10px] uppercase font-bold text-emerald-600 tracking-wider">Nhân vật liên kết</p>
-                          <h4 className="font-semibold text-emerald-800 dark:text-emerald-400 text-sm">
-                            {characters.find(c => c.id === activeNote.characterId)?.name || 'Không xác định'}
-                          </h4>
-                          <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                            {characters.find(c => c.id === activeNote.characterId)?.role || 'Vui lòng chỉnh sửa và liên kết nhân vật'}
-                          </p>
-                        </div>
-                      </div>
-                      
-                      {activeNote.characterId && (
-                        <button
-                          onClick={() => {
-                            setActiveTab('characters');
-                            setSelectedCharId(activeNote.characterId);
-                          }}
-                          className="text-xs font-medium text-emerald-600 hover:text-emerald-500 flex items-center gap-1 transition"
-                          title="Đến trang chi tiết nhân vật"
-                        >
-                          <span>Xem nhân vật</span>
-                          <ExternalLink className="w-3 h-3" />
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Section 1: Prompt cần nhập (Command) */}
-                    <div className="gap-2 bg-white dark:bg-zinc-900 rounded-2xl border border-emerald-100/60 dark:border-emerald-900/20 shadow-sm overflow-hidden">
-                      <div className="px-5 py-3 bg-emerald-50/50 dark:bg-emerald-950/10 border-b border-emerald-500/5 flex items-center justify-between">
-                        <h4 className="text-xs font-bold text-emerald-800 dark:text-emerald-400 flex items-center gap-2">
-                          <Terminal className="w-4 h-4 text-emerald-600" />
-                          <span>1. PROMPT CẦN NHẬP (LỆNH CHÍNH)</span>
-                        </h4>
-                        <button
-                          onClick={() => copyToClipboard(activeNote.command, 'Prompt cần nhập')}
-                          className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 dark:bg-emerald-700 dark:hover:bg-emerald-600 text-white font-semibold text-[10px] flex items-center gap-1.5 active:scale-95 shadow-md shadow-emerald-500/10 hover:shadow-emerald-500/20 transition-all cursor-pointer"
-                        >
-                          <Copy className="w-3.5 h-3.5" />
-                          <span>Sao chép</span>
-                        </button>
-                      </div>
-                      <div className="p-5 font-mono text-sm leading-relaxed text-zinc-800 dark:text-zinc-200 bg-zinc-50 dark:bg-zinc-950/40 whitespace-pre-wrap select-all border-l-4 border-emerald-500 overflow-x-auto">
-                        {activeNote.command}
-                      </div>
-                    </div>
-
-                    {/* Section 2: Nội dung (Detailed content instructions) */}
-                    <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-emerald-100/60 dark:border-emerald-900/20 shadow-sm overflow-hidden">
-                      <div className="px-5 py-3 bg-emerald-50/50 dark:bg-emerald-950/10 border-b border-emerald-500/5 flex items-center justify-between">
-                        <h4 className="text-xs font-bold text-emerald-800 dark:text-emerald-400 flex items-center gap-2">
-                          <Info className="w-4 h-4 text-emerald-600" />
-                          <span>2. NỘI DUNG CHỈ TIẾT KÈM DỮ LIỆU</span>
-                        </h4>
-                        <button
-                          onClick={() => copyToClipboard(activeNote.content, 'Nội dung')}
-                          className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 dark:bg-emerald-700 dark:hover:bg-emerald-600 text-white font-semibold text-[10px] flex items-center gap-1.5 active:scale-95 shadow-md shadow-emerald-500/10 hover:shadow-emerald-500/20 transition-all cursor-pointer"
-                        >
-                          <Copy className="w-3.5 h-3.5" />
-                          <span>Sao chép</span>
-                        </button>
-                      </div>
-                      <div className="p-5 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300 bg-white dark:bg-zinc-900/10 whitespace-pre-wrap leading-relaxed select-text">
-                        {activeNote.content}
-                      </div>
-                    </div>
-                  </article>
-                )}
-
-                {/* B2. PROMPT LIBRARY DETAILS DISPLAY */}
-                {activeTab === 'notes' && activeLibraryPrompt && (
-                  <article className="space-y-6 animate-fade-in" id="active-library-prompt-card">
-                    {/* Header */}
-                    <div className="flex flex-col sm:flex-row justify-between items-start gap-4 pb-4 border-b border-zinc-200 dark:border-zinc-800">
-                      <div className="space-y-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="px-2.5 py-1 text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-lg">
-                            Kho Lệnh AI
+                  {/* B. NOTE DETAILS COMPONENT DISPLAY */}
+                  {activeTab === 'notes' && activeNote && (
+                    <article className="space-y-4 animate-fade-in min-w-0" id="active-note-card">
+                      {/* Header Window */}
+                      <div className="retro-window overflow-hidden">
+                        <div className="retro-window-header px-4 py-2.5 flex items-center justify-between gap-2">
+                          <span className="font-mono text-[11px] font-semibold text-[#39755D] dark:text-[#A3BDA8] flex items-center gap-1.5">
+                            <PixelCommandIcon className="w-3.5 h-3.5" />
+                            Kho Lệnh / Ghi chú cá nhân
                           </span>
-                          <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                            Tác giả: <strong className="text-emerald-700 dark:text-emerald-400 font-semibold">{activeLibraryPrompt.author}</strong>
+                          <span className="text-[10px] tabular-nums-mono text-[#587568] dark:text-[#B8BDB5]">
+                            {new Date(activeNote.updatedAt).toLocaleString('vi-VN')}
                           </span>
                         </div>
-                        <h2 className="text-xl font-bold text-emerald-850 dark:text-emerald-400 leading-tight flex items-center gap-2">
-                          <span className="text-2xl">{getLibraryPromptIcon(activeLibraryPrompt)}</span>
-                          <span>{activeLibraryPrompt.title}</span>
-                        </h2>
-                      </div>
-                    </div>
-
-                    {/* Section Description Card */}
-                    <div className="bg-emerald-500/5 dark:bg-zinc-900 border border-emerald-500/10 dark:border-emerald-900/10 rounded-2xl p-5 shadow-sm space-y-2">
-                      <h4 className="text-xs font-bold text-emerald-800 dark:text-emerald-400 flex items-center gap-1.5 uppercase font-sans tracking-wide">
-                        <Info className="w-4 h-4 text-emerald-600" />
-                        <span>Thông tin về công cụ lệnh</span>
-                      </h4>
-                      <p className="text-xs md:text-sm text-zinc-700 dark:text-zinc-300 leading-relaxed whitespace-pre-line">
-                        {activeLibraryPrompt.description}
-                      </p>
-                    </div>
-
-                    {/* Section How to use Card */}
-                    <div className="bg-amber-500/5 dark:bg-zinc-900 border border-amber-500/10 dark:border-amber-900/10 rounded-2xl p-5 shadow-sm space-y-2">
-                      <h4 className="text-xs font-bold text-amber-800 dark:text-amber-400 flex items-center gap-1.5 uppercase font-sans tracking-wide">
-                        <Terminal className="w-4 h-4 text-amber-500" />
-                        <span>Hướng dẫn sử dụng (Cách dùng)</span>
-                      </h4>
-                      <p className="text-xs md:text-sm text-zinc-700 dark:text-zinc-300 leading-relaxed whitespace-pre-line">
-                        {activeLibraryPrompt.howToUse}
-                      </p>
-                    </div>
-
-                    {/* Steps / Commands list section */}
-                    <div className="space-y-4">
-                      {activeLibraryPrompt.steps.length === 1 ? (
-                        // SINGLE CONTINUOUS BLOCK
-                        <div className="space-y-3">
-                          <div className="flex items-center justify-between">
-                            <h3 className="text-sm font-bold text-emerald-850 dark:text-emerald-300 uppercase tracking-wider flex items-center gap-2">
-                              <span>📋 Nội dung câu lệnh</span>
-                            </h3>
-                            {visibleSteps[0] && (
-                              <button
-                                onClick={() => copyToClipboard(activeLibraryPrompt.steps[0].content, activeLibraryPrompt.title)}
-                                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 dark:bg-emerald-700 dark:hover:bg-emerald-600 text-white font-bold text-xs flex items-center gap-1.5 active:scale-95 transition shadow-md shadow-emerald-600/10"
-                                title="Copy toàn bộ câu lệnh này"
-                              >
-                                <Copy className="w-4 h-4" />
-                                <span>Copy toàn bộ lệnh</span>
-                              </button>
-                            )}
+                        <div className="p-4 flex flex-col sm:flex-row justify-between items-start gap-3">
+                          <div className="min-w-0 flex-1">
+                            <h2 className="text-lg sm:text-xl font-bold text-[#224C3B] dark:text-[#E4E1D8] leading-snug break-words flex items-center gap-2">
+                              <span>{activeNote.icon || '☘️'}</span>
+                              <span>{activeNote.title}</span>
+                            </h2>
                           </div>
-
-                          <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-emerald-100 dark:border-emerald-900/30 overflow-hidden shadow-sm">
-                            <div className="px-5 py-3 bg-zinc-50 dark:bg-zinc-950/40 border-b border-zinc-100 dark:border-zinc-800 text-xs font-bold text-zinc-600 dark:text-zinc-300 flex justify-between items-center gap-3">
-                              <span>{activeLibraryPrompt.steps[0].label || 'Hiển thị câu lệnh'}</span>
-                              <button
-                                onClick={() => setVisibleSteps(prev => ({ ...prev, 0: !prev[0] }))}
-                                className="px-2.5 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 bg-slate-50 dark:bg-zinc-950/30 text-[10px] flex items-center gap-1.5 transition"
-                              >
-                                {visibleSteps[0] ? (
-                                  <>
-                                    <EyeOff className="w-3.5 h-3.5" />
-                                    <span>Ẩn lệnh</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Eye className="w-3.5 h-3.5 text-emerald-600" />
-                                    <span>Hiện lệnh</span>
-                                  </>
-                                )}
-                              </button>
-                            </div>
-                            {visibleSteps[0] && (
-                              <div className="p-5 bg-zinc-500/5">
-                                <div className="font-mono text-xs leading-relaxed text-zinc-800 dark:text-zinc-200 bg-zinc-100 dark:bg-zinc-950 p-4 rounded-xl border-l-4 border-emerald-500 overflow-x-auto whitespace-pre-wrap select-all">
-                                  {activeLibraryPrompt.steps[0].content}
-                                </div>
-                                <div className="mt-3 flex justify-between items-center">
-                                  <button
-                                    onClick={() => copyToClipboard(activeLibraryPrompt.steps[0].content, activeLibraryPrompt.title)}
-                                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition"
-                                  >
-                                    <Copy className="w-3.5 h-3.5" />
-                                    <span>Copy câu lệnh</span>
-                                  </button>
-                                </div>
-                              </div>
-                            )}
+                          <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end flex-shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => setIsEditing(true)}
+                              className="retro-btn px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <Edit3 className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
+                              <span>Chỉnh sửa</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteNote(activeNote.id)}
+                              className="retro-btn-danger px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Xóa bỏ</span>
+                            </button>
                           </div>
                         </div>
-                      ) : (
-                        // MULTI-STEP / EN-VI TRANSLATION BLOCKS
-                        <>
-                          <div className="flex items-center justify-between">
-                            <h3 className="text-sm font-bold text-emerald-850 dark:text-emerald-300 uppercase tracking-wider flex items-center gap-2">
-                              <span>📦 Danh sách các khối câu lệnh ({activeLibraryPrompt.steps.length})</span>
-                            </h3>
-                            <p className="text-[10px] font-mono text-zinc-400 dark:text-zinc-500 hidden sm:inline">
-                              * Tách nhỏ từng phần tiếng Anh dễ theo dõi và sao chép riêng
+                      </div>
+
+                      {/* Linked Character Strip */}
+                      <div className="retro-callout-mint p-3.5 flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-10 h-10 rounded-md bg-[#FFF9EA] dark:bg-[#292E2B] border border-[#B8D7C5] dark:border-[#49554D] flex items-center justify-center text-2xl flex-shrink-0">
+                            {characters.find(c => c.id === activeNote.characterId)?.avatar || '🍀'}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-[10px] font-mono uppercase font-semibold text-[#39755D] dark:text-[#A3BDA8] tracking-wider">
+                              Nhân vật liên kết
                             </p>
-                          </div>
-
-                          <div className="space-y-3">
-                            {activeLibraryPrompt.steps.map((step, index) => {
-                              const isOpen = !!visibleSteps[index];
-                              return (
-                                <div
-                                  key={index}
-                                  className="bg-white dark:bg-zinc-900 rounded-2xl border border-emerald-100 dark:border-emerald-900/30 overflow-hidden shadow-sm"
-                                >
-                                  {/* Step Card Header */}
-                                  <div className="px-5 py-3.5 bg-zinc-50 dark:bg-zinc-950/40 border-b border-zinc-100 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-3">
-                                    <div className="flex items-center gap-2">
-                                      <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-bold flex items-center justify-center">
-                                        {index + 1}
-                                      </span>
-                                      <span className="text-xs font-bold text-zinc-700 dark:text-zinc-200">
-                                        {step.label || 'Khối lệnh'}
-                                      </span>
-                                    </div>
-
-                                    <div className="flex items-center gap-2">
-                                      {/* Eye (Show/Hide) Trigger */}
-                                      <button
-                                        onClick={() => setVisibleSteps(prev => ({ ...prev, [index]: !prev[index] }))}
-                                        className="p-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 bg-slate-50 dark:bg-zinc-950/30 text-[10px] flex items-center gap-1 transition"
-                                        title={isOpen ? "Thu gọn nội dung hiển thị" : "Bấm để phóng to và xem văn bản lệnh"}
-                                      >
-                                        {isOpen ? (
-                                          <>
-                                            <EyeOff className="w-3.5 h-3.5 text-zinc-500" />
-                                            <span className="hidden min-[400px]:inline">Ẩn văn bản</span>
-                                          </>
-                                        ) : (
-                                          <>
-                                            <Eye className="w-3.5 h-3.5 text-emerald-600" />
-                                            <span className="hidden min-[400px]:inline">Xem văn bản</span>
-                                          </>
-                                        )}
-                                      </button>
-
-                                      {/* Copy directly without needing to expand */}
-                                      <button
-                                        onClick={() => copyToClipboard(step.content, `Bước ${index + 1}: ${step.label}`)}
-                                        className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 dark:bg-emerald-700 dark:hover:bg-emerald-600 text-white font-bold text-[10px] flex items-center gap-1 active:scale-95 transition"
-                                        title="Copy ngay lập tức"
-                                      >
-                                        <Copy className="w-3.5 h-3.5" />
-                                        <span>Copy lệnh {index + 1}</span>
-                                      </button>
-                                    </div>
-                                  </div>
-
-                                  {/* Step Card Content (Collapsible) */}
-                                  {isOpen && (
-                                    <div className="p-4 bg-zinc-500/5 border-t border-zinc-200 dark:border-zinc-850">
-                                      <div className="font-mono text-xs leading-relaxed text-zinc-800 dark:text-zinc-200 bg-zinc-100 dark:bg-zinc-950 p-4 rounded-xl border-l-4 border-emerald-500 overflow-x-auto whitespace-pre-wrap select-all">
-                                        {step.content}
-                                      </div>
-                                      <div className="mt-2.5 flex justify-between items-center gap-2">
-                                        <button
-                                          onClick={() => copyToClipboard(step.content, `Bước ${index + 1}: ${step.label || 'Lệnh'}`)}
-                                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition duration-150"
-                                        >
-                                          <Copy className="w-3.5 h-3.5" />
-                                          <span>Copy câu lệnh</span>
-                                        </button>
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </article>
-                )}
-
-                {/* C. IDEA DETAILS COMPONENT DISPLAY */}
-                {activeTab === 'ideas' && activeIdea && (
-                  <article className="space-y-6 animate-fade-in" id="active-idea-card">
-                    {/* Header */}
-                    <div className="flex flex-col sm:flex-row justify-between items-start gap-4 pb-4 border-b border-zinc-200 dark:border-zinc-800">
-                      <div>
-                        <h2 className="text-xl font-bold text-emerald-850 dark:text-emerald-400 leading-tight flex items-center gap-2">
-                          <span className="text-amber-500">💡</span>
-                          {activeIdea.title}
-                        </h2>
-                        <span className="text-[10px] font-mono text-zinc-400 dark:text-zinc-500 mt-2 block">
-                          Gieo ngày: {new Date(activeIdea.createdAt).toLocaleDateString('vi-VN')}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end">
-                        <button
-                          onClick={() => setIsEditing(true)}
-                          className="px-3.5 py-1.5 rounded-lg text-xs font-semibold border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5 transition"
-                        >
-                          <Edit3 className="w-3.5 h-3.5" />
-                          <span>Chỉnh sửa</span>
-                        </button>
-                        <button
-                          onClick={() => handleDeleteIdea(activeIdea.id)}
-                          className="px-3.5 py-1.5 rounded-lg text-xs font-semibold border border-red-200 dark:border-red-950/40 hover:bg-red-50 dark:hover:bg-red-950/20 text-red-600 dark:text-red-400 flex items-center gap-1.5 transition"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                          <span>Xóa</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Content */}
-                    <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-emerald-100 dark:border-emerald-900/20 p-6 shadow-sm">
-                      <p className="text-sm text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap leading-relaxed">
-                        {activeIdea.content}
-                      </p>
-                    </div>
-                  </article>
-                )}
-
-                {/* D. CHARACTER DETAILS COMPONENT DISPLAY */}
-                {activeTab === 'characters' && activeChar && (
-                  <article className="space-y-6 animate-fade-in" id="active-character-card">
-                    {/* Header with Hero Profile panel */}
-                    <div className="bg-gradient-to-br from-emerald-500/10 via-emerald-100/10 to-white dark:from-emerald-950/20 dark:to-zinc-900/40 p-6 rounded-2xl border border-emerald-100 dark:border-emerald-900/30 space-y-4">
-                      
-                      <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
-                        <div className="flex items-start gap-4">
-                          <div className="w-16 h-16 rounded-2xl bg-white dark:bg-zinc-950 border border-emerald-100 dark:border-emerald-900/30 flex items-center justify-center text-4xl shadow-md">
-                            {activeChar.avatar}
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <h2 className="text-xl font-bold text-emerald-850 dark:text-emerald-400 leading-tight">{activeChar.name}</h2>
-                              {activeChar.author && (
-                                <span className="px-2 py-0.5 bg-zinc-100 dark:bg-zinc-850 text-zinc-600 dark:text-zinc-400 rounded text-[10px] font-semibold border border-zinc-200 dark:border-zinc-800">
-                                  Tác giả: {activeChar.author}
-                                </span>
-                              )}
-                            </div>
-                            <div className="flex flex-wrap gap-1.5 mt-2">
-                              {activeChar.role.split('/').map((tag, idx) => {
-                                const trimmed = tag.trim();
-                                if (!trimmed) return null;
-                                return (
-                                  <button
-                                    key={idx}
-                                    onClick={() => {
-                                      setSelectedFilterTag(trimmed);
-                                      setShowDetailOnMobile(false);
-                                      showToast(`Đang lọc nhân vật theo tag: ${trimmed}`, 'info');
-                                    }}
-                                    className="px-2 py-0.5 bg-emerald-500/10 dark:bg-emerald-500/25 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500 hover:text-white dark:hover:bg-emerald-600 dark:hover:text-white font-semibold text-[10.5px] rounded-md border border-emerald-500/15 transition cursor-pointer hover:scale-105 active:scale-95"
-                                    title={`Lọc theo tag #${trimmed}`}
-                                  >
-                                    #{trimmed}
-                                  </button>
-                                );
-                              })}
-                            </div>
+                            <h4 className="font-bold text-[#20372D] dark:text-[#E4E1D8] text-sm truncate">
+                              {characters.find(c => c.id === activeNote.characterId)?.name || 'Không xác định'}
+                            </h4>
+                            <p className="text-xs text-[#547264] dark:text-[#B8BDB5] truncate">
+                              {characters.find(c => c.id === activeNote.characterId)?.role || 'Vui lòng chỉnh sửa và liên kết nhân vật'}
+                            </p>
                           </div>
                         </div>
                         
-                        <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end">
+                        {activeNote.characterId && (
                           <button
-                            onClick={() => setIsEditing(true)}
-                            className="px-3.5 py-1.5 rounded-lg text-xs font-semibold border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5 transition"
+                            type="button"
+                            onClick={() => {
+                              setActiveTab('characters');
+                              setSelectedCharId(activeNote.characterId);
+                            }}
+                            className="retro-btn px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 cursor-pointer shrink-0"
+                            title="Đến trang chi tiết nhân vật"
                           >
-                            <Edit3 className="w-3.5 h-3.5" />
-                            <span>Chỉnh sửa</span>
+                            <span>Xem nhân vật</span>
+                            <ExternalLink className="w-3 h-3 text-[#39755D] dark:text-[#A3BDA8]" />
                           </button>
-                          <button
-                            onClick={() => handleDeleteCharacter(activeChar.id)}
-                            className="px-3.5 py-1.5 rounded-lg text-xs font-semibold border border-red-200 dark:border-red-950/40 hover:bg-red-50 dark:hover:bg-red-950/20 text-red-600 dark:text-red-400 flex items-center gap-1.5 transition"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                            <span>Xóa</span>
-                          </button>
-                        </div>
-                      </div>
-
-                      {activeChar.description && (
-                        <div className="pt-4 border-t border-emerald-100/40 dark:border-emerald-900/20 text-sm text-zinc-700 dark:text-zinc-200 leading-relaxed font-semibold">
-                          {activeChar.description}
-                        </div>
-                      )}
-
-                      {/* Social external linkages */}
-                      {(activeChar.fb || activeChar.discord || activeChar.discord2 || activeChar.web || activeChar.other || activeChar.ggai) && (
-                        <div className="pt-3 flex flex-wrap gap-2.5 border-t border-emerald-105/10 dark:border-emerald-900/10">
-                          {activeChar.fb && (
-                            <a
-                              href={typeof activeChar.fb === 'object' ? activeChar.fb.url : activeChar.fb}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-blue-50/50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 border border-blue-100/60 dark:border-blue-900/25 text-xs font-semibold hover:-translate-y-0.5 hover:shadow-sm transition active:scale-95 duration-150"
-                              title="Truy cập tác giả Facebook"
-                            >
-                              <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" fill="#1877F2"/>
-                              </svg>
-                              <span>{typeof activeChar.fb === 'object' ? activeChar.fb.name : 'Góc Tam Quan Lệch Của Tinh Âm'}</span>
-                            </a>
-                          )}
-
-                          {activeChar.discord && (
-                            <a
-                              href={typeof activeChar.discord === 'object' ? activeChar.discord.url : activeChar.discord}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-indigo-50/50 dark:bg-indigo-950/20 text-indigo-700 dark:text-indigo-400 border border-indigo-100/60 dark:border-indigo-900/25 text-xs font-semibold hover:-translate-y-0.5 hover:shadow-sm transition active:scale-95 duration-150"
-                              title="Tham gia cộng đồng Discord"
-                            >
-                              <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 127.14 96.36" fill="currentColor">
-                                <path d="M107.7,8.07A105.15,105.15,0,0,0,77.26,0a77.19,77.19,0,0,0-3.3,6.83A96.67,96.67,0,0,0,53.22,6.83,77.19,77.19,0,0,0,49.88,0,105.15,105.15,0,0,0,19.44,8.07C3.66,31.58-1.86,54.65,1,77.53A105.73,105.73,0,0,0,32,96.36a77.7,77.7,0,0,0,6.63-10.85,68.43,68.43,0,0,1-10.51-5c.89-.65,1.76-1.34,2.58-2a75.59,75.59,0,0,0,73,0c.83.68,1.69,1.37,2.58,2a68.43,68.43,0,0,1-10.51,5,77.7,77.7,0,0,0,6.63,10.85,105.73,105.73,0,0,0,31-18.83C129.87,48.12,123.7,25.28,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53S36.18,40.36,42.45,40.36,53.83,46,53.83,53,48.72,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.24,60,73.24,53S78.41,40.36,84.69,40.36,96.07,46,96.07,53,91,65.69,84.69,65.69Z" fill="#5865F2" />
-                              </svg>
-                              <span>{typeof activeChar.discord === 'object' ? activeChar.discord.name : '🌸Vườn Nhỏ Dưới Tán Anh Đào🌸'}</span>
-                            </a>
-                          )}
-
-                          {activeChar.discord2 && (
-                            <a
-                              href={typeof activeChar.discord2 === 'object' ? activeChar.discord2.url : activeChar.discord2}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-violet-50/50 dark:bg-violet-950/20 text-violet-700 dark:text-violet-400 border border-violet-100/60 dark:border-violet-900/25 text-xs font-semibold hover:-translate-y-0.5 hover:shadow-sm transition active:scale-95 duration-150"
-                              title="Tham gia cộng đồng Discord phụ"
-                            >
-                              <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 127.14 96.36" fill="currentColor">
-                                <path d="M107.7,8.07A105.15,105.15,0,0,0,77.26,0a77.19,77.19,0,0,0-3.3,6.83A96.67,96.67,0,0,0,53.22,6.83,77.19,77.19,0,0,0,49.88,0,105.15,105.15,0,0,0,19.44,8.07C3.66,31.58-1.86,54.65,1,77.53A105.73,105.73,0,0,0,32,96.36a77.7,77.7,0,0,0,6.63-10.85,68.43,68.43,0,0,1-10.51-5c.89-.65,1.76-1.34,2.58-2a75.59,75.59,0,0,0,73,0c.83.68,1.69,1.37,2.58,2a68.43,68.43,0,0,1-10.51,5,77.7,77.7,0,0,0,6.63,10.85,105.73,105.73,0,0,0,31-18.83C129.87,48.12,123.7,25.28,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53S36.18,40.36,42.45,40.36,53.83,46,53.83,53,48.72,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.24,60,73.24,53S78.41,40.36,84.69,40.36,96.07,46,96.07,53,91,65.69,84.69,65.69Z" fill="#7C3AED" />
-                              </svg>
-                              <span>{typeof activeChar.discord2 === 'object' ? activeChar.discord2.name : 'Discord'}</span>
-                            </a>
-                          )}
-
-                          {activeChar.web && (
-                            <a
-                              href={typeof activeChar.web === 'object' ? activeChar.web.url : activeChar.web}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-50/40 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border border-emerald-100/60 dark:border-emerald-900/25 text-xs font-semibold hover:-translate-y-0.5 hover:shadow-sm transition active:scale-95 duration-150"
-                              title="Truy cập Website"
-                            >
-                              <span className="text-sm">🌐</span>
-                              <span>{typeof activeChar.web === 'object' ? activeChar.web.name : 'Website'}</span>
-                            </a>
-                          )}
-
-                          {activeChar.other && (
-                            <a
-                              href={typeof activeChar.other === 'object' ? activeChar.other.url : activeChar.other}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-50/45 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border border-amber-100/60 dark:border-amber-900/25 text-xs font-semibold hover:-translate-y-0.5 hover:shadow-sm transition active:scale-95 duration-150"
-                              title="Truy cập Website phụ"
-                            >
-                              <span className="text-sm">🌐</span>
-                              <span>{typeof activeChar.other === 'object' ? activeChar.other.name : 'Website'}</span>
-                            </a>
-                          )}
-
-                          {activeChar.ggai && (
-                            <div className="flex items-center">
-                              <a
-                                href={activeChar.ggai}
-                                target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-l-xl bg-emerald-50/50 dark:bg-zinc-950/60 text-emerald-850 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/35 border-r-0 text-xs font-semibold hover:-translate-y-0.5 hover:shadow-sm transition active:scale-95 duration-150"
-                                  title={`Mở Prompt ${activeChar.name} trong Google AI Studio`}
-                                >
-                                  <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24">
-                                    <path
-                                      fill="#4285F4"
-                                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                                    />
-                                    <path
-                                      fill="#34A853"
-                                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                                    />
-                                    <path
-                                      fill="#FBBC05"
-                                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                                    />
-                                    <path
-                                      fill="#EA4335"
-                                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                                    />
-                                  </svg>
-                                  <span>{activeChar.name}</span>
-                                </a>
-                                <button
-                                  onClick={() => copyToClipboard(activeChar.ggai || '', 'Link Google AI Studio')}
-                                  className="inline-flex items-center justify-center px-2.5 py-1.5 rounded-r-xl bg-emerald-50/50 dark:bg-zinc-950/60 text-emerald-850 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/35 text-xs font-semibold hover:-translate-y-0.5 hover:shadow-sm transition active:scale-95 duration-150 border-l border-emerald-100/40 dark:border-emerald-900/10 hover:bg-emerald-100/50 dark:hover:bg-zinc-900"
-                                  title="Sao chép link Google AI Studio"
-                                >
-                                  <Copy className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                      )}
-                    </div>
-
-                    {/* Highly aesthetic BACKSTORY dual sections */}
-                    {(activeChar.backstoryUser || activeChar.backstoryChar) && (
-                      <div className={`grid gap-5 ${
-                        activeChar.backstoryUser && activeChar.backstoryChar 
-                          ? "grid-cols-1 md:grid-cols-2" 
-                          : "grid-cols-1"
-                      }`}>
-                        {activeChar.backstoryUser && (
-                          <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800/60 p-5 shadow-sm space-y-3 relative">
-                            <div className="flex justify-between items-center pb-2 border-b border-zinc-50 dark:border-zinc-800/40">
-                              <h4 className="text-xs font-extrabold text-emerald-800 dark:text-emerald-400 uppercase tracking-widest flex items-center gap-1.5 font-sans">
-                                {activeChar.backstoryUserTitle || "📖 BACKSTORY (user)"}
-                              </h4>
-                            </div>
-                            <div className="text-[13px] text-zinc-700 dark:text-zinc-200 whitespace-pre-wrap leading-relaxed max-h-96 overflow-y-auto pr-1">
-                              {activeChar.backstoryUser}
-                            </div>
-                          </div>
-                        )}
-
-                        {activeChar.backstoryChar && (
-                          <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800/60 p-5 shadow-sm space-y-3 relative">
-                            <div className="flex justify-between items-center pb-2 border-b border-zinc-50 dark:border-zinc-800/40">
-                              <h4 className="text-xs font-extrabold text-emerald-800 dark:text-emerald-400 uppercase tracking-widest flex items-center gap-1.5 font-sans">
-                                {activeChar.backstoryCharTitle || `👤 BACKSTORY (${activeChar.name})`}
-                              </h4>
-                            </div>
-                            <div className="text-[13px] text-zinc-700 dark:text-zinc-200 whitespace-pre-wrap leading-relaxed max-h-96 overflow-y-auto pr-1">
-                              {activeChar.backstoryChar}
-                            </div>
-                          </div>
                         )}
                       </div>
-                    )}
 
-                    {/* Highly interactive and beautiful PROMPT section with quick Copy action */}
-                    <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-emerald-100 dark:border-emerald-900/20 shadow-sm overflow-hidden animate-fade-in" id={`prompt-${activeChar.id}`}>
-                      <div className="px-5 py-3.5 bg-emerald-500/5 dark:bg-emerald-950/10 border-b border-emerald-500/10 flex flex-wrap items-center justify-between gap-3">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm">📄</span>
-                          <h4 className="text-xs font-bold text-emerald-850 dark:text-emerald-400">
-                            SYSTEM PROMPT
-                          </h4>
-                        </div>
-                        <button
-                          onClick={() => {
-                            const fullPrompt = buildCharacterRoleplayPrompt(activeChar);
-                            copyToClipboard(fullPrompt, `Prompt nhập vai của ${activeChar.name}`);
-                          }}
-                          className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 dark:bg-emerald-700 dark:hover:bg-emerald-600 text-white font-bold text-xs flex items-center gap-1.5 active:scale-95 shadow-sm hover:shadow-md transition-all cursor-pointer"
-                          title="Sao chép toàn bộ Prompt nhập vai này"
-                        >
-                          <Copy className="w-3.5 h-3.5" />
-                          <span>Copy prompt</span>
-                        </button>
-                      </div>
-                      
-                      <div className="p-5 font-mono text-[11px] leading-relaxed text-zinc-700 dark:text-zinc-300 bg-zinc-50 dark:bg-zinc-950/40 border-l-4 border-emerald-600 dark:border-emerald-500">
-                        <div className="max-h-60 overflow-y-auto pr-1 select-all whitespace-pre-wrap scrollbar-thin">
-                          {buildCharacterRoleplayPrompt(activeChar)}
-                        </div>
-                      </div>
-                      
-                      <div className="px-5 py-2.5 bg-zinc-50/50 dark:bg-zinc-950/20 border-t border-zinc-100 dark:border-zinc-800/60 text-[10px] text-zinc-500 dark:text-zinc-400 flex items-center gap-1.5">
-                        <span className="text-amber-500">💡</span>
-                        <span>Mẹo: Sao chép khối prompt này dán trực tiếp vào mục System Instructions/Chat Prompt của mô hình AI để bắt đầu nhập vai hoàn hảo!</span>
-                      </div>
-                    </div>
-
-                    {/* Highly aesthetic USER PROFILE section with its own copy button */}
-                    {activeChar.userProfile && (
-                      <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-emerald-900/20 p-5 shadow-sm space-y-3 relative animate-fade-in" id="profile-user-card">
-                        <div className="flex justify-between items-center pb-2 border-b border-zinc-100 dark:border-zinc-800/40">
-                          <h4 className="text-[11.5px] font-extrabold text-emerald-800 dark:text-emerald-450 uppercase tracking-widest flex items-center gap-1.5 font-sans">
-                            {activeChar.userProfileTitle || "👤 HỒ SƠ NHÂN VẬT: {{USER}}"}
+                      {/* Section 1: Prompt cần nhập (Command) */}
+                      <div className="retro-window overflow-hidden">
+                        <div className="retro-window-header px-4 py-2.5 flex items-center justify-between gap-2">
+                          <h4 className="text-xs font-bold text-[#224C3B] dark:text-[#E4E1D8] flex items-center gap-2">
+                            <Terminal className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
+                            <span>1. PROMPT CẦN NHẬP (LỆNH CHÍNH)</span>
                           </h4>
                           <button
-                            onClick={() => copyToClipboard(activeChar.userProfile || '', `${activeChar.userProfileTitle || 'Hồ sơ nhân vật'} của ${activeChar.name}`)}
-                            className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 dark:bg-emerald-700 dark:hover:bg-emerald-600 text-white font-bold text-[10px] flex items-center gap-1.5 active:scale-95 shadow-sm hover:shadow-md transition duration-150 cursor-pointer"
-                            title="Sao chép hồ sơ nhân vật này"
+                            type="button"
+                            onClick={() => copyToClipboard(activeNote.command, 'Prompt cần nhập')}
+                            className="retro-btn-primary px-2.5 py-1 font-semibold text-[11px] flex items-center gap-1.5 cursor-pointer shrink-0"
                           >
                             <Copy className="w-3 h-3" />
-                            <span>Copy hồ sơ</span>
+                            <span>Sao chép</span>
                           </button>
                         </div>
-                        <div className="text-[11.5px] text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap leading-relaxed max-h-80 overflow-y-auto pr-1 font-mono bg-zinc-50 dark:bg-zinc-950/40 p-4 rounded-xl border border-zinc-100 dark:border-zinc-850">
-                          {activeChar.userProfile}
-                        </div>
-                      </div>
-                    )}
-
-
-                  </article>
-                )}
-
-                {activeTab === 'authors' && activeAuthor && (
-                  <article className="space-y-6 animate-fade-in" id="active-author-card">
-                    {/* Dynamic author primary banner card - Only showing Logo and Name */}
-                    <div className="relative overflow-hidden bg-white dark:bg-zinc-900 rounded-3xl border border-emerald-100 dark:border-emerald-900/20 p-6 md:p-8 shadow-md">
-                      {/* Premium aesthetic glowing visual accents */}
-                      <div className={`absolute top-0 right-0 w-40 h-40 bg-gradient-to-br ${activeAuthor.themeColor} opacity-10 dark:opacity-[0.07] blur-3xl rounded-full`} />
-                      <div className="absolute -left-6 -bottom-6 w-24 h-24 bg-emerald-500/10 dark:bg-emerald-500/5 opacity-40 blur-2xl rounded-full" />
-
-                      <div className="relative flex flex-col md:flex-row items-center md:items-center gap-6 select-none text-center md:text-left">
-                        <div className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-gradient-to-br ${activeAuthor.themeColor} p-[3px] shadow-lg shadow-emerald-500/10`}>
-                          <div className="w-full h-full rounded-full bg-white dark:bg-zinc-950 flex items-center justify-center text-3xl sm:text-4xl">
-                            {activeAuthor.avatarEmoji}
+                        <div className="p-3.5">
+                          <div className="retro-code-box p-3.5 text-xs sm:text-[13px] leading-relaxed whitespace-pre-wrap break-words select-all">
+                            {activeNote.command}
                           </div>
                         </div>
+                      </div>
 
-                        <div className="flex-1">
-                          <h2 className="text-xl sm:text-2xl font-black bg-gradient-to-r from-emerald-800 to-teal-600 dark:from-emerald-400 dark:to-teal-300 bg-clip-text text-transparent tracking-tight font-sans text-emerald-850 dark:text-emerald-400">
-                            {activeAuthor.fullName || activeAuthor.name}
+                      {/* Section 2: Nội dung (Detailed content instructions) */}
+                      <div className="retro-window overflow-hidden">
+                        <div className="retro-window-header px-4 py-2.5 flex items-center justify-between gap-2">
+                          <h4 className="text-xs font-bold text-[#224C3B] dark:text-[#E4E1D8] flex items-center gap-2">
+                            <Info className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
+                            <span>2. NỘI DUNG CHI TIẾT KÈM DỮ LIỆU</span>
+                          </h4>
+                          <button
+                            type="button"
+                            onClick={() => copyToClipboard(activeNote.content, 'Nội dung')}
+                            className="retro-btn-primary px-2.5 py-1 font-semibold text-[11px] flex items-center gap-1.5 cursor-pointer shrink-0"
+                          >
+                            <Copy className="w-3 h-3" />
+                            <span>Sao chép</span>
+                          </button>
+                        </div>
+                        <div className="p-4 text-sm leading-relaxed text-[#294338] dark:text-[#E4E1D8] whitespace-pre-wrap break-words select-text">
+                          {activeNote.content}
+                        </div>
+                      </div>
+                    </article>
+                  )}
+
+                  {/* B2. PROMPT LIBRARY DETAILS DISPLAY */}
+                  {activeTab === 'notes' && activeLibraryPrompt && (
+                    <article className="space-y-4 animate-fade-in min-w-0" id="active-library-prompt-card">
+                      {/* Compact Retro Window Header */}
+                      <div className="retro-window overflow-hidden">
+                        <div className="retro-window-header px-4 py-2 flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <PixelCommandIcon className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span className="px-2 py-0.5 text-[10px] font-mono font-semibold bg-[#FFF9EA] dark:bg-[#292E2B] text-[#39755D] dark:text-[#A3BDA8] rounded border border-[#B8D7C5] dark:border-[#49554D]">
+                              Kho Lệnh AI
+                            </span>
+                            <span className="text-xs text-[#547264] dark:text-[#B8BDB5] truncate">
+                              Tác giả: <strong className="text-[#23503E] dark:text-[#E4E1D8] font-semibold">{activeLibraryPrompt.author}</strong>
+                            </span>
+                          </div>
+                          <span className="text-[10px] tabular-nums-mono text-[#5B7A6C] dark:text-[#B8BDB5]">
+                            {activeLibraryPrompt.steps.length} khối lệnh
+                          </span>
+                        </div>
+
+                        <div className="px-4 py-3.5">
+                          <h2 className="text-lg sm:text-xl font-bold text-[#224C3B] dark:text-[#E4E1D8] leading-snug flex items-start gap-2.5">
+                            <span className="text-xl leading-none mt-0.5 flex-shrink-0">{getLibraryPromptIcon(activeLibraryPrompt)}</span>
+                            <span className="min-w-0 break-words">{activeLibraryPrompt.title}</span>
                           </h2>
                         </div>
                       </div>
-                    </div>
 
-                    {/* Curated Interactive Social Links Block */}
-                    <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-emerald-100 dark:border-emerald-900/25 p-5 shadow-sm space-y-4">
-                      <h3 className="text-xs font-extrabold uppercase tracking-widest text-emerald-850 dark:text-emerald-400 pb-3 border-b border-zinc-100 dark:border-zinc-800/40 flex items-center gap-2 font-sans">
-                        <span>✨</span> Danh sách liên kết & Mạng xã hội
-                      </h3>
+                      {/* Section Description Card — Mint accent */}
+                      <div className="retro-callout-mint p-4 space-y-1.5">
+                        <h4 className="text-xs font-bold text-[#255442] dark:text-[#A3BDA8] flex items-center gap-1.5 uppercase tracking-wide">
+                          <Info className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8] flex-shrink-0" />
+                          <span>Thông tin về công cụ lệnh</span>
+                        </h4>
+                        <p className="text-xs sm:text-sm text-[#2A4539] dark:text-[#E4E1D8] leading-relaxed whitespace-pre-line break-words">
+                          {activeLibraryPrompt.description}
+                        </p>
+                      </div>
 
-                      <div className="flex flex-col gap-3.5">
-                        {(() => {
-                          const links: React.ReactNode[] = [];
-                          
-                          if (activeAuthor.fb) {
-                            links.push(
-                              <div className="flex gap-2 w-full animate-fade-in" key="fb">
-                                <a
-                                  href={activeAuthor.fb.url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="flex-1 flex items-center gap-3.5 py-2.5 px-4 rounded-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-900 hover:border-zinc-300 dark:hover:border-zinc-700/80 transition duration-200 group text-left min-w-0 shadow-sm"
-                                >
-                                  {getLogoForUrl(activeAuthor.fb.url)}
-                                  <span className="text-xs font-black text-blue-600 dark:text-blue-400 truncate flex items-center gap-1.5">
-                                    {activeAuthor.fb.name}
-                                    <ExternalLink className="w-3.5 h-3.5 opacity-40 group-hover:opacity-100 transition-opacity flex-shrink-0" />
-                                  </span>
-                                </a>
+                      {/* Section How to use Card — Warm cream accent */}
+                      <div className="retro-callout-warm p-4 space-y-1.5">
+                        <h4 className="text-xs font-bold text-[#6E5120] dark:text-[#D5B97A] flex items-center gap-1.5 uppercase tracking-wide">
+                          <Terminal className="w-3.5 h-3.5 text-[#9C742E] dark:text-[#D5B97A] flex-shrink-0" />
+                          <span>Hướng dẫn sử dụng (Cách dùng)</span>
+                        </h4>
+                        <p className="text-xs sm:text-sm text-[#3A3528] dark:text-[#E4E1D8] leading-relaxed whitespace-pre-line break-words">
+                          {activeLibraryPrompt.howToUse}
+                        </p>
+                      </div>
+
+                      {/* Steps / Commands list section */}
+                      <div className="space-y-3">
+                        {activeLibraryPrompt.steps.length === 1 ? (
+                          // SINGLE CONTINUOUS BLOCK
+                          <div className="retro-window overflow-hidden">
+                            <div className="retro-window-header px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <Terminal className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8] flex-shrink-0" />
+                                <h3 className="text-xs font-bold text-[#224C3B] dark:text-[#E4E1D8] uppercase tracking-wider truncate">
+                                  Nội dung câu lệnh
+                                </h3>
+                              </div>
+
+                              <div className="flex items-center gap-2 flex-shrink-0">
                                 <button
                                   type="button"
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    copyToClipboard(activeAuthor.fb?.url || '', `Fanpage ${activeAuthor.fb?.name}`);
-                                  }}
-                                  className="h-11 w-11 rounded-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-900 hover:border-emerald-500/50 dark:hover:border-emerald-500/50 text-zinc-400 hover:text-emerald-500 dark:hover:text-emerald-400 flex items-center justify-center transition shadow-sm shrink-0"
-                                  title="Sao chép link Facebook"
+                                  onClick={() => setVisibleSteps(prev => ({ ...prev, 0: !prev[0] }))}
+                                  className={`retro-btn px-2.5 py-1 text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer ${
+                                    visibleSteps[0] ? 'retro-btn-active' : ''
+                                  }`}
                                 >
-                                  <Copy className="w-4 h-4 text-emerald-500 dark:text-emerald-400" />
+                                  {visibleSteps[0] ? (
+                                    <>
+                                      <EyeOff className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
+                                      <span>Ẩn lệnh</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Eye className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
+                                      <span>Hiện lệnh</span>
+                                    </>
+                                  )}
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => copyToClipboard(activeLibraryPrompt.steps[0].content, activeLibraryPrompt.title)}
+                                  className="retro-btn-primary px-3 py-1 text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer"
+                                  title="Copy toàn bộ câu lệnh này"
+                                >
+                                  <Copy className="w-3 h-3" />
+                                  <span>Copy lệnh</span>
                                 </button>
                               </div>
-                            );
-                          }
+                            </div>
 
-                          if (activeAuthor.discords && activeAuthor.discords.length > 0) {
-                            activeAuthor.discords.forEach((disc, idx) => {
-                              links.push(
-                                <div className="flex gap-2 w-full animate-fade-in" key={`discord-${idx}`}>
+                            <div className="px-4 py-2.5 border-b border-[#DCEAE1] dark:border-[#49554D] bg-[#FAF6EA]/80 dark:bg-[#202423] flex items-center justify-between gap-2">
+                              <span className="text-xs font-semibold text-[#3C5C4E] dark:text-[#B8BDB5]">
+                                {activeLibraryPrompt.steps[0].label || 'Khối câu lệnh chính'}
+                              </span>
+                              {!visibleSteps[0] && (
+                                <span className="font-mono text-[10px] text-[#668476] dark:text-[#B8BDB5]">
+                                  Bấm “Hiện lệnh” để xem chi tiết
+                                </span>
+                              )}
+                            </div>
+
+                            {visibleSteps[0] && (
+                              <div className="p-3.5 space-y-3">
+                                <pre className="retro-code-box p-3.5 text-xs leading-relaxed whitespace-pre-wrap break-words select-all m-0">
+                                  {activeLibraryPrompt.steps[0].content}
+                                </pre>
+                                <div className="flex justify-end">
+                                  <button
+                                    type="button"
+                                    onClick={() => copyToClipboard(activeLibraryPrompt.steps[0].content, activeLibraryPrompt.title)}
+                                    className="retro-btn-primary px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                                  >
+                                    <Copy className="w-3.5 h-3.5" />
+                                    <span>Copy toàn bộ câu lệnh</span>
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          // MULTI-STEP / EN-VI TRANSLATION BLOCKS
+                          <>
+                            <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+                              <h3 className="text-xs font-bold text-[#224C3B] dark:text-[#A3BDA8] uppercase tracking-wider flex items-center gap-1.5">
+                                <Terminal className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
+                                <span>Danh sách các khối câu lệnh ({activeLibraryPrompt.steps.length})</span>
+                              </h3>
+                              <p className="text-[10px] font-mono text-[#5B7A6C] dark:text-[#B8BDB5] hidden sm:inline">
+                                * Tách nhỏ từng phần để dễ theo dõi và sao chép riêng
+                              </p>
+                            </div>
+
+                            <div className="space-y-3">
+                              {activeLibraryPrompt.steps.map((step, index) => {
+                                const isOpen = !!visibleSteps[index];
+                                return (
+                                  <div
+                                    key={index}
+                                    className="retro-window overflow-hidden"
+                                  >
+                                    {/* Step Card Header */}
+                                    <div className="retro-window-header px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <span className="w-5 h-5 rounded bg-[#39755D] dark:bg-[#343D37] text-[#FFF9EA] dark:text-[#A3BDA8] dark:border dark:border-[#49554D] text-[10px] font-mono font-bold flex items-center justify-center flex-shrink-0">
+                                          {index + 1}
+                                        </span>
+                                        <span className="text-xs font-bold text-[#224C3B] dark:text-[#E4E1D8] break-words">
+                                          {step.label || 'Khối lệnh'}
+                                        </span>
+                                      </div>
+
+                                      <div className="flex items-center gap-2 flex-shrink-0">
+                                        <button
+                                          type="button"
+                                          onClick={() => setVisibleSteps(prev => ({ ...prev, [index]: !prev[index] }))}
+                                          className={`retro-btn px-2.5 py-1 text-[11px] font-semibold flex items-center gap-1 cursor-pointer ${
+                                            isOpen ? 'retro-btn-active' : ''
+                                          }`}
+                                          title={isOpen ? 'Thu gọn nội dung hiển thị' : 'Bấm để xem nội dung câu lệnh'}
+                                        >
+                                          {isOpen ? (
+                                            <>
+                                              <EyeOff className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
+                                              <span className="hidden min-[400px]:inline">Ẩn lệnh</span>
+                                            </>
+                                          ) : (
+                                            <>
+                                              <Eye className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
+                                              <span className="hidden min-[400px]:inline">Hiện lệnh</span>
+                                            </>
+                                          )}
+                                        </button>
+
+                                        <button
+                                          type="button"
+                                          onClick={() => copyToClipboard(step.content, `Bước ${index + 1}: ${step.label}`)}
+                                          className="retro-btn-primary px-2.5 py-1 font-semibold text-[11px] flex items-center gap-1 cursor-pointer"
+                                          title="Copy ngay lập tức"
+                                        >
+                                          <Copy className="w-3 h-3" />
+                                          <span>Copy lệnh {index + 1}</span>
+                                        </button>
+                                      </div>
+                                    </div>
+
+                                    {/* Step Card Content (Collapsible) */}
+                                    {isOpen && (
+                                      <div className="p-3.5 space-y-2.5">
+                                        <pre className="retro-code-box p-3.5 text-xs leading-relaxed whitespace-pre-wrap break-words select-all m-0">
+                                          {step.content}
+                                        </pre>
+                                        <div className="flex justify-end">
+                                          <button
+                                            type="button"
+                                            onClick={() => copyToClipboard(step.content, `Bước ${index + 1}: ${step.label || 'Lệnh'}`)}
+                                            className="retro-btn-primary px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                                          >
+                                            <Copy className="w-3.5 h-3.5" />
+                                            <span>Copy câu lệnh</span>
+                                          </button>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </article>
+                  )}
+
+                  {/* C. IDEA DETAILS COMPONENT DISPLAY */}
+                  {activeTab === 'ideas' && activeIdea && (
+                    <article className="space-y-4 animate-fade-in min-w-0" id="active-idea-card">
+                      <div className="retro-window overflow-hidden">
+                        <div className="retro-window-header px-4 py-2.5 flex items-center justify-between gap-2">
+                          <span className="font-mono text-[11px] font-semibold text-[#39755D] dark:text-[#A3BDA8] flex items-center gap-1.5">
+                            <PixelIdeaIcon className="w-3.5 h-3.5" />
+                            Kho Idea
+                          </span>
+                          <span className="text-[10px] tabular-nums-mono text-[#587568] dark:text-[#B8BDB5]">
+                            Gieo ngày: {new Date(activeIdea.createdAt).toLocaleDateString('vi-VN')}
+                          </span>
+                        </div>
+
+                        <div className="p-4 flex flex-col sm:flex-row justify-between items-start gap-3 border-b border-[#D8E7DD] dark:border-[#49554D]">
+                          <h2 className="text-lg sm:text-xl font-bold text-[#224C3B] dark:text-[#E4E1D8] leading-snug break-words flex-1 min-w-0">
+                            {activeIdea.title}
+                          </h2>
+                          <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end flex-shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => setIsEditing(true)}
+                              className="retro-btn px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <Edit3 className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
+                              <span>Chỉnh sửa</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteIdea(activeIdea.id)}
+                              className="retro-btn-danger px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Xóa</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="p-4 sm:p-5">
+                          <p className="text-sm text-[#284237] dark:text-[#E4E1D8] whitespace-pre-wrap break-words leading-relaxed">
+                            {activeIdea.content}
+                          </p>
+                        </div>
+                      </div>
+                    </article>
+                  )}
+
+                  {/* D. CHARACTER DETAILS COMPONENT DISPLAY */}
+                  {activeTab === 'characters' && activeChar && (
+                    <article className="space-y-4 animate-fade-in min-w-0" id="active-character-card">
+                      {/* Compact Retro Profile Window */}
+                      <div className="retro-window overflow-hidden">
+                        <div className="retro-window-header px-4 py-2 flex items-center justify-between gap-2">
+                          <span className="font-mono text-[11px] font-semibold text-[#39755D] dark:text-[#A3BDA8] flex items-center gap-1.5">
+                            <PixelCharacterIcon className="w-3.5 h-3.5" />
+                            Hồ sơ Nhân Vật
+                          </span>
+                          {activeChar.author && (
+                            <span className="px-2 py-0.5 bg-[#FFF9EA] dark:bg-[#292E2B] text-[#39755D] dark:text-[#A3BDA8] rounded text-[10px] font-semibold border border-[#B8D7C5] dark:border-[#49554D]">
+                              Tác giả: {activeChar.author}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="p-4 space-y-3.5">
+                          <div className="flex flex-col sm:flex-row justify-between items-start gap-3">
+                            <div className="flex items-start gap-3.5 min-w-0 flex-1">
+                              <div className="w-14 h-14 rounded-lg bg-[#E2F3E8] dark:bg-[#343D37] border border-[#9FC4AF] dark:border-[#49554D] flex items-center justify-center text-3xl flex-shrink-0">
+                                {activeChar.avatar}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <h2 className="text-lg sm:text-xl font-bold text-[#224C3B] dark:text-[#E4E1D8] leading-snug break-words">
+                                  {activeChar.name}
+                                </h2>
+                                <div className="flex flex-wrap gap-1.5 mt-2">
+                                  {activeChar.role.split('/').map((tag, idx) => {
+                                    const trimmed = tag.trim();
+                                    if (!trimmed) return null;
+                                    return (
+                                      <button
+                                        key={idx}
+                                        type="button"
+                                        onClick={() => {
+                                          setSelectedFilterTag(trimmed);
+                                          setShowDetailOnMobile(false);
+                                          showToast(`Đang lọc nhân vật theo tag: ${trimmed}`, 'info');
+                                        }}
+                                        className="px-2 py-0.5 bg-[#E2F3E8] dark:bg-[#202423] text-[#285B47] dark:text-[#A3BDA8] hover:bg-[#39755D] hover:text-[#FFF9EA] dark:hover:bg-[#343D37] dark:hover:text-[#E4E1D8] dark:hover:border-[#A3BDA8] font-semibold text-[11px] rounded border border-[#B3D5C1] dark:border-[#49554D] transition cursor-pointer"
+                                        title={`Lọc theo tag #${trimmed}`}
+                                      >
+                                        #{trimmed}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </div>
+                            
+                            <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end flex-shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => setIsEditing(true)}
+                                className="retro-btn px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <Edit3 className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
+                                <span>Chỉnh sửa</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteCharacter(activeChar.id)}
+                                className="retro-btn-danger px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>Xóa</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          {activeChar.description && (
+                            <div className="pt-3 border-t border-[#DCEAE1] dark:border-[#49554D] text-sm text-[#2B463A] dark:text-[#E4E1D8] leading-relaxed break-words">
+                              {activeChar.description}
+                            </div>
+                          )}
+
+                          {/* Social external linkages — unified retro-btn style */}
+                          {(activeChar.fb || activeChar.discord || activeChar.discord2 || activeChar.web || activeChar.other || activeChar.ggai) && (
+                            <div className="pt-3 flex flex-wrap gap-2 border-t border-[#DCEAE1] dark:border-[#49554D]">
+                              {activeChar.fb && (
+                                <a
+                                  href={typeof activeChar.fb === 'object' ? activeChar.fb.url : activeChar.fb}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="retro-btn inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold"
+                                  title="Truy cập tác giả Facebook"
+                                >
+                                  <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" fill="#1877F2"/>
+                                  </svg>
+                                  <span>{typeof activeChar.fb === 'object' ? activeChar.fb.name : 'Góc Tam Quan Lệch Của Tinh Âm'}</span>
+                                </a>
+                              )}
+
+                              {activeChar.discord && (
+                                <a
+                                  href={typeof activeChar.discord === 'object' ? activeChar.discord.url : activeChar.discord}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="retro-btn inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold"
+                                  title="Tham gia cộng đồng Discord"
+                                >
+                                  <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 127.14 96.36" fill="currentColor">
+                                    <path d="M107.7,8.07A105.15,105.15,0,0,0,77.26,0a77.19,77.19,0,0,0-3.3,6.83A96.67,96.67,0,0,0,53.22,6.83,77.19,77.19,0,0,0,49.88,0,105.15,105.15,0,0,0,19.44,8.07C3.66,31.58-1.86,54.65,1,77.53A105.73,105.73,0,0,0,32,96.36a77.7,77.7,0,0,0,6.63-10.85,68.43,68.43,0,0,1-10.51-5c.89-.65,1.76-1.34,2.58-2a75.59,75.59,0,0,0,73,0c.83.68,1.69,1.37,2.58,2a68.43,68.43,0,0,1-10.51,5,77.7,77.7,0,0,0,6.63,10.85,105.73,105.73,0,0,0,31-18.83C129.87,48.12,123.7,25.28,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53S36.18,40.36,42.45,40.36,53.83,46,53.83,53,48.72,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.24,60,73.24,53S78.41,40.36,84.69,40.36,96.07,46,96.07,53,91,65.69,84.69,65.69Z" fill="#5865F2" />
+                                  </svg>
+                                  <span>{typeof activeChar.discord === 'object' ? activeChar.discord.name : '🌸Vườn Nhỏ Dưới Tán Anh Đào🌸'}</span>
+                                </a>
+                              )}
+
+                              {activeChar.discord2 && (
+                                <a
+                                  href={typeof activeChar.discord2 === 'object' ? activeChar.discord2.url : activeChar.discord2}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="retro-btn inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold"
+                                  title="Tham gia cộng đồng Discord phụ"
+                                >
+                                  <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 127.14 96.36" fill="currentColor">
+                                    <path d="M107.7,8.07A105.15,105.15,0,0,0,77.26,0a77.19,77.19,0,0,0-3.3,6.83A96.67,96.67,0,0,0,53.22,6.83,77.19,77.19,0,0,0,49.88,0,105.15,105.15,0,0,0,19.44,8.07C3.66,31.58-1.86,54.65,1,77.53A105.73,105.73,0,0,0,32,96.36a77.7,77.7,0,0,0,6.63-10.85,68.43,68.43,0,0,1-10.51-5c.89-.65,1.76-1.34,2.58-2a75.59,75.59,0,0,0,73,0c.83.68,1.69,1.37,2.58,2a68.43,68.43,0,0,1-10.51,5,77.7,77.7,0,0,0,6.63,10.85,105.73,105.73,0,0,0,31-18.83C129.87,48.12,123.7,25.28,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53S36.18,40.36,42.45,40.36,53.83,46,53.83,53,48.72,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.24,60,73.24,53S78.41,40.36,84.69,40.36,96.07,46,96.07,53,91,65.69,84.69,65.69Z" fill="#7C3AED" />
+                                  </svg>
+                                  <span>{typeof activeChar.discord2 === 'object' ? activeChar.discord2.name : 'Discord'}</span>
+                                </a>
+                              )}
+
+                              {activeChar.web && (
+                                <a
+                                  href={typeof activeChar.web === 'object' ? activeChar.web.url : activeChar.web}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="retro-btn inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold"
+                                  title="Truy cập Website"
+                                >
+                                  <Globe className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
+                                  <span>{typeof activeChar.web === 'object' ? activeChar.web.name : 'Website'}</span>
+                                </a>
+                              )}
+
+                              {activeChar.other && (
+                                <a
+                                  href={typeof activeChar.other === 'object' ? activeChar.other.url : activeChar.other}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="retro-btn inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold"
+                                  title="Truy cập Website phụ"
+                                >
+                                  <Globe className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
+                                  <span>{typeof activeChar.other === 'object' ? activeChar.other.name : 'Website'}</span>
+                                </a>
+                              )}
+
+                              {activeChar.ggai && (
+                                <div className="inline-flex items-center gap-1">
                                   <a
-                                    href={disc.url}
+                                    href={activeChar.ggai}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="flex-1 flex items-center gap-3.5 py-2.5 px-4 rounded-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-900 hover:border-zinc-300 dark:hover:bg-zinc-700/80 transition duration-200 group text-left min-w-0 shadow-sm"
+                                    className="retro-btn inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold"
+                                    title={`Mở Prompt ${activeChar.name} trong Google AI Studio`}
                                   >
-                                    {getLogoForUrl(disc.url)}
-                                    <span className="text-xs font-black text-indigo-600 dark:text-indigo-400 truncate flex items-center gap-1.5">
-                                      {disc.name}
-                                      <ExternalLink className="w-3.5 h-3.5 opacity-40 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                                    <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24">
+                                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                                    </svg>
+                                    <span>{activeChar.name}</span>
+                                  </a>
+                                  <button
+                                    type="button"
+                                    onClick={() => copyToClipboard(activeChar.ggai || '', 'Link Google AI Studio')}
+                                    className="retro-btn px-2 py-1.5 text-xs cursor-pointer"
+                                    title="Sao chép link Google AI Studio"
+                                  >
+                                    <Copy className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* BACKSTORY dual retro windows */}
+                      {(activeChar.backstoryUser || activeChar.backstoryChar) && (
+                        <div className={`grid gap-4 ${
+                          activeChar.backstoryUser && activeChar.backstoryChar 
+                            ? 'grid-cols-1 md:grid-cols-2' 
+                            : 'grid-cols-1'
+                        }`}>
+                          {activeChar.backstoryUser && (
+                            <div className="retro-window overflow-hidden">
+                              <div className="retro-window-header px-4 py-2">
+                                <h4 className="text-[11px] font-bold text-[#224C3B] dark:text-[#A3BDA8] uppercase tracking-wider">
+                                  {activeChar.backstoryUserTitle || '📖 BACKSTORY (user)'}
+                                </h4>
+                              </div>
+                              <div className="p-4 text-[13px] text-[#2A4539] dark:text-[#E4E1D8] whitespace-pre-wrap break-words leading-relaxed max-h-96 overflow-y-auto">
+                                {activeChar.backstoryUser}
+                              </div>
+                            </div>
+                          )}
+
+                          {activeChar.backstoryChar && (
+                            <div className="retro-window overflow-hidden">
+                              <div className="retro-window-header px-4 py-2">
+                                <h4 className="text-[11px] font-bold text-[#224C3B] dark:text-[#A3BDA8] uppercase tracking-wider">
+                                  {activeChar.backstoryCharTitle || `👤 BACKSTORY (${activeChar.name})`}
+                                </h4>
+                              </div>
+                              <div className="p-4 text-[13px] text-[#2A4539] dark:text-[#E4E1D8] whitespace-pre-wrap break-words leading-relaxed max-h-96 overflow-y-auto">
+                                {activeChar.backstoryChar}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* SYSTEM PROMPT retro window */}
+                      <div className="retro-window overflow-hidden" id={`prompt-${activeChar.id}`}>
+                        <div className="retro-window-header px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
+                          <h4 className="text-xs font-bold text-[#224C3B] dark:text-[#E4E1D8] flex items-center gap-1.5">
+                            <Terminal className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
+                            <span>SYSTEM PROMPT</span>
+                          </h4>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const fullPrompt = buildCharacterRoleplayPrompt(activeChar);
+                              copyToClipboard(fullPrompt, `Prompt nhập vai của ${activeChar.name}`);
+                            }}
+                            className="retro-btn-primary px-3 py-1 text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer"
+                            title="Sao chép toàn bộ Prompt nhập vai này"
+                          >
+                            <Copy className="w-3 h-3" />
+                            <span>Copy prompt</span>
+                          </button>
+                        </div>
+                        
+                        <div className="p-3.5">
+                          <pre className="retro-code-box p-3.5 text-xs leading-relaxed max-h-64 overflow-y-auto whitespace-pre-wrap break-words select-all m-0">
+                            {buildCharacterRoleplayPrompt(activeChar)}
+                          </pre>
+                        </div>
+                        
+                        <div className="px-4 py-2 bg-[#F4F9F6] dark:bg-[#202423] border-t border-[#DCEAE1] dark:border-[#49554D] text-[11px] text-[#547264] dark:text-[#B8BDB5]">
+                          Mẹo: Sao chép khối prompt này dán trực tiếp vào mục System Instructions / Chat Prompt của mô hình AI.
+                        </div>
+                      </div>
+
+                      {/* USER PROFILE retro window */}
+                      {activeChar.userProfile && (
+                        <div className="retro-window overflow-hidden" id="profile-user-card">
+                          <div className="retro-window-header px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
+                            <h4 className="text-[11px] font-bold text-[#224C3B] dark:text-[#A3BDA8] uppercase tracking-wider">
+                              {activeChar.userProfileTitle || '👤 HỒ SƠ NHÂN VẬT: {{USER}}'}
+                            </h4>
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard(activeChar.userProfile || '', `${activeChar.userProfileTitle || 'Hồ sơ nhân vật'} của ${activeChar.name}`)}
+                              className="retro-btn-primary px-2.5 py-1 text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer"
+                              title="Sao chép hồ sơ nhân vật này"
+                            >
+                              <Copy className="w-3 h-3" />
+                              <span>Copy hồ sơ</span>
+                            </button>
+                          </div>
+                          <div className="p-3.5">
+                            <pre className="retro-code-box p-3.5 text-xs leading-relaxed max-h-80 overflow-y-auto whitespace-pre-wrap break-words m-0">
+                              {activeChar.userProfile}
+                            </pre>
+                          </div>
+                        </div>
+                      )}
+                    </article>
+                  )}
+
+                  {/* E. AUTHOR DETAILS COMPONENT DISPLAY */}
+                  {activeTab === 'authors' && activeAuthor && (
+                    <article className="space-y-4 animate-fade-in min-w-0" id="active-author-card">
+                      {/* Compact Author Retro Window */}
+                      <div className="retro-window overflow-hidden">
+                        <div className="retro-window-header px-4 py-2 flex items-center justify-between gap-2">
+                          <span className="font-mono text-[11px] font-semibold text-[#39755D] dark:text-[#A3BDA8] flex items-center gap-1.5">
+                            <PixelAuthorIcon className="w-3.5 h-3.5" />
+                            Hồ sơ Tác Giả
+                          </span>
+                        </div>
+                        <div className="p-4 sm:p-5 flex flex-col sm:flex-row items-center gap-4 text-center sm:text-left">
+                          <div className="w-16 h-16 rounded-lg bg-[#E2F3E8] dark:bg-[#343D37] border border-[#9FC4AF] dark:border-[#49554D] flex items-center justify-center text-3xl flex-shrink-0">
+                            {activeAuthor.avatarEmoji}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h2 className="text-xl sm:text-2xl font-bold text-[#224C3B] dark:text-[#E4E1D8] tracking-tight break-words">
+                              {activeAuthor.fullName || activeAuthor.name}
+                            </h2>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Curated Social Links Retro Window */}
+                      <div className="retro-window overflow-hidden">
+                        <div className="retro-window-header px-4 py-2.5">
+                          <h3 className="text-xs font-bold uppercase tracking-wider text-[#224C3B] dark:text-[#E4E1D8]">
+                            Danh sách liên kết & Mạng xã hội
+                          </h3>
+                        </div>
+
+                        <div className="p-4 flex flex-col gap-2.5">
+                          {(() => {
+                            const links: React.ReactNode[] = [];
+                            
+                            if (activeAuthor.fb) {
+                              links.push(
+                                <div className="flex gap-2 w-full" key="fb">
+                                  <a
+                                    href={activeAuthor.fb.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="retro-btn flex-1 flex items-center gap-3 py-2 px-3.5 text-left min-w-0 group"
+                                  >
+                                    {getLogoForUrl(activeAuthor.fb.url)}
+                                    <span className="text-xs font-bold text-[#244B3C] dark:text-[#E4E1D8] truncate flex items-center gap-1.5">
+                                      {activeAuthor.fb.name}
+                                      <ExternalLink className="w-3.5 h-3.5 opacity-50 group-hover:opacity-100 transition-opacity flex-shrink-0" />
                                     </span>
                                   </a>
                                   <button
@@ -3150,136 +3740,175 @@ export default function App() {
                                     onClick={(e) => {
                                       e.preventDefault();
                                       e.stopPropagation();
-                                      copyToClipboard(disc.url, `Discord ${disc.name}`);
+                                      copyToClipboard(activeAuthor.fb?.url || '', `Fanpage ${activeAuthor.fb?.name}`);
                                     }}
-                                    className="h-11 w-11 rounded-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-900 hover:border-emerald-500/50 dark:hover:border-emerald-500/50 text-zinc-400 hover:text-emerald-500 dark:hover:text-emerald-400 flex items-center justify-center transition shadow-sm shrink-0"
-                                    title="Sao chép link Discord"
+                                    className="retro-btn h-10 w-10 flex items-center justify-center shrink-0 cursor-pointer"
+                                    title="Sao chép link Facebook"
                                   >
-                                    <Copy className="w-4 h-4 text-emerald-500 dark:text-emerald-400" />
+                                    <Copy className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
                                   </button>
                                 </div>
                               );
-                            });
-                          }
+                            }
 
-                          if (activeAuthor.web) {
-                            links.push(
-                              <div className="flex gap-2 w-full animate-fade-in" key="web">
-                                <a
-                                  href={activeAuthor.web.url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="flex-1 flex items-center gap-3.5 py-2.5 px-4 rounded-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-900 hover:border-zinc-300 dark:hover:border-zinc-700/80 transition duration-200 group text-left min-w-0 shadow-sm"
-                                >
-                                  {getLogoForUrl(activeAuthor.web.url)}
-                                  <span className="text-xs font-black text-emerald-600 dark:text-[#00e699] truncate flex items-center gap-1.5">
-                                    {activeAuthor.web.name}
-                                    <ExternalLink className="w-3.5 h-3.5 opacity-40 group-hover:opacity-100 transition-opacity flex-shrink-0" />
-                                  </span>
-                                </a>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    copyToClipboard(activeAuthor.web?.url || '', `Web ${activeAuthor.web?.name}`);
-                                  }}
-                                  className="h-11 w-11 rounded-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-900 hover:border-emerald-500/50 dark:hover:border-emerald-500/50 text-zinc-400 hover:text-emerald-500 dark:hover:text-emerald-400 flex items-center justify-center transition shadow-sm shrink-0"
-                                  title="Sao chép link Web"
-                                >
-                                  <Copy className="w-4 h-4 text-emerald-500 dark:text-emerald-400" />
-                                </button>
-                              </div>
-                            );
-                          }
+                            if (activeAuthor.discords && activeAuthor.discords.length > 0) {
+                              activeAuthor.discords.forEach((disc, idx) => {
+                                links.push(
+                                  <div className="flex gap-2 w-full" key={`discord-${idx}`}>
+                                    <a
+                                      href={disc.url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="retro-btn flex-1 flex items-center gap-3 py-2 px-3.5 text-left min-w-0 group"
+                                    >
+                                      {getLogoForUrl(disc.url)}
+                                      <span className="text-xs font-bold text-[#244B3C] dark:text-[#E4E1D8] truncate flex items-center gap-1.5">
+                                        {disc.name}
+                                        <ExternalLink className="w-3.5 h-3.5 opacity-50 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                                      </span>
+                                    </a>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        copyToClipboard(disc.url, `Discord ${disc.name}`);
+                                      }}
+                                      className="retro-btn h-10 w-10 flex items-center justify-center shrink-0 cursor-pointer"
+                                      title="Sao chép link Discord"
+                                    >
+                                      <Copy className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
+                                    </button>
+                                  </div>
+                                );
+                              });
+                            }
 
-                          if (activeAuthor.other) {
-                            links.push(
-                              <div className="flex gap-2 w-full animate-fade-in" key="other">
-                                <a
-                                  href={activeAuthor.other.url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="flex-1 flex items-center gap-3.5 py-2.5 px-4 rounded-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-900 hover:border-zinc-300 dark:hover:border-zinc-700/80 transition duration-200 group text-left min-w-0 shadow-sm"
-                                >
-                                  {getLogoForUrl(activeAuthor.other.url)}
-                                  <span className="text-xs font-black text-amber-600 dark:text-amber-400 truncate flex items-center gap-1.5">
-                                    {activeAuthor.other.name}
-                                    <ExternalLink className="w-3.5 h-3.5 opacity-40 group-hover:opacity-100 transition-opacity flex-shrink-0" />
-                                  </span>
-                                </a>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    copyToClipboard(activeAuthor.other?.url || '', `Tài nguyên ${activeAuthor.other?.name}`);
-                                  }}
-                                  className="h-11 w-11 rounded-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-900 hover:border-emerald-500/50 dark:hover:border-emerald-500/50 text-zinc-400 hover:text-emerald-500 dark:hover:text-emerald-400 flex items-center justify-center transition shadow-sm shrink-0"
-                                  title="Sao chép link tài nguyên"
-                                >
-                                  <Copy className="w-4 h-4 text-emerald-500 dark:text-emerald-400" />
-                                </button>
-                              </div>
-                            );
-                          }
-
-                          if (links.length === 0) {
-                            return (
-                              <div className="p-4 rounded-xl border border-dashed border-zinc-200 dark:border-zinc-800 bg-zinc-50/10 dark:bg-zinc-950/5 flex items-center justify-center opacity-60 select-none">
-                                <p className="text-xs text-zinc-500 font-medium">Không có liên kết để hiển thị</p>
-                              </div>
-                            );
-                          }
-
-                          return links;
-                        })()}
-                      </div>
-                    </div>
-
-                    {/* Creative works under this author filtered matching */}
-                    <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-emerald-100 dark:border-emerald-900/25 p-5 shadow-sm space-y-3.5">
-                      <h3 className="text-xs font-extrabold uppercase tracking-widest text-emerald-850 dark:text-emerald-400 pb-3 border-b border-zinc-100 dark:border-zinc-850 flex items-center gap-2 font-sans">
-                        <span>🎭</span> Bộ sưu tập nhân vật trong hệ thống ({characters.filter(c => c.author?.toLowerCase() === activeAuthor.id?.toLowerCase() || c.author?.toLowerCase() === activeAuthor.name?.toLowerCase() || c.author?.toLowerCase() === activeAuthor.fullName?.toLowerCase()).length})
-                      </h3>
-
-                      {characters.filter(c => c.author?.toLowerCase() === activeAuthor.id?.toLowerCase() || c.author?.toLowerCase() === activeAuthor.name?.toLowerCase() || c.author?.toLowerCase() === activeAuthor.fullName?.toLowerCase()).length === 0 ? (
-                        <p className="text-zinc-455 dark:text-zinc-500 text-xs py-5 text-center font-medium">Chưa có nhân vật nào của tác giả này trong dữ liệu cá nhân của bạn.</p>
-                      ) : (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                          {characters
-                            .filter(c => c.author?.toLowerCase() === activeAuthor.id?.toLowerCase() || c.author?.toLowerCase() === activeAuthor.name?.toLowerCase() || c.author?.toLowerCase() === activeAuthor.fullName?.toLowerCase())
-                            .map((char) => (
-                              <div
-                                key={char.id}
-                                onClick={() => {
-                                  setSelectedCharId(char.id);
-                                  setActiveTab('characters');
-                                  setIsCreating(false);
-                                  setIsEditing(false);
-                                  setShowDetailOnMobile(true);
-                                }}
-                                className="p-3.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-950/20 hover:border-emerald-400 dark:hover:border-emerald-800/80 hover:bg-emerald-500/5 dark:hover:bg-emerald-500/5 transition duration-200 cursor-pointer flex items-center gap-3.5 select-none"
-                              >
-                                <span className="text-2xl flex-shrink-0">{char.avatar || '👤'}</span>
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-xs font-bold text-zinc-900 dark:text-zinc-100 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 truncate transition-colors text-left">{char.name}</p>
-                                  <p className="text-[10px] text-zinc-400 dark:text-zinc-500 truncate mt-0.5 text-left">{char.role}</p>
+                            if (activeAuthor.web) {
+                              links.push(
+                                <div className="flex gap-2 w-full" key="web">
+                                  <a
+                                    href={activeAuthor.web.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="retro-btn flex-1 flex items-center gap-3 py-2 px-3.5 text-left min-w-0 group"
+                                  >
+                                    {getLogoForUrl(activeAuthor.web.url)}
+                                    <span className="text-xs font-bold text-[#244B3C] dark:text-[#E4E1D8] truncate flex items-center gap-1.5">
+                                      {activeAuthor.web.name}
+                                      <ExternalLink className="w-3.5 h-3.5 opacity-50 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                                    </span>
+                                  </a>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      copyToClipboard(activeAuthor.web?.url || '', `Web ${activeAuthor.web?.name}`);
+                                    }}
+                                    className="retro-btn h-10 w-10 flex items-center justify-center shrink-0 cursor-pointer"
+                                    title="Sao chép link Web"
+                                  >
+                                    <Copy className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
+                                  </button>
                                 </div>
-                                <ChevronRight className="w-3.5 h-3.5 text-zinc-400/80 dark:text-zinc-550 flex-shrink-0" />
-                              </div>
-                            ))}
-                        </div>
-                      )}
-                    </div>
-                  </article>
-                )}
-              </>
-            )}
+                              );
+                            }
 
+                            if (activeAuthor.other) {
+                              links.push(
+                                <div className="flex gap-2 w-full" key="other">
+                                  <a
+                                    href={activeAuthor.other.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="retro-btn flex-1 flex items-center gap-3 py-2 px-3.5 text-left min-w-0 group"
+                                  >
+                                    {getLogoForUrl(activeAuthor.other.url)}
+                                    <span className="text-xs font-bold text-[#244B3C] dark:text-[#E4E1D8] truncate flex items-center gap-1.5">
+                                      {activeAuthor.other.name}
+                                      <ExternalLink className="w-3.5 h-3.5 opacity-50 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                                    </span>
+                                  </a>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      copyToClipboard(activeAuthor.other?.url || '', `Tài nguyên ${activeAuthor.other?.name}`);
+                                    }}
+                                    className="retro-btn h-10 w-10 flex items-center justify-center shrink-0 cursor-pointer"
+                                    title="Sao chép link tài nguyên"
+                                  >
+                                    <Copy className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
+                                  </button>
+                                </div>
+                              );
+                            }
+
+                            if (links.length === 0) {
+                              return (
+                                <div className="p-4 rounded-md border border-dashed border-[#B8D7C5] dark:border-[#49554D] text-center">
+                                  <p className="text-xs text-[#5B7A6C] dark:text-[#B8BDB5]">Không có liên kết để hiển thị</p>
+                                </div>
+                              );
+                            }
+
+                            return links;
+                          })()}
+                        </div>
+                      </div>
+
+                      {/* Creative works under this author */}
+                      <div className="retro-window overflow-hidden">
+                        <div className="retro-window-header px-4 py-2.5">
+                          <h3 className="text-xs font-bold uppercase tracking-wider text-[#224C3B] dark:text-[#E4E1D8]">
+                            Nhân vật của tác giả ({characters.filter(c => c.author?.toLowerCase() === activeAuthor.id?.toLowerCase() || c.author?.toLowerCase() === activeAuthor.name?.toLowerCase() || c.author?.toLowerCase() === activeAuthor.fullName?.toLowerCase()).length})
+                          </h3>
+                        </div>
+
+                        <div className="p-4">
+                          {characters.filter(c => c.author?.toLowerCase() === activeAuthor.id?.toLowerCase() || c.author?.toLowerCase() === activeAuthor.name?.toLowerCase() || c.author?.toLowerCase() === activeAuthor.fullName?.toLowerCase()).length === 0 ? (
+                            <p className="text-[#5B7A6C] dark:text-[#B8BDB5] text-xs py-4 text-center">
+                              Chưa có nhân vật nào của tác giả này trong dữ liệu cá nhân của bạn.
+                            </p>
+                          ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              {characters
+                                .filter(c => c.author?.toLowerCase() === activeAuthor.id?.toLowerCase() || c.author?.toLowerCase() === activeAuthor.name?.toLowerCase() || c.author?.toLowerCase() === activeAuthor.fullName?.toLowerCase())
+                                .map((char) => (
+                                  <button
+                                    key={char.id}
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedCharId(char.id);
+                                      setActiveTab('characters');
+                                      setIsCreating(false);
+                                      setIsEditing(false);
+                                      setShowDetailOnMobile(true);
+                                    }}
+                                    className="retro-btn p-3 flex items-center gap-3 text-left cursor-pointer"
+                                  >
+                                    <span className="text-xl flex-shrink-0">{char.avatar || '👤'}</span>
+                                    <div className="min-w-0 flex-1">
+                                      <p className="text-xs font-bold text-[#20372D] dark:text-[#E4E1D8] truncate">{char.name}</p>
+                                      <p className="text-[10px] text-[#587568] dark:text-[#B8BDB5] truncate mt-0.5">{char.role}</p>
+                                    </div>
+                                    <ChevronRight className="w-3.5 h-3.5 text-[#587568] dark:text-[#B8BDB5] flex-shrink-0" />
+                                  </button>
+                                ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </article>
+                  )}
+                </>
+              )}
+
+            </div>
           </div>
-        </div>
-      </main>
+        </main>
       </div>
 
       {/* CHARACTER SEARCH & FILTER MODAL */}
@@ -3287,25 +3916,25 @@ export default function App() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           {/* Backdrop overlay */}
           <div 
-            className="absolute inset-0 bg-stone-900/60 dark:bg-zinc-950/80 backdrop-blur-xs transition-opacity"
+            className="absolute inset-0 bg-stone-900/60 dark:bg-[#141716]/75 backdrop-blur-xs transition-opacity"
             onClick={() => setIsFilterModalOpen(false)}
           />
           
           {/* Modal content container */}
-          <div className="bg-[#FFF9EA] dark:bg-[#172620] rounded-lg border border-[#9FC4AF] dark:border-[#335243] w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden shadow-2xl relative z-10 animate-fade-in">
+          <div className="bg-[#FFF9EA] dark:bg-[#292E2B] rounded-lg border border-[#9FC4AF] dark:border-[#49554D] w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden shadow-lg dark:shadow-none relative z-10 animate-fade-in">
             {/* Modal Header */}
             <div className="retro-titlebar px-5 py-3 flex justify-between items-center">
               <div className="flex items-center gap-2.5">
-                <PixelTagIcon className="w-4 h-4 text-[#39755D] dark:text-[#8CD2B3]" />
+                <PixelTagIcon className="w-4 h-4 text-[#39755D] dark:text-[#A3BDA8]" />
                 <div>
-                  <h3 className="text-sm font-bold text-[#224C3B] dark:text-[#E5F7EE]">Tìm kiếm & Lọc nhân vật</h3>
-                  <p className="text-[10px] text-[#527062] dark:text-[#9CB8AB]">Phân loại nhân vật theo từng Tag mong muốn</p>
+                  <h3 className="text-sm font-bold text-[#224C3B] dark:text-[#E4E1D8]">Tìm kiếm & Lọc nhân vật</h3>
+                  <p className="text-[10px] text-[#527062] dark:text-[#B8BDB5]">Phân loại nhân vật theo từng Tag mong muốn</p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setIsFilterModalOpen(false)}
-                className="retro-btn p-1.5 text-[#39755D] dark:text-[#A5DFC4] cursor-pointer"
+                className="retro-btn p-1.5 text-[#39755D] dark:text-[#A3BDA8] cursor-pointer"
                 aria-label="Đóng"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
@@ -3315,14 +3944,15 @@ export default function App() {
             </div>
 
             {/* Modal Body */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
-              {/* List of Tags: "bấm vào hiện list các tag" */}
-              <div className="space-y-4 animate-fade-in">
-                <div className="flex items-center justify-between border-b border-zinc-100 dark:border-zinc-800 pb-2">
-                  <h4 className="text-xs font-bold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
-                    <span>🏷️</span> Danh sách Tag / Thể loại
+            <div className="flex-1 overflow-y-auto p-5 space-y-5">
+              {/* List of Tags */}
+              <div className="space-y-3 animate-fade-in">
+                <div className="flex items-center justify-between border-b border-[#D5E6DC] dark:border-[#49554D] pb-2">
+                  <h4 className="text-xs font-bold text-[#224C3B] dark:text-[#E4E1D8] flex items-center gap-1.5">
+                    <PixelTagIcon className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
+                    <span>Danh sách Tag / Thể loại</span>
                   </h4>
-                  <span className="text-[10px] font-mono text-zinc-400">
+                  <span className="text-[10px] tabular-nums-mono text-[#5B7A6C] dark:text-[#B8BDB5]">
                     Tất cả ({Array.from(new Set(characters.flatMap(c => c.role.split('/').map(r => r.trim())).filter(Boolean))).length})
                   </span>
                 </div>
@@ -3349,14 +3979,12 @@ export default function App() {
                             showToast('Đã dừng lọc theo tag', 'info');
                           }
                         }}
-                        className={`py-1.5 px-3 rounded-xl border text-xs transition duration-150 flex items-center gap-1.5 font-medium ${
-                          isChosen
-                            ? 'bg-amber-50 dark:bg-amber-952/35 border-amber-400 text-amber-800 dark:text-amber-400 font-bold shadow-xs'
-                            : 'border-zinc-200 dark:border-zinc-800 hover:bg-stone-50 dark:hover:bg-zinc-950 text-zinc-600 dark:text-zinc-400'
+                        className={`retro-btn py-1.5 px-2.5 text-xs flex items-center gap-1.5 font-semibold cursor-pointer ${
+                          isChosen ? 'retro-btn-active' : ''
                         }`}
                       >
                         <span>#{tag}</span>
-                        <span className="text-[9px] font-mono opacity-70 bg-zinc-100 dark:bg-zinc-800 px-1 py-0.2 rounded">
+                        <span className="text-[10px] tabular-nums-mono opacity-80 bg-[#E2F3E8] dark:bg-[#343D37] px-1.5 py-0.5 rounded">
                           {matchingCount}
                         </span>
                       </button>
@@ -3365,20 +3993,19 @@ export default function App() {
                 </div>
               </div>
 
-              {/* List of matching characters: "bấm vào từng tag sẽ hiện list" */}
+              {/* List of matching characters */}
               {selectedFilterTag && (
-                <div className="border-t border-zinc-100 dark:border-zinc-800/80 pt-6 space-y-3 animate-slide-up">
-                  <div className="flex justify-between items-center bg-stone-50 dark:bg-zinc-950/40 p-3 rounded-xl border border-zinc-100 dark:border-zinc-800/60">
-                    <div className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
-                      Đang chọn: {' '}
-                      <span className="text-amber-600 dark:text-amber-400">🏷️ #{selectedFilterTag}</span>
+                <div className="border-t border-[#D5E6DC] dark:border-[#49554D] pt-4 space-y-3">
+                  <div className="retro-callout-mint px-3 py-2 flex justify-between items-center">
+                    <div className="text-xs font-bold text-[#224C3B] dark:text-[#E4E1D8]">
+                      Đang chọn: <span className="text-[#39755D] dark:text-[#A3BDA8]">#{selectedFilterTag}</span>
                     </div>
                     <button
                       type="button"
                       onClick={() => {
                         setSelectedFilterTag(null);
                       }}
-                      className="text-[10px] text-red-500 hover:text-red-700 hover:underline font-bold transition"
+                      className="text-[11px] text-red-700 dark:text-[#E4A6AA] hover:underline font-semibold cursor-pointer"
                     >
                       Bỏ chọn lọc
                     </button>
@@ -3398,32 +4025,29 @@ export default function App() {
                              setIsFilterModalOpen(false);
                              showToast(`Đã chọn nhân vật: ${char.name}`, 'success');
                            }}
-                           className={`p-3 rounded-2xl border transition duration-150 cursor-pointer flex items-center justify-between gap-4 group ${
+                           className={`p-2.5 rounded-md border transition cursor-pointer flex items-center justify-between gap-3 group ${
                              isCurrentlySelected
-                               ? 'border-emerald-400 bg-emerald-500/5 dark:border-emerald-800'
-                               : 'border-zinc-100 dark:border-zinc-850/60 bg-stone-50/20 dark:bg-zinc-900/10 hover:border-emerald-200 hover:bg-emerald-500/5'
+                               ? 'border-[#39755D] bg-[#E2F3E8] dark:border-[#A3BDA8] dark:bg-[#343D37]'
+                               : 'border-[#CFE2D6] dark:border-[#49554D] bg-[#FAF6EA] dark:bg-[#292E2B] hover:border-[#39755D] dark:hover:border-[#A3BDA8]'
                            }`}
                         >
-                          <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-xl bg-white dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-800/80 flex items-center justify-center text-xl shadow-xs">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="w-8 h-8 rounded-md bg-[#FFF9EA] dark:bg-[#202423] border border-[#B8D7C5] dark:border-[#49554D] flex items-center justify-center text-lg flex-shrink-0">
                               {char.avatar}
                             </div>
-                            <div>
-                              <h5 className="text-xs font-bold text-zinc-800 dark:text-zinc-200 group-hover:text-emerald-700 dark:group-hover:text-emerald-400">
+                            <div className="min-w-0">
+                              <h5 className="text-xs font-bold text-[#20372D] dark:text-[#E4E1D8] truncate">
                                 {char.name}
                               </h5>
-                              <p className="text-[10px] text-zinc-500 dark:text-zinc-400 mt-0.5 line-clamp-1">
+                              <p className="text-[10px] text-[#587568] dark:text-[#B8BDB5] mt-0.5 line-clamp-1">
                                 {char.role}
                               </p>
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-2">
-                            <span className="text-[9px] text-emerald-600 dark:text-emerald-450 font-bold opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                              Xem chi tiết →
-                            </span>
+                          <div className="flex items-center gap-2 flex-shrink-0">
                             {char.author && (
-                              <span className="text-[9px] bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-zinc-500 dark:text-zinc-400 font-medium">
+                              <span className="text-[10px] bg-[#E2F3E8] dark:bg-[#343D37] px-1.5 py-0.5 rounded text-[#2F634E] dark:text-[#A3BDA8] font-medium">
                                 {char.author}
                               </span>
                             )}
@@ -3437,26 +4061,26 @@ export default function App() {
             </div>
 
             {/* Modal Footer */}
-            <div className="px-6 py-3 bg-stone-50 dark:bg-zinc-950/20 border-t border-zinc-100 dark:border-zinc-800 flex justify-between items-center gap-2">
+            <div className="px-5 py-3 bg-[#F1F8F3] dark:bg-[#202423] border-t border-[#CBE0D3] dark:border-[#49554D] flex justify-between items-center gap-2">
               <button
+                type="button"
                 onClick={() => {
                   setSelectedFilterAuthor(null);
                   setSelectedFilterTag(null);
                   setCharacterFilterType('tag');
                   showToast('Đã đặt lại bộ lọc', 'info');
                 }}
-                className="px-3.5 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800 text-[11px] font-semibold text-zinc-500 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-950 transition"
+                className="retro-btn px-3 py-1.5 text-xs font-semibold cursor-pointer"
               >
                 Đặt lại
               </button>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setIsFilterModalOpen(false)}
-                  className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 dark:bg-emerald-700 text-white font-bold text-[11px] transition"
-                >
-                  Đóng
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => setIsFilterModalOpen(false)}
+                className="retro-btn-primary px-4 py-1.5 font-semibold text-xs cursor-pointer"
+              >
+                Đóng
+              </button>
             </div>
           </div>
         </div>

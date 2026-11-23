@@ -1,4 +1,14 @@
-export interface Character {
+export interface CloudContentMeta {
+  ownerId?: string;
+  isPublic?: boolean;
+  isSystem?: boolean;
+  publishedAt?: string;
+  authorDisplayName?: string;
+  authorRole?: 'user' | 'admin';
+  cloudKey?: string;
+}
+
+export interface Character extends CloudContentMeta {
   id: string;
   name: string;
   role: string;
@@ -21,7 +31,7 @@ export interface Character {
   prompt?: string;
 }
 
-export interface Note {
+export interface Note extends CloudContentMeta {
   id: string;
   title: string;
   command: string; // "Prompt cần nhập" or command
@@ -33,7 +43,7 @@ export interface Note {
   updatedAt: string;
 }
 
-export interface Idea {
+export interface Idea extends CloudContentMeta {
   id: string;
   title: string;
   content: string;
@@ -48,7 +58,7 @@ export interface PromptStep {
   note?: string; // Optional tip for this specific step
 }
 
-export interface LibraryPrompt {
+export interface LibraryPrompt extends CloudContentMeta {
   id: string;
   title: string;
   description: string;
@@ -67,4 +77,72 @@ export interface AppState {
   theme: 'light' | 'dark';
   cloverEffect: boolean;
   libraryPrompts?: LibraryPrompt[]; // Optional user custom addition or loaded
+}
+
+export type ContentTargetType = 'character' | 'note' | 'idea' | 'library_prompt';
+
+export interface PublicProfile {
+  id: string;
+  display_name: string;
+  avatar_url: string | null;
+  role: 'user' | 'admin';
+  updated_at: string;
+}
+
+export type AnnouncementTone = 'info' | 'update' | 'important';
+
+export interface SystemAnnouncement {
+  id: string;
+  title: string;
+  content: string;
+  tone: AnnouncementTone;
+  isPinned: boolean;
+  isActive: boolean;
+  authorId: string;
+  authorDisplayName: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CharacterComment {
+  id: string;
+  characterOwnerId: string;
+  characterItemId: string;
+  userId: string;
+  authorDisplayName: string;
+  authorRole: 'user' | 'admin';
+  content: string;
+  isHidden: boolean;
+  hiddenBy: string | null;
+  hiddenAt: string | null;
+  hiddenReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PromptRating {
+  id: string;
+  targetType: 'library_prompt' | 'note';
+  targetScope: string;
+  targetOwnerId: string | null;
+  targetItemId: string;
+  userId: string;
+  authorDisplayName: string;
+  authorRole: 'user' | 'admin';
+  score: number;
+  review: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PromptRatingSummary {
+  average: number;
+  count: number;
+  userRating: PromptRating | null;
+  ratings: PromptRating[];
+}
+
+export interface LikeSummary {
+  count: number;
+  likedByMe: boolean;
 }
