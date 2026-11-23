@@ -37,11 +37,41 @@ export function loadState(): AppState {
     const loadedNotes = Array.isArray(parsed.notes) ? parsed.notes : initialNotes;
     const finalNotes = loadedNotes.filter((n: any) => n && !['note-1', 'note-2', 'note-3', 'note-4'].includes(n.id));
 
+    const REMOVED_BUILTIN_CHAR_IDS = new Set([
+      'char-1',
+      'char-2',
+      'char-3',
+      'char-4',
+      'char-truong-thua-vu',
+      'char-co-kinh-thuong',
+      'char-an-thua-hach',
+      'char-ly-han-thu',
+      'char-hoang-duy-khoa',
+      'char-ky-tinh-an',
+      'char-f4-dua-xe',
+      'char-le-tham',
+      'char-vu-co-sa',
+      'char-ha-di-tru',
+      'char-liam-lawrence',
+      'char-ahmose',
+      'char-co-lang-hien',
+      'char-tan-triet',
+      'char-ky-duc',
+      'char-tham-tinh-hoi',
+      'char-co-chau-hoanh',
+      'char-tham-dien',
+      'char-co-duc-lam',
+      'char-co-vu-lam',
+      'char-aoyagi-haru',
+      'char-game-thuc-te-ao',
+      'char-hoac-canh-chau',
+    ]);
+
     const loadedCharacters = Array.isArray(parsed.characters) ? parsed.characters : initialCharacters;
-    let finalCharacters = loadedCharacters.filter((c: any) => c && !['char-1', 'char-2', 'char-3', 'char-4'].includes(c.id));
+    let finalCharacters = loadedCharacters.filter((c: any) => c && !REMOVED_BUILTIN_CHAR_IDS.has(c.id));
 
     // Đồng bộ thuộc tính mới hoặc nhân vật mới cho người dùng hiện tại
-    let hasUpdatedAnyChar = false;
+    let hasUpdatedAnyChar = finalCharacters.length !== loadedCharacters.length;
     finalCharacters = finalCharacters.map((savedChar: any) => {
       const initialChar = initialCharacters.find(ic => ic.id === savedChar.id);
       if (initialChar) {
