@@ -1,9 +1,25 @@
 import { supabase } from '../lib/supabase';
-import type { Character, Idea, LibraryPrompt, Note, PromptStep, PublicProfile } from '../types';
+import type {
+  Character,
+  CharacterSocialLink,
+  Idea,
+  LibraryPrompt,
+  Note,
+  PromptStep,
+  PublicProfile,
+} from '../types';
 import { initialCharacters, initialIdeas } from '../initialData';
 import { defaultLibraryPrompts } from '../promptsData';
 import type { ImportChunk, ImportJobPlan } from '../utils/localDataDiff';
 import { fetchPublicProfilesMap, isMissingCommunitySchemaError } from './communityService';
+import {
+  applySocialLinksToCharacter,
+  buildNoteFieldsFromBlocks,
+  getCharacterSocialLinks,
+  getNoteDescriptionAndBlocks,
+  normalizePromptBlock,
+  sanitizePromptBlocks,
+} from '../utils/contentBlocks';
 
 export type DataEntityKind = 'character' | 'note' | 'idea' | 'library_prompt';
 
@@ -101,7 +117,9 @@ function nullToUndefined<T>(value: T | null | undefined): T | undefined {
   return value === null || value === undefined ? undefined : value;
 }
 
-type SocialLinkValue = { name: string; url: string } | string;
+type SocialLinkValue =
+  | { name: string; url: string; links?: CharacterSocialLink[] }
+  | string;
 
 function sanitizeSocialLink(value: unknown): SocialLinkValue | null {
   if (typeof value === 'string') {
@@ -109,11 +127,28 @@ function sanitizeSocialLink(value: unknown): SocialLinkValue | null {
     return trimmed ? trimmed : null;
   }
   if (value && typeof value === 'object') {
-    const obj = value as { name?: unknown; url?: unknown };
+    const obj = value as {
+      name?: unknown;
+      url?: unknown;
+      links?: unknown;
+    };
     const url = typeof obj.url === 'string' ? obj.url.trim() : '';
     const name = typeof obj.name === 'string' ? obj.name.trim() : '';
-    if (!url && !name) return null;
-    return { name: name || 'Link', url };
+    const hasLinksArray = Array.isArray(obj.links) && obj.links.length > 0;
+    if (!url && !name && !hasLinksArray) return null;
+    const sanitized: { name: string; url: string; links?: CharacterSocialLink[] } = {
+      name: name || (url ? 'Link' : ''),
+      url,
+    };
+    if (hasLinksArray) {
+      sanitized.links = (obj.links as CharacterSocialLink[]).map((item) => ({
+        id: String(item.id || ''),
+        platform: item.platform,
+        url: String(item.url || '').trim(),
+        ...(item.label?.trim() ? { label: item.label.trim() } : {}),
+      }));
+    }
+    return sanitized;
   }
   return null;
 }
@@ -122,12 +157,17 @@ function parseSocialLink(value: unknown): SocialLinkValue | undefined {
   if (value === null || value === undefined) return undefined;
   if (typeof value === 'string') return value;
   if (typeof value === 'object') {
-    const obj = value as { name?: unknown; url?: unknown };
-    if (typeof obj.url === 'string') {
-      return {
-        name: typeof obj.name === 'string' ? obj.name : 'Link',
-        url: obj.url,
+    const obj = value as { name?: unknown; url?: unknown; links?: unknown };
+    const hasLinksArray = Array.isArray(obj.links) && obj.links.length > 0;
+    if (typeof obj.url === 'string' || hasLinksArray) {
+      const parsed: { name: string; url: string; links?: CharacterSocialLink[] } = {
+        name: typeof obj.name === 'string' ? obj.name : hasLinksArray ? '' : 'Link',
+        url: typeof obj.url === 'string' ? obj.url : '',
       };
+      if (hasLinksArray) {
+        parsed.links = obj.links as CharacterSocialLink[];
+      }
+      return parsed;
     }
   }
   return undefined;
@@ -137,17 +177,7 @@ function parsePromptSteps(value: unknown): PromptStep[] {
   if (!Array.isArray(value)) return [];
   return value
     .filter((step) => step && typeof step === 'object')
-    .map((step) => {
-      const s = step as { label?: unknown; content?: unknown; note?: unknown };
-      const parsed: PromptStep = {
-        label: typeof s.label === 'string' ? s.label : '',
-        content: typeof s.content === 'string' ? s.content : '',
-      };
-      if (typeof s.note === 'string' && s.note.length > 0) {
-        parsed.note = s.note;
-      }
-      return parsed;
-    });
+    .map((step, idx) => normalizePromptBlock(step, idx));
 }
 
 function isMissingVisibilityColumnError(error: unknown): boolean {
@@ -267,34 +297,38 @@ function characterToRowPayload(
   isDeleted = false,
   visibility?: { isPublic?: boolean; isSystem?: boolean; omitVisibility?: boolean },
 ) {
+  const syncedChar = Array.isArray(char.socialLinks)
+    ? applySocialLinksToCharacter(char.socialLinks, char)
+    : char;
+
   const base: Record<string, unknown> = {
     user_id: userId,
-    item_id: char.id,
-    name: char.name,
-    role: char.role ?? '',
-    avatar: char.avatar || '🍀',
-    description: char.description ?? null,
-    author: char.author ?? null,
-    fb: sanitizeSocialLink(char.fb),
-    discord: sanitizeSocialLink(char.discord),
-    discord2: sanitizeSocialLink(char.discord2),
-    web: sanitizeSocialLink(char.web),
-    other: sanitizeSocialLink(char.other),
-    ggai: char.ggai ?? null,
-    backstory_user: char.backstoryUser ?? null,
-    backstory_char: char.backstoryChar ?? null,
-    backstory_user_title: char.backstoryUserTitle ?? null,
-    backstory_char_title: char.backstoryCharTitle ?? null,
-    user_profile: char.userProfile ?? null,
-    user_profile_title: char.userProfileTitle ?? null,
-    prompt: char.prompt ?? null,
-    item_created_at: toSafeIsoTimestamp(char.createdAt),
+    item_id: syncedChar.id,
+    name: syncedChar.name,
+    role: syncedChar.role ?? '',
+    avatar: syncedChar.avatar || '🍀',
+    description: syncedChar.description ?? null,
+    author: syncedChar.author ?? null,
+    fb: sanitizeSocialLink(syncedChar.fb),
+    discord: sanitizeSocialLink(syncedChar.discord),
+    discord2: sanitizeSocialLink(syncedChar.discord2),
+    web: sanitizeSocialLink(syncedChar.web),
+    other: sanitizeSocialLink(syncedChar.other),
+    ggai: syncedChar.ggai ?? null,
+    backstory_user: syncedChar.backstoryUser ?? null,
+    backstory_char: syncedChar.backstoryChar ?? null,
+    backstory_user_title: syncedChar.backstoryUserTitle ?? null,
+    backstory_char_title: syncedChar.backstoryCharTitle ?? null,
+    user_profile: syncedChar.userProfile ?? null,
+    user_profile_title: syncedChar.userProfileTitle ?? null,
+    prompt: syncedChar.prompt ?? null,
+    item_created_at: toSafeIsoTimestamp(syncedChar.createdAt),
     is_deleted: isDeleted,
   };
 
   if (!visibility?.omitVisibility) {
-    const isSystem = Boolean(visibility?.isSystem ?? char.isSystem ?? false);
-    const isPublic = isSystem ? true : Boolean(visibility?.isPublic ?? char.isPublic ?? false);
+    const isSystem = Boolean(visibility?.isSystem ?? syncedChar.isSystem ?? false);
+    const isPublic = isSystem ? true : Boolean(visibility?.isPublic ?? syncedChar.isPublic ?? false);
     if (isSystem || isPublic || visibility?.isPublic !== undefined || visibility?.isSystem !== undefined) {
       base.is_system = isSystem;
       base.is_public = isDeleted ? false : isPublic;
@@ -308,7 +342,7 @@ function rowToCharacter(
   row: CharacterRow,
   profilesMap?: Record<string, PublicProfile>,
 ): Character {
-  return {
+  const baseChar: Character = {
     id: row.item_id,
     name: row.name,
     role: row.role ?? '',
@@ -331,6 +365,8 @@ function rowToCharacter(
     prompt: nullToUndefined(row.prompt),
     ...attachAuthorMeta(row, profilesMap),
   };
+  baseChar.socialLinks = getCharacterSocialLinks(baseChar);
+  return baseChar;
 }
 
 function noteToRowPayload(
@@ -339,22 +375,35 @@ function noteToRowPayload(
   isDeleted = false,
   visibility?: { isPublic?: boolean; isSystem?: boolean; omitVisibility?: boolean },
 ) {
+  const syncedNote =
+    Array.isArray(note.blocks) && note.blocks.length > 0
+      ? {
+          ...note,
+          ...buildNoteFieldsFromBlocks({
+            description: note.description ?? '',
+            blocks: note.blocks,
+            autoNumberSteps: Boolean(note.autoNumberSteps),
+            legacyCategory: note.categoryOffline,
+          }),
+        }
+      : note;
+
   const base: Record<string, unknown> = {
     user_id: userId,
-    item_id: note.id,
-    title: note.title,
-    command: note.command ?? '',
-    content: note.content ?? '',
-    character_id: note.characterId ?? '',
-    category_offline: note.categoryOffline ?? null,
-    icon: note.icon ?? null,
-    item_created_at: toSafeIsoTimestamp(note.createdAt),
+    item_id: syncedNote.id,
+    title: syncedNote.title,
+    command: syncedNote.command ?? '',
+    content: syncedNote.content ?? '',
+    character_id: syncedNote.characterId ?? '',
+    category_offline: syncedNote.categoryOffline ?? null,
+    icon: syncedNote.icon ?? null,
+    item_created_at: toSafeIsoTimestamp(syncedNote.createdAt),
     is_deleted: isDeleted,
   };
 
   if (!visibility?.omitVisibility) {
-    const isSystem = Boolean(visibility?.isSystem ?? note.isSystem ?? false);
-    const isPublic = isSystem ? true : Boolean(visibility?.isPublic ?? note.isPublic ?? false);
+    const isSystem = Boolean(visibility?.isSystem ?? syncedNote.isSystem ?? false);
+    const isPublic = isSystem ? true : Boolean(visibility?.isPublic ?? syncedNote.isPublic ?? false);
     if (isSystem || isPublic || visibility?.isPublic !== undefined || visibility?.isSystem !== undefined) {
       base.is_system = isSystem;
       base.is_public = isDeleted ? false : isPublic;
@@ -365,7 +414,7 @@ function noteToRowPayload(
 }
 
 function rowToNote(row: NoteRow, profilesMap?: Record<string, PublicProfile>): Note {
-  return {
+  const baseNote: Note = {
     id: row.item_id,
     title: row.title,
     command: row.command ?? '',
@@ -377,6 +426,15 @@ function rowToNote(row: NoteRow, profilesMap?: Record<string, PublicProfile>): N
     updatedAt: row.updated_at || row.item_created_at || row.created_at,
     ...attachAuthorMeta(row, profilesMap),
   };
+
+  const hydrated = getNoteDescriptionAndBlocks(baseNote);
+  if (baseNote.categoryOffline?.startsWith('__SEACLOVER_NOTE_V2__:')) {
+    baseNote.description = hydrated.description;
+    baseNote.blocks = hydrated.blocks;
+    baseNote.autoNumberSteps = hydrated.autoNumberSteps;
+  }
+
+  return baseNote;
 }
 
 function ideaToRowPayload(
@@ -425,6 +483,10 @@ function libraryPromptToRowPayload(
   isDeleted = false,
   visibility?: { isPublic?: boolean; isSystem?: boolean; omitVisibility?: boolean },
 ) {
+  const serializedSteps = Array.isArray(prompt.steps)
+    ? sanitizePromptBlocks(prompt.steps, prompt.autoNumberSteps)
+    : [];
+
   const base: Record<string, unknown> = {
     user_id: userId,
     item_id: prompt.id,
@@ -434,7 +496,7 @@ function libraryPromptToRowPayload(
     author: prompt.author ?? '',
     tags: Array.isArray(prompt.tags) ? prompt.tags : [],
     icon: prompt.icon ?? null,
-    steps: Array.isArray(prompt.steps) ? prompt.steps : [],
+    steps: serializedSteps,
     item_created_at: toSafeIsoTimestamp(prompt.createdAt),
     is_deleted: isDeleted,
   };
@@ -455,6 +517,7 @@ function rowToLibraryPrompt(
   row: LibraryPromptRow,
   profilesMap?: Record<string, PublicProfile>,
 ): LibraryPrompt {
+  const parsedSteps = parsePromptSteps(row.steps);
   return {
     id: row.item_id,
     title: row.title,
@@ -463,7 +526,8 @@ function rowToLibraryPrompt(
     author: row.author ?? '',
     tags: Array.isArray(row.tags) ? row.tags : [],
     icon: nullToUndefined(row.icon),
-    steps: parsePromptSteps(row.steps),
+    steps: parsedSteps,
+    autoNumberSteps: parsedSteps.some((s) => s.autoNumber === true),
     createdAt: row.item_created_at || row.created_at,
     ...attachAuthorMeta(row, profilesMap),
   };

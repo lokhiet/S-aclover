@@ -2,6 +2,7 @@ import type { AppState, Character, Idea, LibraryPrompt, Note } from '../types';
 import { initialCharacters, initialIdeas } from '../initialData';
 import { defaultLibraryPrompts } from '../promptsData';
 import { readRawLocalStorageState } from '../utils';
+import { getCharacterSocialLinks, getNoteDescriptionAndBlocks } from './contentBlocks';
 
 export const BUILTIN_CHARACTER_MAP = new Map<string, Character>(
   initialCharacters.map((c) => [c.id, c]),
@@ -107,17 +108,24 @@ function normStr(val?: string | null): string {
 }
 
 export function isSameCharacterContent(a: Character, b: Character): boolean {
+  const linksA = getCharacterSocialLinks(a).map((l) => ({
+    platform: l.platform,
+    url: l.url,
+    label: l.label || '',
+  }));
+  const linksB = getCharacterSocialLinks(b).map((l) => ({
+    platform: l.platform,
+    url: l.url,
+    label: l.label || '',
+  }));
+
   return (
     normStr(a.name) === normStr(b.name) &&
     normStr(a.role) === normStr(b.role) &&
     normStr(a.avatar) === normStr(b.avatar) &&
     normStr(a.description) === normStr(b.description) &&
     normStr(a.author) === normStr(b.author) &&
-    stableStringify(a.fb ?? null) === stableStringify(b.fb ?? null) &&
-    stableStringify(a.discord ?? null) === stableStringify(b.discord ?? null) &&
-    stableStringify(a.discord2 ?? null) === stableStringify(b.discord2 ?? null) &&
-    stableStringify(a.web ?? null) === stableStringify(b.web ?? null) &&
-    stableStringify(a.other ?? null) === stableStringify(b.other ?? null) &&
+    stableStringify(linksA) === stableStringify(linksB) &&
     normStr(a.ggai) === normStr(b.ggai) &&
     normStr(a.backstoryUser) === normStr(b.backstoryUser) &&
     normStr(a.backstoryChar) === normStr(b.backstoryChar) &&
@@ -130,13 +138,16 @@ export function isSameCharacterContent(a: Character, b: Character): boolean {
 }
 
 export function isSameNoteContent(a: Note, b: Note): boolean {
+  const blocksA = getNoteDescriptionAndBlocks(a);
+  const blocksB = getNoteDescriptionAndBlocks(b);
   return (
     normStr(a.title) === normStr(b.title) &&
     normStr(a.command) === normStr(b.command) &&
     normStr(a.content) === normStr(b.content) &&
     normStr(a.characterId) === normStr(b.characterId) &&
     normStr(a.categoryOffline) === normStr(b.categoryOffline) &&
-    normStr(a.icon) === normStr(b.icon)
+    normStr(a.icon) === normStr(b.icon) &&
+    stableStringify(blocksA) === stableStringify(blocksB)
   );
 }
 

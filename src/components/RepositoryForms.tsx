@@ -1,6 +1,36 @@
-import React, { useState, useEffect } from 'react';
-import { Character, Note, Idea, LibraryPrompt, PromptStep } from '../types';
-import { Check, X, Sparkles, Loader2, Lock, Globe, ShieldCheck, Plus, Trash2 } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Character,
+  CharacterSocialLink,
+  Note,
+  Idea,
+  LibraryPrompt,
+  PromptBlock,
+} from '../types';
+import {
+  Check,
+  X,
+  Sparkles,
+  Loader2,
+  Lock,
+  Globe,
+  ShieldCheck,
+} from 'lucide-react';
+import { SocialLinksEditor } from './forms/SocialLinksEditor';
+import { PromptBlockEditor } from './forms/PromptBlockEditor';
+import {
+  applySocialLinksToCharacter,
+  blocksToLibraryPromptSteps,
+  buildNoteFieldsFromBlocks,
+  extractPromptStoragePaths,
+  getCharacterSocialLinks,
+  getLibraryPromptBlocks,
+  getNoteDescriptionAndBlocks,
+  isSafeExternalHttpUrl,
+  isSafeImageUrl,
+  sanitizePromptBlocks,
+} from '../utils/contentBlocks';
+import { deletePromptIllustrationPaths } from '../services/mediaService';
 
 type VisibilityMode = 'private' | 'public' | 'system';
 
@@ -170,24 +200,9 @@ export function CharacterForm({
   const [description, setDescription] = useState(initialData?.description || '');
   
   const [author, setAuthor] = useState(initialData?.author || '');
-  const [fbName, setFbName] = useState(() => {
-    if (initialData?.fb && typeof initialData.fb === 'object') return initialData.fb.name;
-    return '';
-  });
-  const [fbUrl, setFbUrl] = useState(() => {
-    if (initialData?.fb && typeof initialData.fb === 'object') return initialData.fb.url;
-    if (typeof initialData?.fb === 'string') return initialData.fb;
-    return '';
-  });
-  const [discordName, setDiscordName] = useState(() => {
-    if (initialData?.discord && typeof initialData.discord === 'object') return initialData.discord.name;
-    return '';
-  });
-  const [discordUrl, setDiscordUrl] = useState(() => {
-    if (initialData?.discord && typeof initialData.discord === 'object') return initialData.discord.url;
-    if (typeof initialData?.discord === 'string') return initialData.discord;
-    return '';
-  });
+  const [socialLinks, setSocialLinks] = useState<CharacterSocialLink[]>(() =>
+    getCharacterSocialLinks(initialData),
+  );
   const [ggai, setGgai] = useState(initialData?.ggai || '');
   const [backstoryUser, setBackstoryUser] = useState(initialData?.backstoryUser || '');
   const [backstoryChar, setBackstoryChar] = useState(initialData?.backstoryChar || '');
@@ -209,6 +224,13 @@ export function CharacterForm({
     if (isSaving) return;
     if (!name.trim()) return setError('Vui lòng nhập tên nhân vật');
 
+    const invalidLink = socialLinks.find(
+      (link) => link.url.trim().length > 0 && !isSafeExternalHttpUrl(link.url),
+    );
+    if (invalidLink) {
+      return setError('Liên kết mạng xã hội cần bắt đầu bằng https:// hoặc http://');
+    }
+
     let finalRole = role.trim();
     if (!finalRole) {
       finalRole = 'Độc lập / Tự do thoại / Nhập vai';
@@ -222,15 +244,13 @@ export function CharacterForm({
     const effectiveVisibility: VisibilityMode =
       visibility === 'system' && !isAdmin ? 'private' : visibility;
 
-    onSave({
+    const payload = applySocialLinksToCharacter(socialLinks, {
       id: initialData?.id,
       name: name.trim(),
       role: finalRole,
       avatar,
       description: finalDescription,
       author: author.trim() || undefined,
-      fb: fbUrl.trim() ? { name: fbName.trim() || 'Facebook', url: fbUrl.trim() } : undefined,
-      discord: discordUrl.trim() ? { name: discordName.trim() || 'Discord', url: discordUrl.trim() } : undefined,
       ggai: ggai.trim() || undefined,
       backstoryUser: backstoryUser.trim() || undefined,
       backstoryChar: backstoryChar.trim() || undefined,
@@ -244,6 +264,9 @@ export function CharacterForm({
         ? effectiveVisibility === 'public' || effectiveVisibility === 'system'
         : undefined,
     });
+
+    setError('');
+    onSave(payload);
   };
 
   return (
@@ -318,51 +341,7 @@ export function CharacterForm({
           </div>
         </div>
 
-        <div className="retro-callout-mint p-3.5 space-y-3">
-          <h4 className="text-[11px] font-bold text-[#2B5A47] dark:text-[#A3BDA8] uppercase tracking-wider">
-            Mạng Xã Hội Liên Kết
-          </h4>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-            <div className="space-y-1.5">
-              <label className="block text-[11px] font-semibold text-[#4E6E60] dark:text-[#B8BDB5]">Facebook (Tên Hiển Thị)</label>
-              <input
-                type="text"
-                value={fbName}
-                onChange={(e) => setFbName(e.target.value)}
-                placeholder="Góc Tam Quan Lệch Của Tinh Âm"
-                className="retro-input w-full px-3 py-1.5 text-xs"
-              />
-              <label className="block text-[11px] font-semibold text-[#4E6E60] dark:text-[#B8BDB5] pt-1">Facebook (Link URL)</label>
-              <input
-                type="text"
-                value={fbUrl}
-                onChange={(e) => setFbUrl(e.target.value)}
-                placeholder="https://facebook.com/..."
-                className="retro-input w-full px-3 py-1.5 text-xs font-mono"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="block text-[11px] font-semibold text-[#4E6E60] dark:text-[#B8BDB5]">Discord (Tên Hiển Thị)</label>
-              <input
-                type="text"
-                value={discordName}
-                onChange={(e) => setDiscordName(e.target.value)}
-                placeholder="🌸Vườn Nhỏ Dưới Tán Anh Đào🌸"
-                className="retro-input w-full px-3 py-1.5 text-xs"
-              />
-              <label className="block text-[11px] font-semibold text-[#4E6E60] dark:text-[#B8BDB5] pt-1">Discord (Link URL)</label>
-              <input
-                type="text"
-                value={discordUrl}
-                onChange={(e) => setDiscordUrl(e.target.value)}
-                placeholder="https://discord.com/..."
-                className="retro-input w-full px-3 py-1.5 text-xs font-mono"
-              />
-            </div>
-          </div>
-        </div>
+        <SocialLinksEditor links={socialLinks} onChange={setSocialLinks} />
 
         <div>
           <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
@@ -541,16 +520,21 @@ export function CharacterForm({
   );
 }
 
-/* ----------------- NOTE FORM (KHO LỆNH) ----------------- */
+/* ----------------- NOTE FORM (KHO LỆNH — SOẠN THẢO KHỐI LINH HOẠT) ----------------- */
 
 interface NoteFormProps {
   initialData?: Note;
   characters: Character[];
-  onSave: (data: Omit<Note, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) => void | Promise<void>;
+  onSave: (
+    data: Omit<Note, 'id' | 'createdAt' | 'updatedAt'> & { id?: string; draftId?: string },
+  ) => void | Promise<void>;
   onCancel: () => void;
   isSaving?: boolean;
   canPublish?: boolean;
   isAdmin?: boolean;
+  isAuthenticated?: boolean;
+  userId?: string;
+  onToast?: (message: string, type?: 'success' | 'info' | 'error') => void;
 }
 
 export function NoteForm({
@@ -561,10 +545,18 @@ export function NoteForm({
   isSaving = false,
   canPublish = false,
   isAdmin = false,
+  isAuthenticated = false,
+  userId,
+  onToast,
 }: NoteFormProps) {
+  const [draftId] = useState(() => initialData?.id || `note-${Date.now()}`);
+  const initialParsed = getNoteDescriptionAndBlocks(initialData);
   const [title, setTitle] = useState(initialData?.title || '');
-  const [command, setCommand] = useState(initialData?.command || '');
-  const [content, setContent] = useState(initialData?.content || '');
+  const [description, setDescription] = useState(initialParsed.description);
+  const [blocks, setBlocks] = useState<PromptBlock[]>(() => initialParsed.blocks);
+  const [autoNumberSteps, setAutoNumberSteps] = useState<boolean>(
+    initialParsed.autoNumberSteps,
+  );
   const [characterId, setCharacterId] = useState(initialData?.characterId || '');
   const [icon, setIcon] = useState(initialData?.icon || '☘️');
   const [noteEmojiCategory, setNoteEmojiCategory] = useState(NOTE_EMOJI_GROUPS[0].id);
@@ -575,27 +567,60 @@ export function NoteForm({
   });
   const [error, setError] = useState('');
 
+  const initialImagePathsRef = useRef<string[]>(
+    extractPromptStoragePaths(initialParsed.blocks),
+  );
+  const sessionUploadedPathsRef = useRef<string[]>([]);
+
   useEffect(() => {
     if (!initialData && !characterId && characters.length > 0) {
       setCharacterId(characters[0].id);
     }
   }, [characters, characterId, initialData]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleCancelWithCleanup = () => {
+    if (userId && sessionUploadedPathsRef.current.length > 0) {
+      void deletePromptIllustrationPaths(userId, sessionUploadedPathsRef.current);
+    }
+    onCancel();
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSaving) return;
-    if (!title.trim()) return setError('Vui lòng nhập tiêu đề ghi chú');
-    if (!command.trim()) return setError('Vui lòng điền nội dung câu lệnh (Prompt)');
-    if (!content.trim()) return setError('Vui lòng cung cấp nội dung ghi chú');
+    if (!title.trim()) return setError('Vui lòng nhập tiêu đề bài đăng');
+
+    const invalidImageBlock = blocks.find(
+      (b) =>
+        (b.type || 'prompt') === 'image' &&
+        Boolean(b.imageUrl?.trim()) &&
+        !isSafeImageUrl(b.imageUrl),
+    );
+    if (invalidImageBlock) {
+      return setError('URL hình ảnh minh họa phải bắt đầu bằng https://');
+    }
+
+    const cleanBlocks = sanitizePromptBlocks(blocks, autoNumberSteps);
+    if (cleanBlocks.length === 0) {
+      return setError('Vui lòng thêm ít nhất 1 khối nội dung có dữ liệu trước khi lưu');
+    }
 
     const effectiveVisibility: VisibilityMode =
       visibility === 'system' && !isAdmin ? 'private' : visibility;
 
-    onSave({
+    const noteFields = buildNoteFieldsFromBlocks({
+      description,
+      blocks: cleanBlocks,
+      autoNumberSteps,
+      legacyCategory: initialParsed.legacyCategory,
+    });
+
+    setError('');
+    await onSave({
       id: initialData?.id,
+      draftId,
       title: title.trim(),
-      command: command.trim(),
-      content: content.trim(),
+      ...noteFields,
       characterId: characterId || '',
       icon,
       isSystem: canPublish ? effectiveVisibility === 'system' : undefined,
@@ -603,6 +628,17 @@ export function NoteForm({
         ? effectiveVisibility === 'public' || effectiveVisibility === 'system'
         : undefined,
     });
+
+    if (userId) {
+      const keptPaths = new Set(extractPromptStoragePaths(cleanBlocks));
+      const stalePaths = [
+        ...initialImagePathsRef.current,
+        ...sessionUploadedPathsRef.current,
+      ].filter((p) => !keptPaths.has(p));
+      if (stalePaths.length > 0) {
+        void deletePromptIllustrationPaths(userId, stalePaths);
+      }
+    }
   };
 
   return (
@@ -610,11 +646,11 @@ export function NoteForm({
       <div className="retro-window-header px-4 py-3 flex items-center justify-between gap-2">
         <h3 className="text-sm font-bold text-[#224C3B] dark:text-[#E4E1D8] flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-[#39755D] dark:text-[#A3BDA8]" />
-          {initialData ? 'Chỉnh Sửa Ghi Chú / Prompt' : 'Tạo Prompt / Lệnh Mới'}
+          {initialData ? 'Chỉnh Sửa Bài Đăng Kho Lệnh' : 'Tạo Bài Đăng Kho Lệnh Mới'}
         </h3>
         <button
           type="button"
-          onClick={onCancel}
+          onClick={handleCancelWithCleanup}
           className="retro-btn p-1 text-[#39755D] dark:text-[#A3BDA8] cursor-pointer"
           aria-label="Đóng"
         >
@@ -629,37 +665,50 @@ export function NoteForm({
           </p>
         )}
 
-        <div>
-          <label className={LABEL_CLASS}>Tiêu đề Ghi chú *</label>
-          <input
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Ví dụ: Kịch bản video Tiktok, Sửa lỗi rò rỉ bộ nhớ..."
-            className={INPUT_CLASS}
-          />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className={LABEL_CLASS}>Tên / Tiêu Đề Bài Đăng *</label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Ví dụ: Bộ lệnh nhập vai tổng tài, Prompt sửa lỗi HUD..."
+              className={INPUT_CLASS}
+            />
+          </div>
+
+          <div>
+            <label className={LABEL_CLASS}>Nhân Vật Liên Kết (Tùy chọn)</label>
+            <select
+              value={characterId}
+              onChange={(e) => setCharacterId(e.target.value)}
+              className={INPUT_CLASS}
+            >
+              <option value="">-- Không gắn nhân vật cụ thể (Dùng chung) --</option>
+              {characters.map((char) => (
+                <option key={char.cloudKey || char.id} value={char.id}>
+                  {char.avatar} {char.name} ({char.role})
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div>
-          <label className={LABEL_CLASS}>Nhân Vật Liên Kết (Tùy chọn)</label>
-          <select
-            value={characterId}
-            onChange={(e) => setCharacterId(e.target.value)}
-            className={INPUT_CLASS}
-          >
-            <option value="">-- Không gắn nhân vật cụ thể (Dùng chung) --</option>
-            {characters.map((char) => (
-              <option key={char.cloudKey || char.id} value={char.id}>
-                {char.avatar} {char.name} ({char.role})
-              </option>
-            ))}
-          </select>
+          <label className={LABEL_CLASS}>Mô Tả Tổng Quan (Không bắt buộc)</label>
+          <textarea
+            rows={2}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Tóm tắt ngắn gọn công dụng hoặc bối cảnh áp dụng cho bài đăng này..."
+            className="retro-input w-full px-3 py-2 text-xs sm:text-sm leading-relaxed resize-y"
+          />
         </div>
 
         <div>
           <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
             <label className="block text-xs font-bold text-[#2B5A47] dark:text-[#A3BDA8]">
-              Icon / Emoji Đại Diện Câu Lệnh
+              Icon / Emoji Đại Diện
             </label>
             <div className="flex items-center gap-2">
               <span className="text-[11px] text-[#587568] dark:text-[#B8BDB5]">Đang chọn:</span>
@@ -714,25 +763,25 @@ export function NoteForm({
           </div>
         </div>
 
-        <div>
-          <label className={LABEL_CLASS}>Prompt Cần Nhập (Lệnh) *</label>
-          <textarea
-            rows={4}
-            value={command}
-            onChange={(e) => setCommand(e.target.value)}
-            placeholder="Đây là phần câu lệnh chính để copy dán trực tiếp vào AI..."
-            className="retro-input w-full px-3 py-2 font-mono text-xs leading-relaxed resize-y"
-          />
-        </div>
-
-        <div>
-          <label className={LABEL_CLASS}>Nội dung lệnh / Chi tiết kèm dữ liệu mẫu *</label>
-          <textarea
-            rows={5}
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            placeholder="Nêu cụ thể dữ liệu mẫu, thông tin, kịch bản gốc hoặc các quy tắc cụ thể..."
-            className="retro-input w-full px-3 py-2 text-xs sm:text-sm leading-relaxed resize-y"
+        <div className="space-y-2">
+          <label className="block text-xs font-bold text-[#2B5A47] dark:text-[#A3BDA8]">
+            Nội Dung Theo Khối Linh Hoạt *
+          </label>
+          <PromptBlockEditor
+            postTitle={title}
+            description={description}
+            blocks={blocks}
+            autoNumberSteps={autoNumberSteps}
+            onChangeBlocks={setBlocks}
+            onChangeAutoNumberSteps={setAutoNumberSteps}
+            onTrackSessionUpload={(path) => {
+              sessionUploadedPathsRef.current.push(path);
+            }}
+            isAuthenticated={isAuthenticated}
+            userId={userId}
+            targetType="note"
+            draftItemId={draftId}
+            onToast={onToast}
           />
         </div>
 
@@ -749,7 +798,7 @@ export function NoteForm({
           <button
             type="button"
             disabled={isSaving}
-            onClick={onCancel}
+            onClick={handleCancelWithCleanup}
             className="retro-btn px-4 py-1.5 text-xs font-semibold cursor-pointer disabled:opacity-50"
           >
             Hủy bỏ
@@ -895,14 +944,19 @@ export function IdeaForm({
   );
 }
 
-/* ----------------- LIBRARY PROMPT FORM (ADMIN / KHO LỆNH THƯ VIỆN) ----------------- */
+/* ----------------- LIBRARY PROMPT FORM (ADMIN / KHO LỆNH THƯ VIỆN — KHỐI LINH HOẠT) ----------------- */
 
 interface LibraryPromptFormProps {
   initialData?: LibraryPrompt;
-  onSave: (data: Omit<LibraryPrompt, 'id' | 'createdAt'> & { id?: string }) => void | Promise<void>;
+  onSave: (
+    data: Omit<LibraryPrompt, 'id' | 'createdAt'> & { id?: string; draftId?: string },
+  ) => void | Promise<void>;
   onCancel: () => void;
   isSaving?: boolean;
   isAdmin?: boolean;
+  isAuthenticated?: boolean;
+  userId?: string;
+  onToast?: (message: string, type?: 'success' | 'info' | 'error') => void;
 }
 
 export function LibraryPromptForm({
@@ -911,17 +965,22 @@ export function LibraryPromptForm({
   onCancel,
   isSaving = false,
   isAdmin = false,
+  isAuthenticated = false,
+  userId,
+  onToast,
 }: LibraryPromptFormProps) {
+  const [draftId] = useState(() => initialData?.id || `sys-lib-${Date.now()}`);
+  const initialParsed = getLibraryPromptBlocks(initialData);
+
   const [title, setTitle] = useState(initialData?.title || '');
   const [icon, setIcon] = useState(initialData?.icon || '📚');
   const [author, setAuthor] = useState(initialData?.author || 'Admin SéaClover');
   const [description, setDescription] = useState(initialData?.description || '');
   const [howToUse, setHowToUse] = useState(initialData?.howToUse || '');
   const [tagsInput, setTagsInput] = useState((initialData?.tags || []).join(', '));
-  const [steps, setSteps] = useState<PromptStep[]>(() =>
-    initialData?.steps && initialData.steps.length > 0
-      ? initialData.steps.map((s) => ({ ...s }))
-      : [{ label: 'Nội dung câu lệnh', content: '' }],
+  const [blocks, setBlocks] = useState<PromptBlock[]>(() => initialParsed.blocks);
+  const [autoNumberSteps, setAutoNumberSteps] = useState<boolean>(
+    initialParsed.autoNumberSteps,
   );
   const [visibility, setVisibility] = useState<VisibilityMode>(() => {
     if (initialData?.isSystem) return 'system';
@@ -930,32 +989,36 @@ export function LibraryPromptForm({
   });
   const [error, setError] = useState('');
 
-  const handleStepChange = (index: number, field: keyof PromptStep, value: string) => {
-    setSteps((prev) => prev.map((step, i) => (i === index ? { ...step, [field]: value } : step)));
+  const initialImagePathsRef = useRef<string[]>(
+    extractPromptStoragePaths(initialParsed.blocks),
+  );
+  const sessionUploadedPathsRef = useRef<string[]>([]);
+
+  const handleCancelWithCleanup = () => {
+    if (userId && sessionUploadedPathsRef.current.length > 0) {
+      void deletePromptIllustrationPaths(userId, sessionUploadedPathsRef.current);
+    }
+    onCancel();
   };
 
-  const handleAddStep = () => {
-    setSteps((prev) => [...prev, { label: `Phần ${prev.length + 1}`, content: '' }]);
-  };
-
-  const handleRemoveStep = (index: number) => {
-    setSteps((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev));
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSaving) return;
-    if (!title.trim()) return setError('Vui lòng nhập tiêu đề câu lệnh thư viện');
-    const cleanSteps = steps
-      .map((s, idx) => ({
-        label: s.label.trim() || `Phần ${idx + 1}`,
-        content: s.content.trim(),
-        ...(s.note?.trim() ? { note: s.note.trim() } : {}),
-      }))
-      .filter((s) => s.content.length > 0);
+    if (!title.trim()) return setError('Vui lòng nhập tiêu đề bài đăng Kho Lệnh');
 
+    const invalidImageBlock = blocks.find(
+      (b) =>
+        (b.type || 'prompt') === 'image' &&
+        Boolean(b.imageUrl?.trim()) &&
+        !isSafeImageUrl(b.imageUrl),
+    );
+    if (invalidImageBlock) {
+      return setError('URL hình ảnh minh họa phải bắt đầu bằng https://');
+    }
+
+    const cleanSteps = blocksToLibraryPromptSteps(blocks, autoNumberSteps);
     if (cleanSteps.length === 0) {
-      return setError('Vui lòng nhập ít nhất một khối câu lệnh có nội dung');
+      return setError('Vui lòng thêm ít nhất 1 khối nội dung có dữ liệu trước khi lưu');
     }
 
     const tags = tagsInput
@@ -966,18 +1029,32 @@ export function LibraryPromptForm({
     const effectiveVisibility: VisibilityMode =
       visibility === 'system' && !isAdmin ? 'private' : visibility;
 
-    onSave({
+    setError('');
+    await onSave({
       id: initialData?.id,
+      draftId,
       title: title.trim(),
       icon: icon.trim() || '📚',
       author: author.trim() || 'Admin SéaClover',
-      description: description.trim() || 'Câu lệnh mẫu trong Kho Lệnh SéaClover.',
-      howToUse: howToUse.trim() || 'Sao chép khối câu lệnh và dán vào cuộc trò chuyện AI.',
+      description: description.trim(),
+      howToUse: howToUse.trim(),
       tags,
       steps: cleanSteps,
+      autoNumberSteps,
       isSystem: effectiveVisibility === 'system',
       isPublic: effectiveVisibility === 'public' || effectiveVisibility === 'system',
     });
+
+    if (userId) {
+      const keptPaths = new Set(extractPromptStoragePaths(cleanSteps));
+      const stalePaths = [
+        ...initialImagePathsRef.current,
+        ...sessionUploadedPathsRef.current,
+      ].filter((p) => !keptPaths.has(p));
+      if (stalePaths.length > 0) {
+        void deletePromptIllustrationPaths(userId, stalePaths);
+      }
+    }
   };
 
   return (
@@ -985,11 +1062,11 @@ export function LibraryPromptForm({
       <div className="retro-window-header px-4 py-3 flex items-center justify-between gap-2">
         <h3 className="text-sm font-bold text-[#224C3B] dark:text-[#E4E1D8] flex items-center gap-2">
           <ShieldCheck className="w-4 h-4 text-[#39755D] dark:text-[#A3BDA8]" />
-          {initialData ? 'Chỉnh Sửa Câu Lệnh Hệ Thống (Kho Lệnh)' : 'Đăng Câu Lệnh Hệ Thống (Kho Lệnh)'}
+          {initialData ? 'Chỉnh Sửa Bài Đăng Kho Lệnh' : 'Đăng Bài Mới Vào Kho Lệnh'}
         </h3>
         <button
           type="button"
-          onClick={onCancel}
+          onClick={handleCancelWithCleanup}
           className="retro-btn p-1 text-[#39755D] dark:text-[#A3BDA8] cursor-pointer"
           aria-label="Đóng"
         >
@@ -1006,12 +1083,12 @@ export function LibraryPromptForm({
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="md:col-span-2">
-            <label className={LABEL_CLASS}>Tiêu Đề Câu Lệnh *</label>
+            <label className={LABEL_CLASS}>Tên / Tiêu Đề Bài Đăng *</label>
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="Ví dụ: Lệnh Thúc Đẩy Cốt Truyện, Lệnh HUD..."
+              placeholder="Ví dụ: Lệnh Thúc Đẩy Cốt Truyện, Bộ Lệnh HUD..."
               className={INPUT_CLASS}
             />
           </div>
@@ -1051,72 +1128,50 @@ export function LibraryPromptForm({
         </div>
 
         <div>
-          <label className={LABEL_CLASS}>Thông Tin Công Cụ Lệnh (Mô tả)</label>
+          <label className={LABEL_CLASS}>Mô Tả Tổng Quan (Không bắt buộc)</label>
           <textarea
             rows={2}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Mô tả ngắn gọn công dụng của bộ câu lệnh này..."
+            placeholder="Mô tả ngắn gọn công dụng hoặc mục đích sử dụng của bài đăng..."
             className="retro-input w-full px-3 py-2 text-xs sm:text-sm leading-relaxed resize-y"
           />
         </div>
 
-        <div>
-          <label className={LABEL_CLASS}>Hướng Dẫn Sử Dụng (Cách dùng)</label>
-          <textarea
-            rows={2}
-            value={howToUse}
-            onChange={(e) => setHowToUse(e.target.value)}
-            placeholder="Hướng dẫn người dùng cách copy và dán câu lệnh vào AI..."
-            className="retro-input w-full px-3 py-2 text-xs sm:text-sm leading-relaxed resize-y"
-          />
-        </div>
-
-        <div className="space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <label className="text-xs font-bold text-[#2B5A47] dark:text-[#A3BDA8]">
-              Các Khối Câu Lệnh ({steps.length}) *
-            </label>
-            <button
-              type="button"
-              onClick={handleAddStep}
-              className="retro-btn px-2.5 py-1 text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Thêm khối lệnh
-            </button>
+        {initialData?.howToUse && (
+          <div>
+            <label className={LABEL_CLASS}>Ghi Chú Hướng Dẫn Tổng Quát (Tùy chọn)</label>
+            <textarea
+              rows={2}
+              value={howToUse}
+              onChange={(e) => setHowToUse(e.target.value)}
+              placeholder="Có thể để trống nếu đã dùng các khối Hướng dẫn bên dưới..."
+              className="retro-input w-full px-3 py-2 text-xs sm:text-sm leading-relaxed resize-y"
+            />
           </div>
+        )}
 
-          {steps.map((step, idx) => (
-            <div key={idx} className="retro-callout-mint p-3 space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <input
-                  type="text"
-                  value={step.label}
-                  onChange={(e) => handleStepChange(idx, 'label', e.target.value)}
-                  placeholder={`Tên khối lệnh ${idx + 1}`}
-                  className="retro-input flex-1 px-2.5 py-1 text-xs font-semibold"
-                />
-                {steps.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveStep(idx)}
-                    className="retro-btn-danger p-1.5 cursor-pointer"
-                    title="Xóa khối này"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-              <textarea
-                rows={4}
-                value={step.content}
-                onChange={(e) => handleStepChange(idx, 'content', e.target.value)}
-                placeholder="Nhập nguyên văn nội dung câu lệnh cần sao chép..."
-                className="retro-input w-full px-3 py-2 font-mono text-xs leading-relaxed resize-y"
-              />
-            </div>
-          ))}
+        <div className="space-y-2">
+          <label className="block text-xs font-bold text-[#2B5A47] dark:text-[#A3BDA8]">
+            Nội Dung Theo Khối Linh Hoạt *
+          </label>
+          <PromptBlockEditor
+            postTitle={title}
+            description={description}
+            howToUse={howToUse}
+            blocks={blocks}
+            autoNumberSteps={autoNumberSteps}
+            onChangeBlocks={setBlocks}
+            onChangeAutoNumberSteps={setAutoNumberSteps}
+            onTrackSessionUpload={(path) => {
+              sessionUploadedPathsRef.current.push(path);
+            }}
+            isAuthenticated={isAuthenticated}
+            userId={userId}
+            targetType="library_prompt"
+            draftItemId={draftId}
+            onToast={onToast}
+          />
         </div>
 
         <VisibilitySelector
@@ -1130,7 +1185,7 @@ export function LibraryPromptForm({
           <button
             type="button"
             disabled={isSaving}
-            onClick={onCancel}
+            onClick={handleCancelWithCleanup}
             className="retro-btn px-4 py-1.5 text-xs font-semibold cursor-pointer disabled:opacity-50"
           >
             Hủy bỏ

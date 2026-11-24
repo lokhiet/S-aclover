@@ -17,8 +17,6 @@ import {
   Info,
   BookOpen,
   Tag,
-  Eye,
-  EyeOff,
   User,
   Utensils,
   Heart,
@@ -51,6 +49,17 @@ import {
 import { ContentInteractionBar } from './components/community/ContentInteractionBar';
 import { CharacterCommentsSection } from './components/community/CharacterCommentsSection';
 import { PromptRatingSection } from './components/community/PromptRatingSection';
+import { SocialPlatformIcon } from './components/common/SocialPlatformIcon';
+import { PromptBlocksView } from './components/prompts/PromptBlocksView';
+import {
+  extractPromptStoragePaths,
+  getCharacterSocialLinks,
+  getLibraryPromptBlocks,
+  getNoteDescriptionAndBlocks,
+  getSocialPlatformLabel,
+  isSafeExternalHttpUrl,
+} from './utils/contentBlocks';
+import { deletePromptIllustrationPaths } from './services/mediaService';
 import {
   PixelCloverIcon,
   PixelCharacterIcon,
@@ -565,10 +574,6 @@ export default function App() {
   const [selectedLibraryPromptId, setSelectedLibraryPromptId] = useState<string | null>(null);
   const [selectedAuthorId, setSelectedAuthorId] = useState<string | null>(null);
 
-  // Track the visibility of prompt content steps for the active library prompt
-  // E.g. { 0: true, 1: false } for expanded/collapsed states of steps of the currently selected prompt.
-  const [visibleSteps, setVisibleSteps] = useState<Record<number, boolean>>({});
-
   // Filter tag for the prompt library
   const [selectedLibTag, setSelectedLibTag] = useState<string | null>(null);
 
@@ -983,8 +988,6 @@ export default function App() {
     setCharacterFilterType(null);
     setIsFilterModalOpen(false);
     setShowDetailOnMobile(false); // Reset to list view on tab switches for mobile
-    // Auto collapse visible steps when leaving of switching tabs
-    setVisibleSteps({});
   };
 
   // Go back to Home/Welcome page
@@ -999,7 +1002,6 @@ export default function App() {
     setIsCreatingLibraryPrompt(false);
     setIsEditingLibraryPrompt(false);
     setShowDetailOnMobile(true);
-    setVisibleSteps({});
     setSearchQuery('');
   };
 
@@ -1364,7 +1366,9 @@ export default function App() {
   };
 
   // Notes/Prompts
-  const handleSaveNote = async (data: Omit<Note, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) => {
+  const handleSaveNote = async (
+    data: Omit<Note, 'id' | 'createdAt' | 'updatedAt'> & { id?: string; draftId?: string },
+  ) => {
     if (isAuthenticated && userId) {
       if (isSavingItem) return;
       setIsSavingItem(true);
@@ -1386,6 +1390,10 @@ export default function App() {
             title: data.title,
             command: data.command,
             content: data.content,
+            description: data.description,
+            blocks: data.blocks,
+            autoNumberSteps: data.autoNumberSteps,
+            categoryOffline: data.categoryOffline,
             characterId: data.characterId,
             icon: data.icon,
             isSystem: nextIsSystem,
@@ -1422,15 +1430,19 @@ export default function App() {
           }
           setIsCreating(false);
           setIsEditing(false);
-          showToast('Đã sửa và đồng bộ prompt/ghi chú lên tài khoản! ☘️');
+          showToast('Đã sửa và đồng bộ bài đăng Kho Lệnh lên tài khoản! ☘️');
         } else {
           const nextIsSystem = Boolean(isAdmin && data.isSystem);
           const nextIsPublic = nextIsSystem ? true : Boolean(data.isPublic);
           const newNote: Note = {
-            id: `note-${Date.now()}`,
+            id: data.draftId || `note-${Date.now()}`,
             title: data.title,
             command: data.command,
             content: data.content,
+            description: data.description,
+            blocks: data.blocks,
+            autoNumberSteps: data.autoNumberSteps,
+            categoryOffline: data.categoryOffline,
             characterId: data.characterId,
             icon: data.icon || '☘️',
             isSystem: nextIsSystem,
@@ -1457,7 +1469,7 @@ export default function App() {
           }
           setIsCreating(false);
           setIsEditing(false);
-          showToast('Đã thêm và đồng bộ ghi chú/prompt lên tài khoản! ☘️');
+          showToast('Đã thêm và đồng bộ bài đăng Kho Lệnh lên tài khoản! ☘️');
         }
       } finally {
         setIsSavingItem(false);
@@ -1473,6 +1485,10 @@ export default function App() {
               title: data.title,
               command: data.command,
               content: data.content,
+              description: data.description,
+              blocks: data.blocks,
+              autoNumberSteps: data.autoNumberSteps,
+              categoryOffline: data.categoryOffline,
               characterId: data.characterId,
               icon: data.icon,
               updatedAt: new Date().toISOString(),
@@ -1480,13 +1496,17 @@ export default function App() {
           : n,
       );
       syncState(nextList, ideas, characters);
-      showToast('Đã sửa prompt/ghi chú thành công!');
+      showToast('Đã sửa bài đăng Kho Lệnh thành công!');
     } else {
       const newNote: Note = {
-        id: `note-${Date.now()}`,
+        id: data.draftId || `note-${Date.now()}`,
         title: data.title,
         command: data.command,
         content: data.content,
+        description: data.description,
+        blocks: data.blocks,
+        autoNumberSteps: data.autoNumberSteps,
+        categoryOffline: data.categoryOffline,
         characterId: data.characterId,
         icon: data.icon || '☘️',
         createdAt: new Date().toISOString(),
@@ -1495,7 +1515,7 @@ export default function App() {
       const nextList = [...notes, newNote];
       syncState(nextList, ideas, characters);
       setSelectedNoteId(getItemKey(newNote));
-      showToast('Đã thêm ghi chú/prompt thành công! ☘️');
+      showToast('Đã thêm bài đăng Kho Lệnh thành công! ☘️');
     }
     setIsCreating(false);
     setIsEditing(false);
@@ -1506,7 +1526,7 @@ export default function App() {
       showToast('Bạn không có quyền xóa ghi chú này.', 'error');
       return;
     }
-    if (!confirm('Bạn có đồng ý xóa vĩnh viễn ghi chú lệnh này?')) {
+    if (!confirm('Bạn có đồng ý xóa vĩnh viễn bài đăng Kho Lệnh này?')) {
       return;
     }
 
@@ -1520,6 +1540,11 @@ export default function App() {
           showToast(res.error?.message || 'Không thể xóa ghi chú trên máy chủ.', 'error');
           return;
         }
+        const { blocks } = getNoteDescriptionAndBlocks(target);
+        const imagePaths = extractPromptStoragePaths(blocks);
+        if (targetOwnerId === userId && imagePaths.length > 0) {
+          void deletePromptIllustrationPaths(userId, imagePaths);
+        }
         if (targetOwnerId === userId) {
           setNotes((prev) => prev.filter((n) => n.id !== target.id));
         }
@@ -1528,7 +1553,7 @@ export default function App() {
         }
         setSelectedNoteId(null);
         setShowDetailOnMobile(false);
-        showToast('Đã xóa ghi chú và đồng bộ lên máy chủ.', 'info');
+        showToast('Đã xóa bài đăng và đồng bộ lên máy chủ.', 'info');
       } finally {
         setIsSavingItem(false);
       }
@@ -1539,12 +1564,12 @@ export default function App() {
     syncState(nextList, ideas, characters);
     setSelectedNoteId(nextList.length > 0 ? getItemKey(nextList[0]) : null);
     setShowDetailOnMobile(false);
-    showToast('Đã xóa bỏ câu lệnh/ghi chú thành công.', 'info');
+    showToast('Đã xóa bỏ bài đăng Kho Lệnh thành công.', 'info');
   };
 
   // System / Cloud Library Prompts (Kho Lệnh Thư Viện — Admin quản lý nội dung hệ thống)
   const handleSaveLibraryPrompt = async (
-    data: Omit<LibraryPrompt, 'id' | 'createdAt'> & { id?: string },
+    data: Omit<LibraryPrompt, 'id' | 'createdAt'> & { id?: string; draftId?: string },
   ) => {
     if (!isAuthenticated || !userId) {
       openAuthModal('login');
@@ -1604,13 +1629,13 @@ export default function App() {
         void refreshPublicSnapshot();
         setIsCreatingLibraryPrompt(false);
         setIsEditingLibraryPrompt(false);
-        showToast('Đã cập nhật câu lệnh Kho Lệnh! 🍀');
+        showToast('Đã cập nhật bài đăng Kho Lệnh! 🍀');
       } else {
         const nextIsSystem = Boolean(isAdmin && data.isSystem);
         const nextIsPublic = nextIsSystem ? true : Boolean(data.isPublic);
         const newPrompt: LibraryPrompt = {
           ...data,
-          id: `sys-lib-${Date.now()}`,
+          id: data.draftId || `sys-lib-${Date.now()}`,
           createdAt: new Date().toISOString(),
           isSystem: nextIsSystem,
           isPublic: nextIsPublic,
@@ -1634,8 +1659,8 @@ export default function App() {
         setIsEditingLibraryPrompt(false);
         showToast(
           confirmed.isSystem
-            ? 'Đã đăng câu lệnh Hệ thống vào Kho Lệnh! 🍀'
-            : 'Đã lưu câu lệnh thư viện lên tài khoản! 🍀',
+            ? 'Đã đăng bài Hệ thống vào Kho Lệnh! 🍀'
+            : 'Đã lưu bài đăng thư viện lên tài khoản! 🍀',
         );
       }
     } finally {
@@ -1648,7 +1673,7 @@ export default function App() {
       showToast('Bạn không có quyền xóa câu lệnh này.', 'error');
       return;
     }
-    if (!confirm('Bạn có chắc chắn muốn xóa câu lệnh này khỏi Kho Lệnh?')) {
+    if (!confirm('Bạn có chắc chắn muốn xóa bài đăng này khỏi Kho Lệnh?')) {
       return;
     }
     if (isSavingItem) return;
@@ -1661,13 +1686,17 @@ export default function App() {
         showToast(res.error?.message || 'Không thể xóa câu lệnh thư viện.', 'error');
         return;
       }
+      const imagePaths = extractPromptStoragePaths(target.steps || []);
+      if (targetOwnerId === userId && imagePaths.length > 0) {
+        void deletePromptIllustrationPaths(userId, imagePaths);
+      }
       if (targetOwnerId === userId) {
         setLibraryPrompts((prev) => prev.filter((p) => !(p.id === target.id && p.ownerId === targetOwnerId)));
       }
       void refreshPublicSnapshot();
       setSelectedLibraryPromptId(null);
       setShowDetailOnMobile(false);
-      showToast('Đã xóa câu lệnh khỏi Kho Lệnh.', 'info');
+      showToast('Đã xóa bài đăng khỏi Kho Lệnh.', 'info');
     } finally {
       setIsSavingItem(false);
     }
@@ -2080,7 +2109,8 @@ export default function App() {
     return (
       n.title.toLowerCase().includes(queryLower) ||
       n.command.toLowerCase().includes(queryLower) ||
-      n.content.toLowerCase().includes(queryLower)
+      n.content.toLowerCase().includes(queryLower) ||
+      (n.description && n.description.toLowerCase().includes(queryLower))
     );
   }) : [];
 
@@ -2242,7 +2272,6 @@ export default function App() {
     setSelectedFilterAuthor(null);
     setIsCreating(false);
     setIsCreatingLibraryPrompt(false);
-    setVisibleSteps({});
 
     const itemKey = getItemKey(item);
     if (kind === 'character') {
@@ -2743,7 +2772,6 @@ export default function App() {
                         setIsCreatingLibraryPrompt(false);
                         setIsEditingLibraryPrompt(false);
                         setShowDetailOnMobile(true);
-                        setVisibleSteps({});
                       }}
                       className={`w-full text-left p-2.5 rounded-md transition flex items-start gap-2.5 border cursor-pointer ${
                         isSelected
@@ -3078,6 +3106,9 @@ export default function App() {
                       isSaving={isSavingItem}
                       canPublish={isAuthenticated}
                       isAdmin={isAdmin}
+                      isAuthenticated={isAuthenticated}
+                      userId={userId}
+                      onToast={showToast}
                     />
                   )}
                   {activeTab === 'ideas' && (
@@ -3113,6 +3144,9 @@ export default function App() {
                     }}
                     isSaving={isSavingItem}
                     isAdmin={isAdmin}
+                    isAuthenticated={isAuthenticated}
+                    userId={userId}
+                    onToast={showToast}
                   />
                 </div>
               )}
@@ -3129,6 +3163,9 @@ export default function App() {
                       isSaving={isSavingItem}
                       canPublish={isAuthenticated}
                       isAdmin={isAdmin}
+                      isAuthenticated={isAuthenticated}
+                      userId={userId}
+                      onToast={showToast}
                     />
                   )}
                   {activeTab === 'ideas' && activeIdea && (
@@ -3441,49 +3478,21 @@ export default function App() {
                         );
                       })()}
 
-                      {/* Section 1: Prompt cần nhập (Command) */}
-                      <div className="retro-window overflow-hidden">
-                        <div className="retro-window-header px-4 py-2.5 flex items-center justify-between gap-2">
-                          <h4 className="text-xs font-bold text-[#224C3B] dark:text-[#E4E1D8] flex items-center gap-2">
-                            <Terminal className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
-                            <span>1. PROMPT CẦN NHẬP (LỆNH CHÍNH)</span>
-                          </h4>
-                          <button
-                            type="button"
-                            onClick={() => copyToClipboard(activeNote.command, 'Prompt cần nhập')}
-                            className="retro-btn-primary px-2.5 py-1 font-semibold text-[11px] flex items-center gap-1.5 cursor-pointer shrink-0"
-                          >
-                            <Copy className="w-3 h-3" />
-                            <span>Sao chép</span>
-                          </button>
-                        </div>
-                        <div className="p-3.5">
-                          <div className="retro-code-box p-3.5 text-xs sm:text-[13px] leading-relaxed whitespace-pre-wrap break-words select-all">
-                            {activeNote.command}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Section 2: Nội dung (Detailed content instructions) */}
-                      <div className="retro-window overflow-hidden">
-                        <div className="retro-window-header px-4 py-2.5 flex items-center justify-between gap-2">
-                          <h4 className="text-xs font-bold text-[#224C3B] dark:text-[#E4E1D8] flex items-center gap-2">
-                            <Info className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
-                            <span>2. NỘI DUNG CHI TIẾT KÈM DỮ LIỆU</span>
-                          </h4>
-                          <button
-                            type="button"
-                            onClick={() => copyToClipboard(activeNote.content, 'Nội dung')}
-                            className="retro-btn-primary px-2.5 py-1 font-semibold text-[11px] flex items-center gap-1.5 cursor-pointer shrink-0"
-                          >
-                            <Copy className="w-3 h-3" />
-                            <span>Sao chép</span>
-                          </button>
-                        </div>
-                        <div className="p-4 text-sm leading-relaxed text-[#294338] dark:text-[#E4E1D8] whitespace-pre-wrap break-words select-text">
-                          {activeNote.content}
-                        </div>
-                      </div>
+                      {/* Flexible Ordered Content Blocks */}
+                      {(() => {
+                        const parsedNote = getNoteDescriptionAndBlocks(activeNote);
+                        return (
+                          <PromptBlocksView
+                            postKey={getItemKey(activeNote)}
+                            title={activeNote.title}
+                            description={parsedNote.description}
+                            blocks={parsedNote.blocks}
+                            autoNumberSteps={parsedNote.autoNumberSteps}
+                            defaultPromptsExpanded
+                            onCopyText={(text, label) => copyToClipboard(text, label)}
+                          />
+                        );
+                      })()}
 
                       <PromptRatingSection
                         targetType="note"
@@ -3558,194 +3567,22 @@ export default function App() {
                         onToast={(msg) => showToast(msg, 'info')}
                       />
 
-                      {/* Section Description Card — Mint accent */}
-                      <div className="retro-callout-mint p-4 space-y-1.5">
-                        <h4 className="text-xs font-bold text-[#255442] dark:text-[#A3BDA8] flex items-center gap-1.5 uppercase tracking-wide">
-                          <Info className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8] flex-shrink-0" />
-                          <span>Thông tin về công cụ lệnh</span>
-                        </h4>
-                        <p className="text-xs sm:text-sm text-[#2A4539] dark:text-[#E4E1D8] leading-relaxed whitespace-pre-line break-words">
-                          {activeLibraryPrompt.description}
-                        </p>
-                      </div>
-
-                      {/* Section How to use Card — Warm cream accent */}
-                      <div className="retro-callout-warm p-4 space-y-1.5">
-                        <h4 className="text-xs font-bold text-[#6E5120] dark:text-[#D5B97A] flex items-center gap-1.5 uppercase tracking-wide">
-                          <Terminal className="w-3.5 h-3.5 text-[#9C742E] dark:text-[#D5B97A] flex-shrink-0" />
-                          <span>Hướng dẫn sử dụng (Cách dùng)</span>
-                        </h4>
-                        <p className="text-xs sm:text-sm text-[#3A3528] dark:text-[#E4E1D8] leading-relaxed whitespace-pre-line break-words">
-                          {activeLibraryPrompt.howToUse}
-                        </p>
-                      </div>
-
-                      {/* Steps / Commands list section */}
-                      <div className="space-y-3">
-                        {activeLibraryPrompt.steps.length === 1 ? (
-                          // SINGLE CONTINUOUS BLOCK
-                          <div className="retro-window overflow-hidden">
-                            <div className="retro-window-header px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <Terminal className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8] flex-shrink-0" />
-                                <h3 className="text-xs font-bold text-[#224C3B] dark:text-[#E4E1D8] uppercase tracking-wider truncate">
-                                  Nội dung câu lệnh
-                                </h3>
-                              </div>
-
-                              <div className="flex items-center gap-2 flex-shrink-0">
-                                <button
-                                  type="button"
-                                  onClick={() => setVisibleSteps(prev => ({ ...prev, 0: !prev[0] }))}
-                                  className={`retro-btn px-2.5 py-1 text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer ${
-                                    visibleSteps[0] ? 'retro-btn-active' : ''
-                                  }`}
-                                >
-                                  {visibleSteps[0] ? (
-                                    <>
-                                      <EyeOff className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
-                                      <span>Ẩn lệnh</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Eye className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
-                                      <span>Hiện lệnh</span>
-                                    </>
-                                  )}
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() => copyToClipboard(activeLibraryPrompt.steps[0].content, activeLibraryPrompt.title)}
-                                  className="retro-btn-primary px-3 py-1 text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer"
-                                  title="Copy toàn bộ câu lệnh này"
-                                >
-                                  <Copy className="w-3 h-3" />
-                                  <span>Copy lệnh</span>
-                                </button>
-                              </div>
-                            </div>
-
-                            <div className="px-4 py-2.5 border-b border-[#DCEAE1] dark:border-[#49554D] bg-[#FAF6EA]/80 dark:bg-[#202423] flex items-center justify-between gap-2">
-                              <span className="text-xs font-semibold text-[#3C5C4E] dark:text-[#B8BDB5]">
-                                {activeLibraryPrompt.steps[0].label || 'Khối câu lệnh chính'}
-                              </span>
-                              {!visibleSteps[0] && (
-                                <span className="font-mono text-[10px] text-[#668476] dark:text-[#B8BDB5]">
-                                  Bấm “Hiện lệnh” để xem chi tiết
-                                </span>
-                              )}
-                            </div>
-
-                            {visibleSteps[0] && (
-                              <div className="p-3.5 space-y-3">
-                                <pre className="retro-code-box p-3.5 text-xs leading-relaxed whitespace-pre-wrap break-words select-all m-0">
-                                  {activeLibraryPrompt.steps[0].content}
-                                </pre>
-                                <div className="flex justify-end">
-                                  <button
-                                    type="button"
-                                    onClick={() => copyToClipboard(activeLibraryPrompt.steps[0].content, activeLibraryPrompt.title)}
-                                    className="retro-btn-primary px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
-                                  >
-                                    <Copy className="w-3.5 h-3.5" />
-                                    <span>Copy toàn bộ câu lệnh</span>
-                                  </button>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          // MULTI-STEP / EN-VI TRANSLATION BLOCKS
-                          <>
-                            <div className="flex flex-wrap items-center justify-between gap-2 px-1">
-                              <h3 className="text-xs font-bold text-[#224C3B] dark:text-[#A3BDA8] uppercase tracking-wider flex items-center gap-1.5">
-                                <Terminal className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
-                                <span>Danh sách các khối câu lệnh ({activeLibraryPrompt.steps.length})</span>
-                              </h3>
-                              <p className="text-[10px] font-mono text-[#5B7A6C] dark:text-[#B8BDB5] hidden sm:inline">
-                                * Tách nhỏ từng phần để dễ theo dõi và sao chép riêng
-                              </p>
-                            </div>
-
-                            <div className="space-y-3">
-                              {activeLibraryPrompt.steps.map((step, index) => {
-                                const isOpen = !!visibleSteps[index];
-                                return (
-                                  <div
-                                    key={index}
-                                    className="retro-window overflow-hidden"
-                                  >
-                                    {/* Step Card Header */}
-                                    <div className="retro-window-header px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
-                                      <div className="flex items-center gap-2 min-w-0">
-                                        <span className="w-5 h-5 rounded bg-[#39755D] dark:bg-[#343D37] text-[#FFF9EA] dark:text-[#A3BDA8] dark:border dark:border-[#49554D] text-[10px] font-mono font-bold flex items-center justify-center flex-shrink-0">
-                                          {index + 1}
-                                        </span>
-                                        <span className="text-xs font-bold text-[#224C3B] dark:text-[#E4E1D8] break-words">
-                                          {step.label || 'Khối lệnh'}
-                                        </span>
-                                      </div>
-
-                                      <div className="flex items-center gap-2 flex-shrink-0">
-                                        <button
-                                          type="button"
-                                          onClick={() => setVisibleSteps(prev => ({ ...prev, [index]: !prev[index] }))}
-                                          className={`retro-btn px-2.5 py-1 text-[11px] font-semibold flex items-center gap-1 cursor-pointer ${
-                                            isOpen ? 'retro-btn-active' : ''
-                                          }`}
-                                          title={isOpen ? 'Thu gọn nội dung hiển thị' : 'Bấm để xem nội dung câu lệnh'}
-                                        >
-                                          {isOpen ? (
-                                            <>
-                                              <EyeOff className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
-                                              <span className="hidden min-[400px]:inline">Ẩn lệnh</span>
-                                            </>
-                                          ) : (
-                                            <>
-                                              <Eye className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
-                                              <span className="hidden min-[400px]:inline">Hiện lệnh</span>
-                                            </>
-                                          )}
-                                        </button>
-
-                                        <button
-                                          type="button"
-                                          onClick={() => copyToClipboard(step.content, `Bước ${index + 1}: ${step.label}`)}
-                                          className="retro-btn-primary px-2.5 py-1 font-semibold text-[11px] flex items-center gap-1 cursor-pointer"
-                                          title="Copy ngay lập tức"
-                                        >
-                                          <Copy className="w-3 h-3" />
-                                          <span>Copy lệnh {index + 1}</span>
-                                        </button>
-                                      </div>
-                                    </div>
-
-                                    {/* Step Card Content (Collapsible) */}
-                                    {isOpen && (
-                                      <div className="p-3.5 space-y-2.5">
-                                        <pre className="retro-code-box p-3.5 text-xs leading-relaxed whitespace-pre-wrap break-words select-all m-0">
-                                          {step.content}
-                                        </pre>
-                                        <div className="flex justify-end">
-                                          <button
-                                            type="button"
-                                            onClick={() => copyToClipboard(step.content, `Bước ${index + 1}: ${step.label || 'Lệnh'}`)}
-                                            className="retro-btn-primary px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
-                                          >
-                                            <Copy className="w-3.5 h-3.5" />
-                                            <span>Copy câu lệnh</span>
-                                          </button>
-                                        </div>
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </>
-                        )}
-                      </div>
+                      {/* Flexible Ordered Content Blocks (100% compatible with legacy library steps) */}
+                      {(() => {
+                        const parsedLib = getLibraryPromptBlocks(activeLibraryPrompt);
+                        return (
+                          <PromptBlocksView
+                            postKey={getItemKey(activeLibraryPrompt)}
+                            title={activeLibraryPrompt.title}
+                            description={activeLibraryPrompt.description}
+                            howToUse={activeLibraryPrompt.howToUse}
+                            blocks={parsedLib.blocks}
+                            autoNumberSteps={parsedLib.autoNumberSteps}
+                            defaultPromptsExpanded={false}
+                            onCopyText={(text, label) => copyToClipboard(text, label)}
+                          />
+                        );
+                      })()}
 
                       <PromptRatingSection
                         targetType="library_prompt"
@@ -3899,109 +3736,69 @@ export default function App() {
                             </div>
                           )}
 
-                          {/* Social external linkages — unified retro-btn style */}
-                          {(activeChar.fb || activeChar.discord || activeChar.discord2 || activeChar.web || activeChar.other || activeChar.ggai) && (
-                            <div className="pt-3 flex flex-wrap gap-2 border-t border-[#DCEAE1] dark:border-[#49554D]">
-                              {activeChar.fb && (
-                                <a
-                                  href={typeof activeChar.fb === 'object' ? activeChar.fb.url : activeChar.fb}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="retro-btn inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold"
-                                  title="Truy cập tác giả Facebook"
-                                >
-                                  <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
-                                    <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" fill="#1877F2"/>
-                                  </svg>
-                                  <span>{typeof activeChar.fb === 'object' ? activeChar.fb.name : 'Góc Tam Quan Lệch Của Tinh Âm'}</span>
-                                </a>
-                              )}
+                          {/* Social external linkages — unified retro-btn style (dynamic + legacy safe) */}
+                          {(() => {
+                            const charSocialLinks = getCharacterSocialLinks(activeChar).filter((link) =>
+                              isSafeExternalHttpUrl(link.url),
+                            );
+                            const safeGgaiUrl = isSafeExternalHttpUrl(activeChar.ggai)
+                              ? activeChar.ggai!.trim()
+                              : '';
+                            if (charSocialLinks.length === 0 && !safeGgaiUrl) return null;
 
-                              {activeChar.discord && (
-                                <a
-                                  href={typeof activeChar.discord === 'object' ? activeChar.discord.url : activeChar.discord}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="retro-btn inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold"
-                                  title="Tham gia cộng đồng Discord"
-                                >
-                                  <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 127.14 96.36" fill="currentColor">
-                                    <path d="M107.7,8.07A105.15,105.15,0,0,0,77.26,0a77.19,77.19,0,0,0-3.3,6.83A96.67,96.67,0,0,0,53.22,6.83,77.19,77.19,0,0,0,49.88,0,105.15,105.15,0,0,0,19.44,8.07C3.66,31.58-1.86,54.65,1,77.53A105.73,105.73,0,0,0,32,96.36a77.7,77.7,0,0,0,6.63-10.85,68.43,68.43,0,0,1-10.51-5c.89-.65,1.76-1.34,2.58-2a75.59,75.59,0,0,0,73,0c.83.68,1.69,1.37,2.58,2a68.43,68.43,0,0,1-10.51,5,77.7,77.7,0,0,0,6.63,10.85,105.73,105.73,0,0,0,31-18.83C129.87,48.12,123.7,25.28,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53S36.18,40.36,42.45,40.36,53.83,46,53.83,53,48.72,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.24,60,73.24,53S78.41,40.36,84.69,40.36,96.07,46,96.07,53,91,65.69,84.69,65.69Z" fill="#5865F2" />
-                                  </svg>
-                                  <span>{typeof activeChar.discord === 'object' ? activeChar.discord.name : '🌸Vườn Nhỏ Dưới Tán Anh Đào🌸'}</span>
-                                </a>
-                              )}
+                            return (
+                              <div className="pt-3 flex flex-wrap gap-2 border-t border-[#DCEAE1] dark:border-[#49554D]">
+                                {charSocialLinks.map((link) => {
+                                  const platformName = getSocialPlatformLabel(link.platform);
+                                  const displayText = link.label?.trim() || platformName;
+                                  return (
+                                    <a
+                                      key={link.id}
+                                      href={link.url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="retro-btn inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold max-w-full"
+                                      title={`Mở ${platformName}: ${displayText}`}
+                                    >
+                                      <SocialPlatformIcon
+                                        platform={link.platform}
+                                        className="w-3.5 h-3.5 flex-shrink-0"
+                                      />
+                                      <span className="truncate">{displayText}</span>
+                                    </a>
+                                  );
+                                })}
 
-                              {activeChar.discord2 && (
-                                <a
-                                  href={typeof activeChar.discord2 === 'object' ? activeChar.discord2.url : activeChar.discord2}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="retro-btn inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold"
-                                  title="Tham gia cộng đồng Discord phụ"
-                                >
-                                  <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 127.14 96.36" fill="currentColor">
-                                    <path d="M107.7,8.07A105.15,105.15,0,0,0,77.26,0a77.19,77.19,0,0,0-3.3,6.83A96.67,96.67,0,0,0,53.22,6.83,77.19,77.19,0,0,0,49.88,0,105.15,105.15,0,0,0,19.44,8.07C3.66,31.58-1.86,54.65,1,77.53A105.73,105.73,0,0,0,32,96.36a77.7,77.7,0,0,0,6.63-10.85,68.43,68.43,0,0,1-10.51-5c.89-.65,1.76-1.34,2.58-2a75.59,75.59,0,0,0,73,0c.83.68,1.69,1.37,2.58,2a68.43,68.43,0,0,1-10.51,5,77.7,77.7,0,0,0,6.63,10.85,105.73,105.73,0,0,0,31-18.83C129.87,48.12,123.7,25.28,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53S36.18,40.36,42.45,40.36,53.83,46,53.83,53,48.72,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.24,60,73.24,53S78.41,40.36,84.69,40.36,96.07,46,96.07,53,91,65.69,84.69,65.69Z" fill="#7C3AED" />
-                                  </svg>
-                                  <span>{typeof activeChar.discord2 === 'object' ? activeChar.discord2.name : 'Discord'}</span>
-                                </a>
-                              )}
-
-                              {activeChar.web && (
-                                <a
-                                  href={typeof activeChar.web === 'object' ? activeChar.web.url : activeChar.web}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="retro-btn inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold"
-                                  title="Truy cập Website"
-                                >
-                                  <Globe className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
-                                  <span>{typeof activeChar.web === 'object' ? activeChar.web.name : 'Website'}</span>
-                                </a>
-                              )}
-
-                              {activeChar.other && (
-                                <a
-                                  href={typeof activeChar.other === 'object' ? activeChar.other.url : activeChar.other}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="retro-btn inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold"
-                                  title="Truy cập Website phụ"
-                                >
-                                  <Globe className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
-                                  <span>{typeof activeChar.other === 'object' ? activeChar.other.name : 'Website'}</span>
-                                </a>
-                              )}
-
-                              {activeChar.ggai && (
-                                <div className="inline-flex items-center gap-1">
-                                  <a
-                                    href={activeChar.ggai}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="retro-btn inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold"
-                                    title={`Mở Prompt ${activeChar.name} trong Google AI Studio`}
-                                  >
-                                    <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24">
-                                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
-                                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
-                                    </svg>
-                                    <span>{activeChar.name}</span>
-                                  </a>
-                                  <button
-                                    type="button"
-                                    onClick={() => copyToClipboard(activeChar.ggai || '', 'Link Google AI Studio')}
-                                    className="retro-btn px-2 py-1.5 text-xs cursor-pointer"
-                                    title="Sao chép link Google AI Studio"
-                                  >
-                                    <Copy className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          )}
+                                {safeGgaiUrl && (
+                                  <div className="inline-flex items-center gap-1">
+                                    <a
+                                      href={safeGgaiUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="retro-btn inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold"
+                                      title={`Mở Prompt ${activeChar.name} trong Google AI Studio`}
+                                    >
+                                      <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24">
+                                        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                                        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                                        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                                        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                                      </svg>
+                                      <span>{activeChar.name}</span>
+                                    </a>
+                                    <button
+                                      type="button"
+                                      onClick={() => copyToClipboard(safeGgaiUrl, 'Link Google AI Studio')}
+                                      className="retro-btn px-2 py-1.5 text-xs cursor-pointer"
+                                      title="Sao chép link Google AI Studio"
+                                    >
+                                      <Copy className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </div>
                       </div>
 

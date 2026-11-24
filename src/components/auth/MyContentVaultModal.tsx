@@ -21,6 +21,7 @@ import {
   fetchVaultCommunityStats,
   type VaultItemCommunityStats,
 } from '../../services/communityService';
+import { getNoteBlockSummaryLabel } from '../../utils/contentBlocks';
 
 interface MyContentVaultModalProps {
   isOpen: boolean;
@@ -143,7 +144,14 @@ export default function MyContentVaultModal({
       pushEntry('character', c, c.name, c.role || 'Nhân vật', c.avatar || '🍀', c.publishedAt || c.createdAt);
     }
     for (const n of notes) {
-      pushEntry('note', n, n.title, n.command || 'Câu lệnh cá nhân', n.icon || '☘️', n.updatedAt || n.createdAt);
+      pushEntry(
+        'note',
+        n,
+        n.title,
+        getNoteBlockSummaryLabel(n) || 'Bài đăng Kho Lệnh',
+        n.icon || '☘️',
+        n.updatedAt || n.createdAt,
+      );
     }
     for (const i of ideas) {
       pushEntry('idea', i, i.title, i.content, '💡', i.updatedAt || i.createdAt);
