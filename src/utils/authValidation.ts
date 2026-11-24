@@ -1,5 +1,5 @@
 export const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-export const MIN_SIGNUP_PASSWORD_LENGTH = 8;
+export const MIN_PASSWORD_LENGTH = 6;
 export const MAX_PASSWORD_LENGTH = 128;
 export const MAX_EMAIL_LENGTH = 254;
 export const SIGNUP_COOLDOWN_SECONDS = 45;
@@ -9,15 +9,6 @@ export const MAX_SIGNUPS_PER_WINDOW = 3;
 
 export const SIGNUP_RATE_LIMIT_KEY = 'seaclover_signup_rate_limit_v1';
 export const RESET_COOLDOWN_KEY = 'seaclover_reset_cooldown_until_v1';
-
-export type PasswordStrengthLevel = 'empty' | 'weak' | 'medium' | 'strong';
-
-export interface PasswordStrengthResult {
-  valid: boolean;
-  level: PasswordStrengthLevel;
-  label: string;
-  error: string | null;
-}
 
 export interface SignupRateLimitCheck {
   allowed: boolean;
@@ -61,105 +52,27 @@ export function validateEmailFormat(email: string): string | null {
   return null;
 }
 
-const COMMON_WEAK_PASSWORDS = new Set([
-  '12345678',
-  '123456789',
-  '1234567890',
-  '87654321',
-  'password',
-  'password1',
-  'password123',
-  'qwerty123',
-  'abc12345',
-  'seaclover',
-  'seaclover123',
-]);
-
 /**
- * Kiểm tra độ mạnh mật khẩu cho đăng ký và đặt lại mật khẩu mới:
- * - Tối thiểu 8 ký tự, tối đa 128 ký tự.
- * - Phải chứa ít nhất 1 chữ cái và 1 chữ số.
- * - Chặn các mẫu quá yếu (lặp 1 ký tự, chuỗi phổ biến hoặc trùng phần tên email).
+ * Quy định mật khẩu thống nhất cho đăng ký, đổi mật khẩu và đặt lại mật khẩu:
+ * - Tối thiểu 6 ký tự (không bắt buộc chữ hoa/thường, chữ số hay ký tự đặc biệt).
  */
-export function evaluatePasswordStrength(
+export function validatePassword(
   password: string,
-  email?: string,
-): PasswordStrengthResult {
+  fieldLabel = 'Mật khẩu',
+): string | null {
   if (!password) {
-    return {
-      valid: false,
-      level: 'empty',
-      label: '',
-      error: 'Vui lòng nhập mật khẩu.',
-    };
+    return `Vui lòng nhập ${fieldLabel.toLowerCase()}.`;
   }
 
-  if (password.length < MIN_SIGNUP_PASSWORD_LENGTH) {
-    return {
-      valid: false,
-      level: 'weak',
-      label: 'Quá ngắn',
-      error: `Mật khẩu phải có ít nhất ${MIN_SIGNUP_PASSWORD_LENGTH} ký tự.`,
-    };
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    return `${fieldLabel} phải có ít nhất ${MIN_PASSWORD_LENGTH} ký tự.`;
   }
 
   if (password.length > MAX_PASSWORD_LENGTH) {
-    return {
-      valid: false,
-      level: 'weak',
-      label: 'Quá dài',
-      error: `Mật khẩu không được vượt quá ${MAX_PASSWORD_LENGTH} ký tự.`,
-    };
+    return `${fieldLabel} không được vượt quá ${MAX_PASSWORD_LENGTH} ký tự.`;
   }
 
-  const hasLetter = /\p{L}/u.test(password);
-  const hasDigit = /\d/.test(password);
-
-  if (!hasLetter || !hasDigit) {
-    return {
-      valid: false,
-      level: 'weak',
-      label: 'Yếu',
-      error: 'Mật khẩu cần kết hợp cả chữ cái và chữ số.',
-    };
-  }
-
-  const lower = password.toLowerCase();
-  if (/^(.)\1+$/.test(password) || COMMON_WEAK_PASSWORDS.has(lower)) {
-    return {
-      valid: false,
-      level: 'weak',
-      label: 'Yếu',
-      error: 'Mật khẩu quá phổ biến hoặc dễ đoán. Vui lòng chọn mật khẩu khác.',
-    };
-  }
-
-  if (email) {
-    const localPart = normalizeEmail(email).split('@')[0] || '';
-    if (localPart.length >= 4 && lower === localPart) {
-      return {
-        valid: false,
-        level: 'weak',
-        label: 'Yếu',
-        error: 'Mật khẩu không nên trùng với tên email của bạn.',
-      };
-    }
-  }
-
-  const hasUpper = /\p{Lu}/u.test(password);
-  const hasLower = /\p{Ll}/u.test(password);
-  const hasSymbol = /[^\p{L}\d\s]/u.test(password);
-
-  const isStrong =
-    (password.length >= 10 && hasUpper && hasLower && hasDigit) ||
-    (password.length >= 8 && hasSymbol && (hasUpper || hasLower) && hasDigit);
-
-  return {
-    valid: true,
-    level: isStrong ? 'strong' : 'medium',
-    label: isStrong ? 'Mạnh' : 'Khá',
-    error: null,
-  };
+  return null;
 }
 
 function readSignupRateState(

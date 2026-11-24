@@ -13,11 +13,11 @@ import type {
 } from '../types/auth';
 import {
   checkSignupRateLimit,
-  evaluatePasswordStrength,
-  MIN_SIGNUP_PASSWORD_LENGTH,
+  MIN_PASSWORD_LENGTH,
   normalizeEmail,
   recordSignupAttempt,
   validateEmailFormat,
+  validatePassword,
 } from '../utils/authValidation';
 
 const MAX_DISPLAY_NAME_LENGTH = 80;
@@ -162,7 +162,7 @@ export function normalizeAuthError(rawError: unknown): AuthServiceError {
   ) {
     return {
       code: 'WEAK_PASSWORD',
-      message: `Mật khẩu chưa đủ mạnh. Vui lòng sử dụng ít nhất ${MIN_SIGNUP_PASSWORD_LENGTH} ký tự gồm chữ cái và chữ số.`,
+      message: `Mật khẩu phải có ít nhất ${MIN_PASSWORD_LENGTH} ký tự.`,
       status,
     };
   }
@@ -296,9 +296,9 @@ export async function signUpWithEmail(
     return errorResult('VALIDATION_ERROR', emailError);
   }
 
-  const strength = evaluatePasswordStrength(input.password, input.email);
-  if (!strength.valid && strength.error) {
-    return errorResult('VALIDATION_ERROR', strength.error);
+  const passwordError = validatePassword(input.password);
+  if (passwordError) {
+    return errorResult('VALIDATION_ERROR', passwordError);
   }
 
   const trimmedDisplayName = input.displayName?.trim() ?? '';
@@ -489,9 +489,9 @@ export async function updatePassword(newPassword: string): Promise<AuthResult<Us
   const { client, error: clientError } = getClientOrError<User>();
   if (clientError) return clientError;
 
-  const strength = evaluatePasswordStrength(newPassword);
-  if (!strength.valid && strength.error) {
-    return errorResult('VALIDATION_ERROR', strength.error);
+  const passwordError = validatePassword(newPassword, 'Mật khẩu mới');
+  if (passwordError) {
+    return errorResult('VALIDATION_ERROR', passwordError);
   }
 
   try {

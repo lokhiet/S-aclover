@@ -17,12 +17,12 @@ import { getDefaultAuthRedirectUrl } from '../../services/authService';
 import type { AuthModalMode } from '../../types/auth';
 import {
   checkSignupRateLimit,
-  evaluatePasswordStrength,
   getRemainingCooldownSeconds,
   RESET_COOLDOWN_KEY,
   RESET_COOLDOWN_SECONDS,
   setCooldownSeconds,
   validateEmailFormat,
+  validatePassword,
 } from '../../utils/authValidation';
 
 interface AuthModalProps {
@@ -130,11 +130,6 @@ export default function AuthModal({
     onClose();
   };
 
-  const passwordStrength = evaluatePasswordStrength(
-    password,
-    mode === 'register' ? email : undefined,
-  );
-
   const handleLoginSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (isSubmitting || !isConfigured) return;
@@ -191,9 +186,9 @@ export default function AuthModal({
       return;
     }
 
-    const strength = evaluatePasswordStrength(password, email);
-    if (!strength.valid && strength.error) {
-      setErrorMessage(strength.error);
+    const passwordError = validatePassword(password);
+    if (passwordError) {
+      setErrorMessage(passwordError);
       return;
     }
 
@@ -273,9 +268,9 @@ export default function AuthModal({
     event.preventDefault();
     if (isSubmitting || !isConfigured) return;
 
-    const strength = evaluatePasswordStrength(password);
-    if (!strength.valid && strength.error) {
-      setErrorMessage(strength.error);
+    const passwordError = validatePassword(password, 'Mật khẩu mới');
+    if (passwordError) {
+      setErrorMessage(passwordError);
       return;
     }
     if (password !== confirmPassword) {
@@ -332,7 +327,7 @@ export default function AuthModal({
       case 'reset-password':
         return {
           title: isRecoveryMode ? 'Đặt lại mật khẩu mới' : 'Đổi mật khẩu',
-          subtitle: 'Tối thiểu 8 ký tự, gồm cả chữ cái và chữ số',
+          subtitle: 'Mật khẩu tối thiểu 6 ký tự',
         };
       case 'login':
       default:
@@ -344,44 +339,6 @@ export default function AuthModal({
   };
 
   const headerMeta = getHeaderMeta();
-
-  const renderStrengthIndicator = () => {
-    if (!password) return null;
-    const barColor =
-      passwordStrength.level === 'strong'
-        ? 'bg-[#39755D] dark:bg-[#A3BDA8]'
-        : passwordStrength.level === 'medium'
-          ? 'bg-[#B58C36] dark:bg-[#D5B97A]'
-          : 'bg-[#C85A72] dark:bg-[#E4A6AA]';
-    const widthClass =
-      passwordStrength.level === 'strong'
-        ? 'w-full'
-        : passwordStrength.level === 'medium'
-          ? 'w-2/3'
-          : 'w-1/3';
-    const textColor =
-      passwordStrength.level === 'strong'
-        ? 'text-[#2B5A47] dark:text-[#A3BDA8]'
-        : passwordStrength.level === 'medium'
-          ? 'text-[#8A6D2F] dark:text-[#D5B97A]'
-          : 'text-[#9B485A] dark:text-[#E4A6AA]';
-
-    return (
-      <div className="space-y-1 pt-0.5">
-        <div className="h-1.5 w-full rounded-full bg-[#DCECE2] dark:bg-[#1E2220] overflow-hidden">
-          <div className={`h-full transition-all duration-200 ${barColor} ${widthClass}`} />
-        </div>
-        <div className="flex items-center justify-between text-[10px]">
-          <span className="text-[#5B7A6C] dark:text-[#B8BDB5]">
-            {passwordStrength.error || 'Độ dài tối thiểu 8 ký tự, có chữ và số'}
-          </span>
-          <span className={`font-bold shrink-0 ml-2 ${textColor}`}>
-            {passwordStrength.label}
-          </span>
-        </div>
-      </div>
-    );
-  };
 
   return (
     <div
@@ -643,7 +600,7 @@ export default function AuthModal({
                     disabled={isSubmitting || !isConfigured}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Tối thiểu 8 ký tự, gồm chữ và số"
+                    placeholder="Mật khẩu tối thiểu 6 ký tự"
                     className="retro-input w-full pl-9 pr-10 py-2 text-xs disabled:opacity-60"
                   />
                   <button
@@ -659,7 +616,9 @@ export default function AuthModal({
                     )}
                   </button>
                 </div>
-                {renderStrengthIndicator()}
+                <p className="text-[11px] text-[#5B7A6C] dark:text-[#B8BDB5]">
+                  Mật khẩu tối thiểu 6 ký tự
+                </p>
               </div>
 
               <div className="space-y-1.5">
@@ -829,7 +788,7 @@ export default function AuthModal({
                     disabled={isSubmitting || !isConfigured}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Tối thiểu 8 ký tự, gồm chữ và số"
+                    placeholder="Mật khẩu tối thiểu 6 ký tự"
                     className="retro-input w-full pl-9 pr-10 py-2 text-xs disabled:opacity-60"
                   />
                   <button
@@ -845,7 +804,9 @@ export default function AuthModal({
                     )}
                   </button>
                 </div>
-                {renderStrengthIndicator()}
+                <p className="text-[11px] text-[#5B7A6C] dark:text-[#B8BDB5]">
+                  Mật khẩu tối thiểu 6 ký tự
+                </p>
               </div>
 
               <div className="space-y-1.5">
