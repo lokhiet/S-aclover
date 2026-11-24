@@ -171,12 +171,29 @@ function formatTagRpcError(
   return { ok: false, error: msg || fallbackMsg };
 }
 
+async function ensureAuthenticatedForTagAdmin(): Promise<string | null> {
+  if (!supabase) return 'Supabase chưa được cấu hình.';
+  try {
+    const { data, error } = await supabase.auth.getSession();
+    if (error || !data.session?.user?.id) {
+      return 'Chỉ tài khoản quản trị viên (Admin) đã đăng nhập mới có quyền quản lý tag chung.';
+    }
+    return null;
+  } catch {
+    return 'Chỉ tài khoản quản trị viên (Admin) đã đăng nhập mới có quyền quản lý tag chung.';
+  }
+}
+
 export async function adminUpsertSharedTag(params: {
   label: string;
   aliases?: string[];
   description?: string;
   slug?: string;
 }): Promise<TagAdminResult<SharedTag>> {
+  const authErr = await ensureAuthenticatedForTagAdmin();
+  if (authErr) {
+    return { ok: false, error: authErr };
+  }
   const label = normalizeTagDisplay(params.label);
   if (!label) {
     return { ok: false, error: 'Vui lòng nhập tên tag hợp lệ.' };
@@ -211,6 +228,10 @@ export async function adminRenameSharedTag(
   oldLabel: string,
   newLabel: string,
 ): Promise<TagAdminResult<number>> {
+  const authErr = await ensureAuthenticatedForTagAdmin();
+  if (authErr) {
+    return { ok: false, error: authErr };
+  }
   const oldClean = normalizeTagDisplay(oldLabel);
   const newClean = normalizeTagDisplay(newLabel);
   if (!oldClean || !newClean) {
@@ -238,6 +259,10 @@ export async function adminMergeSharedTags(
   sourceLabels: string[],
   targetLabel: string,
 ): Promise<TagAdminResult<number>> {
+  const authErr = await ensureAuthenticatedForTagAdmin();
+  if (authErr) {
+    return { ok: false, error: authErr };
+  }
   const cleanSources = dedupeTags(sourceLabels);
   const cleanTarget = normalizeTagDisplay(targetLabel);
   if (cleanSources.length === 0 || !cleanTarget) {
@@ -262,6 +287,10 @@ export async function adminMergeSharedTags(
 }
 
 export async function adminDeleteSharedTag(label: string): Promise<TagAdminResult<number>> {
+  const authErr = await ensureAuthenticatedForTagAdmin();
+  if (authErr) {
+    return { ok: false, error: authErr };
+  }
   const clean = normalizeTagDisplay(label);
   if (!clean) {
     return { ok: false, error: 'Tên tag cần xóa không hợp lệ.' };

@@ -165,6 +165,14 @@ export function AllTagsModal({
   }, [allAdminTags, search]);
 
   useEffect(() => {
+    if (!isAdmin && mode === 'admin') {
+      setMode('filter');
+      setActiveDialog(null);
+      setDialogError(null);
+    }
+  }, [isAdmin, mode]);
+
+  useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;

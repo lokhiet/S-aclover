@@ -185,7 +185,7 @@ export function PromptRatingSection({
           </p>
         ) : (
           <>
-            {isAuthenticated ? (
+            {isAuthenticated && (
               <form onSubmit={handleSubmitRating} className="retro-callout-mint p-3.5 space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-xs font-bold text-[#224C3B] dark:text-[#E4E1D8]">
@@ -259,19 +259,6 @@ export function PromptRatingSection({
                   </div>
                 </div>
               </form>
-            ) : (
-              <div className="retro-callout-mint px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xs text-[#3C584C] dark:text-[#B8BDB5]">
-                  Đăng nhập để chấm điểm và chia sẻ độ hiệu quả của câu lệnh này.
-                </p>
-                <button
-                  type="button"
-                  onClick={onRequireAuth}
-                  className="retro-btn-primary px-3 py-1 text-xs font-semibold cursor-pointer"
-                >
-                  Đăng nhập để đánh giá
-                </button>
-              </div>
             )}
 
             {isLoading ? (

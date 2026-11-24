@@ -9,12 +9,37 @@ export interface CloudContentMeta {
   cloudKey?: string;
 }
 
+export const MAX_CHARACTER_IMAGES = 5;
+
+export type SortOrder = 'newest' | 'oldest';
+
+export interface CharacterImage {
+  id: string;
+  /** Đường dẫn Storage trong bucket riêng tư `character-images` (khi đã đăng nhập) */
+  storagePath?: string;
+  /** Khóa lưu cục bộ trong IndexedDB (chế độ Khách hoặc nháp trước khi đồng bộ) */
+  localId?: string;
+  /** URL HTTPS ngoài hợp lệ (hoặc data:image khi nhập JSON cũ trước khi chuyển sang kho lưu trữ) */
+  url?: string;
+  mimeType?: string;
+  width?: number;
+  height?: number;
+  name?: string;
+}
+
 export type SocialPlatform =
   | 'facebook'
   | 'discord'
+  | 'google_ai_studio'
+  | 'gemini'
+  | 'google_drive'
+  | 'github'
   | 'tiktok'
   | 'instagram'
+  | 'x'
   | 'youtube'
+  | 'weibo'
+  | 'reddit'
   | 'website'
   | 'other';
 
@@ -31,6 +56,7 @@ export interface Character extends CloudContentMeta {
   role: string;
   tags?: string[];
   avatar: string; // Emoji or short code
+  images?: CharacterImage[];
   description?: string;
   createdAt: string;
   author?: string;
@@ -160,10 +186,11 @@ export interface CharacterComment {
   id: string;
   characterOwnerId: string;
   characterItemId: string;
-  userId: string;
+  userId: string | null;
+  isAnonymous?: boolean;
   authorDisplayName: string;
   authorAvatarUrl?: string | null;
-  authorRole: 'user' | 'admin';
+  authorRole: 'user' | 'admin' | 'guest';
   content: string;
   isHidden: boolean;
   hiddenBy: string | null;

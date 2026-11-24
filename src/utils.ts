@@ -1,6 +1,7 @@
-import { AppState, Note, Idea, Character, LibraryPrompt } from './types';
+import { AppState, Note, Idea, Character, LibraryPrompt, SortOrder } from './types';
 import { initialCharacters, initialNotes, initialIdeas } from './initialData';
 import { defaultLibraryPrompts } from './promptsData';
+import { getCharacterImages } from './utils/contentBlocks';
 
 const LOCAL_STORAGE_KEY = 'seaclover_state';
 const GUEST_META_KEY = 'seaclover_guest_meta';
@@ -18,6 +19,10 @@ export interface GuestCustomizationMeta {
 export interface UiPreferences {
   theme: 'light' | 'dark';
   cloverEffect: boolean;
+  charSort?: SortOrder;
+  noteSort?: SortOrder;
+  ideaSort?: SortOrder;
+  vaultSort?: SortOrder;
 }
 
 const EMPTY_GUEST_META: GuestCustomizationMeta = {
@@ -112,6 +117,10 @@ export function markGuestItemDeleted(
   saveGuestMeta(meta);
 }
 
+function sanitizeSortOrder(val: unknown, fallback: SortOrder = 'newest'): SortOrder {
+  return val === 'oldest' ? 'oldest' : val === 'newest' ? 'newest' : fallback;
+}
+
 export function loadUiPrefs(fallback?: UiPreferences): UiPreferences {
   try {
     const raw = localStorage.getItem(UI_PREFS_KEY);
@@ -120,18 +129,38 @@ export function loadUiPrefs(fallback?: UiPreferences): UiPreferences {
       return {
         theme: parsed?.theme === 'dark' ? 'dark' : 'light',
         cloverEffect: typeof parsed?.cloverEffect === 'boolean' ? parsed.cloverEffect : true,
+        charSort: sanitizeSortOrder(parsed?.charSort, fallback?.charSort ?? 'newest'),
+        noteSort: sanitizeSortOrder(parsed?.noteSort, fallback?.noteSort ?? 'newest'),
+        ideaSort: sanitizeSortOrder(parsed?.ideaSort, fallback?.ideaSort ?? 'newest'),
+        vaultSort: sanitizeSortOrder(parsed?.vaultSort, fallback?.vaultSort ?? 'newest'),
       };
     }
   } catch {
     // fallback below
   }
-  if (fallback) return fallback;
-  return { theme: 'light', cloverEffect: true };
+  if (fallback) {
+    return {
+      ...fallback,
+      charSort: fallback.charSort ?? 'newest',
+      noteSort: fallback.noteSort ?? 'newest',
+      ideaSort: fallback.ideaSort ?? 'newest',
+      vaultSort: fallback.vaultSort ?? 'newest',
+    };
+  }
+  return {
+    theme: 'light',
+    cloverEffect: true,
+    charSort: 'newest',
+    noteSort: 'newest',
+    ideaSort: 'newest',
+    vaultSort: 'newest',
+  };
 }
 
-export function saveUiPrefs(prefs: UiPreferences): void {
+export function saveUiPrefs(prefs: Partial<UiPreferences>): void {
   try {
-    localStorage.setItem(UI_PREFS_KEY, JSON.stringify(prefs));
+    const current = loadUiPrefs();
+    localStorage.setItem(UI_PREFS_KEY, JSON.stringify({ ...current, ...prefs }));
   } catch (err) {
     console.error('Lỗi khi lưu cài đặt giao diện:', err);
   }
@@ -429,11 +458,34 @@ export function loadState(): AppState {
   }
 }
 
-export function saveState(state: AppState) {
+export function getGuestPublicBuiltinState(uiPrefs?: {
+  theme?: 'light' | 'dark';
+  cloverEffect?: boolean;
+}): AppState {
+  return {
+    notes: [],
+    ideas: initialIdeas.map((idea) => ({
+      ...idea,
+      tags: idea.tags ? [...idea.tags] : undefined,
+    })),
+    characters: initialCharacters.map((character) => ({ ...character })),
+    theme: uiPrefs?.theme === 'dark' ? 'dark' : 'light',
+    cloverEffect: typeof uiPrefs?.cloverEffect === 'boolean' ? uiPrefs.cloverEffect : true,
+    libraryPrompts: defaultLibraryPrompts.map((prompt) => ({
+      ...prompt,
+      tags: [...prompt.tags],
+      steps: prompt.steps.map((step) => ({ ...step })),
+    })),
+  };
+}
+
+export function saveState(state: AppState): boolean {
   try {
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(state));
+    return true;
   } catch (error) {
     console.error('Lỗi khi lưu dữ liệu vào LocalStorage:', error);
+    return false;
   }
 }
 
@@ -461,7 +513,12 @@ export function validateAndParseImport(jsonContent: string): Partial<AppState> |
       result.ideas = parsed.ideas.filter((i: any) => i && typeof i.id === 'string' && typeof i.title === 'string');
     }
     if (parsed.characters && Array.isArray(parsed.characters)) {
-      result.characters = parsed.characters.filter((c: any) => c && typeof c.id === 'string' && typeof c.name === 'string');
+      result.characters = parsed.characters
+        .filter((c: any) => c && typeof c.id === 'string' && typeof c.name === 'string')
+        .map((c: any) => {
+          const normalizedImages = getCharacterImages(c);
+          return normalizedImages.length > 0 ? { ...c, images: normalizedImages } : c;
+        });
     }
     if (parsed.theme === 'light' || parsed.theme === 'dark') {
       result.theme = parsed.theme;

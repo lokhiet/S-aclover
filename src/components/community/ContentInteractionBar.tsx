@@ -208,30 +208,34 @@ export function ContentInteractionBar({
         )}
 
         {canInteract && schemaReady && (
-          <button
-            type="button"
-            disabled={isLoadingLike || isUpdatingLike}
-            onClick={handleLikeClick}
-            className={`px-2.5 py-1 rounded-md border text-[11px] font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-60 ${
-              likedByMe
-                ? 'bg-[#FFEFF2] dark:bg-[#3B2E32] border-[#DFA8B6] dark:border-[#7B525C] text-[#A24057] dark:text-[#E4A6AA]'
-                : 'retro-btn text-[#3C584C] dark:text-[#E4E1D8]'
-            }`}
-            title={
-              isAuthenticated
-                ? likedByMe
-                  ? 'Bỏ thả tim'
-                  : 'Thả tim ủng hộ nội dung này'
-                : 'Đăng nhập để thả tim'
-            }
-          >
-            <Heart
-              className={`w-3.5 h-3.5 ${
-                likedByMe ? 'fill-[#C85A72] text-[#C85A72] dark:fill-[#E4A6AA] dark:text-[#E4A6AA]' : ''
+          isAuthenticated ? (
+            <button
+              type="button"
+              disabled={isLoadingLike || isUpdatingLike}
+              onClick={handleLikeClick}
+              className={`px-2.5 py-1 rounded-md border text-[11px] font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-60 ${
+                likedByMe
+                  ? 'bg-[#FFEFF2] dark:bg-[#3B2E32] border-[#DFA8B6] dark:border-[#7B525C] text-[#A24057] dark:text-[#E4A6AA]'
+                  : 'retro-btn text-[#3C584C] dark:text-[#E4E1D8]'
               }`}
-            />
-            <span className="tabular-nums-mono">{likeCount}</span>
-          </button>
+              title={likedByMe ? 'Bỏ thả tim' : 'Thả tim ủng hộ nội dung này'}
+            >
+              <Heart
+                className={`w-3.5 h-3.5 ${
+                  likedByMe ? 'fill-[#C85A72] text-[#C85A72] dark:fill-[#E4A6AA] dark:text-[#E4A6AA]' : ''
+                }`}
+              />
+              <span className="tabular-nums-mono">{likeCount}</span>
+            </button>
+          ) : (
+            <span
+              className="px-2.5 py-1 rounded-md border border-[#CFE2D6] dark:border-[#49554D] bg-[#FFFDF7] dark:bg-[#292E2B] text-[11px] font-semibold flex items-center gap-1.5 text-[#587568] dark:text-[#B8BDB5]"
+              title="Lượt yêu thích"
+            >
+              <Heart className="w-3.5 h-3.5" />
+              <span className="tabular-nums-mono">{likeCount}</span>
+            </span>
+          )
         )}
       </div>
     </div>

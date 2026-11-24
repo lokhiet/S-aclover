@@ -19,6 +19,11 @@ import {
   Wand2,
 } from 'lucide-react';
 import { SocialLinksEditor } from './forms/SocialLinksEditor';
+import {
+  CharacterImageManager,
+  buildInitialDraftImages,
+  type DraftCharacterImage,
+} from './forms/CharacterImageManager';
 import { PromptBlockEditor } from './forms/PromptBlockEditor';
 import { SmartImportPanel } from './forms/SmartImportPanel';
 import { TagInputEditor } from './tags/TagInputEditor';
@@ -27,6 +32,7 @@ import {
   blocksToLibraryPromptSteps,
   buildNoteFieldsFromBlocks,
   extractPromptStoragePaths,
+  getCharacterImages,
   getCharacterSocialLinks,
   getLibraryPromptBlocks,
   getNoteDescriptionAndBlocks,
@@ -129,9 +135,14 @@ function VisibilitySelector({
   );
 }
 
+export type CharacterFormSavePayload = Omit<Character, 'id' | 'createdAt'> & {
+  id?: string;
+  draftImages?: DraftCharacterImage[];
+};
+
 interface CharacterFormProps {
   initialData?: Character;
-  onSave: (data: Omit<Character, 'id' | 'createdAt'> & { id?: string }) => void | Promise<void>;
+  onSave: (data: CharacterFormSavePayload) => void | Promise<void>;
   onCancel: () => void;
   isSaving?: boolean;
   canPublish?: boolean;
@@ -214,6 +225,9 @@ export function CharacterForm({
 }: CharacterFormProps) {
   const [name, setName] = useState(initialData?.name || '');
   const [charTags, setCharTags] = useState<string[]>(() => getCharacterTags(initialData));
+  const [draftImages, setDraftImages] = useState<DraftCharacterImage[]>(() =>
+    buildInitialDraftImages(getCharacterImages(initialData)),
+  );
   const [avatar, setAvatar] = useState(initialData?.avatar || '🍀');
   const [emojiCategory, setEmojiCategory] = useState(CHARACTER_EMOJI_GROUPS[0].id);
   const [description, setDescription] = useState(initialData?.description || '');
@@ -272,12 +286,8 @@ export function CharacterForm({
     }
 
     const syncedTagFields = applyTagsToCharacterFields(finalTags);
-    const finalRole = syncedTagFields.role || 'Độc lập / Tự do thoại / Nhập vai';
-
-    let finalDescription = description.trim();
-    if (!finalDescription) {
-      finalDescription = `Mô tả sự nghiệp, tính cách hoặc bối cảnh cốt truyện của ${name.trim()} chưa được thiết lập chi tiết. Nhân vật sẵn sàng đồng hành nhập vai cùng bạn.`;
-    }
+    const finalRole = syncedTagFields.role || 'Nhân vật';
+    const finalDescription = description.trim() || undefined;
 
     const effectiveVisibility: VisibilityMode =
       visibility === 'system' && !isAdmin ? 'private' : visibility;
@@ -288,6 +298,8 @@ export function CharacterForm({
       role: finalRole,
       tags: syncedTagFields.tags,
       avatar,
+      images: draftImages.map((d) => d.image),
+      draftImages,
       description: finalDescription,
       author: author.trim() || undefined,
       ggai: ggai.trim() || undefined,
@@ -356,6 +368,13 @@ export function CharacterForm({
             description,
             content: [backstoryUser, backstoryChar, prompt].filter(Boolean).join('\n\n'),
           }}
+          onToast={onToast}
+        />
+
+        <CharacterImageManager
+          items={draftImages}
+          onChange={setDraftImages}
+          disabled={isSaving}
           onToast={onToast}
         />
 
@@ -444,12 +463,12 @@ export function CharacterForm({
         </div>
 
         <div>
-          <label className={LABEL_CLASS}>Mô Tả / Giới Thiệu Ngắn (Tự động điền)</label>
+          <label className={LABEL_CLASS}>Mô Tả / Giới Thiệu Ngắn (Không bắt buộc)</label>
           <textarea
             rows={2}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Hãy mô tả nhiệm vụ cốt lõi mà AI này đảm nhiệm... (Để trống hệ thống sẽ tự sinh mô tả phù hợp)"
+            placeholder="Hãy mô tả cốt lõi nhân vật nếu muốn (có thể bỏ trống nếu chỉ lưu bằng ảnh)..."
             className={`${INPUT_CLASS} resize-none`}
           />
         </div>

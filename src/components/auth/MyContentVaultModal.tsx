@@ -14,7 +14,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import type { Character, Idea, LibraryPrompt, Note } from '../../types';
+import type { Character, Idea, LibraryPrompt, Note, SortOrder } from '../../types';
 import type { DataEntityKind } from '../../services/userDataService';
 import {
   buildVaultStatsKey,
@@ -22,6 +22,7 @@ import {
   type VaultItemCommunityStats,
 } from '../../services/communityService';
 import { getNoteBlockSummaryLabel } from '../../utils/contentBlocks';
+import { sortItemsByCreatedOrder } from '../../utils/dateFilterSort';
 
 interface MyContentVaultModalProps {
   isOpen: boolean;
@@ -32,6 +33,8 @@ interface MyContentVaultModalProps {
   notes: Note[];
   ideas: Idea[];
   libraryPrompts: LibraryPrompt[];
+  sortOrder: SortOrder;
+  onChangeSortOrder: (next: SortOrder) => void;
   isTogglingPublic: boolean;
   isSavingItem: boolean;
   onViewItem: (kind: DataEntityKind, item: Character | Note | Idea | LibraryPrompt) => void;
@@ -57,6 +60,7 @@ interface VaultEntry {
   icon: string;
   isPublic: boolean;
   isSystem: boolean;
+  createdAt: string;
   updatedAt: string;
   item: Character | Note | Idea | LibraryPrompt;
 }
@@ -88,6 +92,8 @@ export default function MyContentVaultModal({
   notes,
   ideas,
   libraryPrompts,
+  sortOrder,
+  onChangeSortOrder,
   isTogglingPublic,
   isSavingItem,
   onViewItem,
@@ -114,6 +120,7 @@ export default function MyContentVaultModal({
       title: string,
       subtitle: string,
       icon: string,
+      createdAt: string,
       updatedAt: string,
     ) => {
       if (!item.ownerId) return;
@@ -135,13 +142,22 @@ export default function MyContentVaultModal({
         icon,
         isPublic: Boolean(item.isPublic || item.isSystem),
         isSystem: Boolean(item.isSystem),
+        createdAt,
         updatedAt,
         item,
       });
     };
 
     for (const c of characters) {
-      pushEntry('character', c, c.name, c.role || 'Nhân vật', c.avatar || '🍀', c.publishedAt || c.createdAt);
+      pushEntry(
+        'character',
+        c,
+        c.name,
+        c.role || 'Nhân vật',
+        c.avatar || '🍀',
+        c.createdAt,
+        c.publishedAt || c.createdAt,
+      );
     }
     for (const n of notes) {
       pushEntry(
@@ -150,11 +166,20 @@ export default function MyContentVaultModal({
         n.title,
         getNoteBlockSummaryLabel(n) || 'Bài đăng Kho Lệnh',
         n.icon || '☘️',
+        n.createdAt,
         n.updatedAt || n.createdAt,
       );
     }
     for (const i of ideas) {
-      pushEntry('idea', i, i.title, i.content, '💡', i.updatedAt || i.createdAt);
+      pushEntry(
+        'idea',
+        i,
+        i.title,
+        i.content,
+        '💡',
+        i.createdAt,
+        i.updatedAt || i.createdAt,
+      );
     }
     for (const p of libraryPrompts) {
       pushEntry(
@@ -163,13 +188,16 @@ export default function MyContentVaultModal({
         p.title,
         p.description || `${p.steps.length} khối lệnh`,
         p.icon || '📚',
+        p.createdAt,
         p.publishedAt || p.createdAt,
       );
     }
 
-    list.sort((a, b) => Date.parse(b.updatedAt || '') - Date.parse(a.updatedAt || ''));
-    return list;
-  }, [characters, notes, ideas, libraryPrompts, userId, isAdmin]);
+    return sortItemsByCreatedOrder(
+      list.map((e) => ({ ...e, ownerId: e.ownerId })),
+      sortOrder,
+    );
+  }, [characters, notes, ideas, libraryPrompts, userId, isAdmin, sortOrder]);
 
   const statsSignature = useMemo(
     () => vaultEntries.map((e) => e.key).join('|'),
@@ -359,33 +387,63 @@ export default function MyContentVaultModal({
             ))}
           </div>
 
-          {/* Content Type Filter */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[11px] font-bold text-[#4C6A5C] dark:text-[#B8BDB5] mr-1">
-              Loại:
-            </span>
-            {(
-              [
-                { id: 'all', label: `Tất cả loại (${counts.total})` },
-                { id: 'character', label: `Nhân Vật (${counts.byType.character})` },
-                { id: 'note', label: `Câu Lệnh (${counts.byType.note})` },
-                { id: 'idea', label: `Ý Tưởng (${counts.byType.idea})` },
-                { id: 'library_prompt', label: `Kho Lệnh (${counts.byType.library_prompt})` },
-              ] as Array<{ id: TypeFilter; label: string }>
-            ).map((opt) => (
+          {/* Content Type Filter & Sort Order */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] font-bold text-[#4C6A5C] dark:text-[#B8BDB5] mr-1">
+                Loại:
+              </span>
+              {(
+                [
+                  { id: 'all', label: `Tất cả loại (${counts.total})` },
+                  { id: 'character', label: `Nhân Vật (${counts.byType.character})` },
+                  { id: 'note', label: `Câu Lệnh (${counts.byType.note})` },
+                  { id: 'idea', label: `Ý Tưởng (${counts.byType.idea})` },
+                  { id: 'library_prompt', label: `Kho Lệnh (${counts.byType.library_prompt})` },
+                ] as Array<{ id: TypeFilter; label: string }>
+              ).map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setTypeFilter(opt.id)}
+                  className={`px-2.5 py-1 rounded border text-[11px] font-semibold transition cursor-pointer ${
+                    typeFilter === opt.id
+                      ? 'bg-[#E2F3E8] dark:bg-[#343D37] border-[#39755D] dark:border-[#A3BDA8] text-[#1F533E] dark:text-[#E4E1D8]'
+                      : 'bg-[#FFFDF7] dark:bg-[#292E2B] border-[#CFE2D6] dark:border-[#49554D] text-[#527062] dark:text-[#B8BDB5] hover:bg-[#E2F3E8]/50 dark:hover:bg-[#343D37]'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-1 shrink-0">
+              <span className="text-[11px] font-bold text-[#4C6A5C] dark:text-[#B8BDB5] mr-0.5">
+                Sắp xếp:
+              </span>
               <button
-                key={opt.id}
                 type="button"
-                onClick={() => setTypeFilter(opt.id)}
-                className={`px-2.5 py-1 rounded border text-[11px] font-semibold transition cursor-pointer ${
-                  typeFilter === opt.id
+                onClick={() => onChangeSortOrder('newest')}
+                className={`px-2 py-1 rounded border text-[11px] font-semibold transition cursor-pointer ${
+                  sortOrder === 'newest'
                     ? 'bg-[#E2F3E8] dark:bg-[#343D37] border-[#39755D] dark:border-[#A3BDA8] text-[#1F533E] dark:text-[#E4E1D8]'
-                    : 'bg-[#FFFDF7] dark:bg-[#292E2B] border-[#CFE2D6] dark:border-[#49554D] text-[#527062] dark:text-[#B8BDB5] hover:bg-[#E2F3E8]/50 dark:hover:bg-[#343D37]'
+                    : 'bg-[#FFFDF7] dark:bg-[#292E2B] border-[#CFE2D6] dark:border-[#49554D] text-[#527062] dark:text-[#B8BDB5]'
                 }`}
               >
-                {opt.label}
+                Mới nhất
               </button>
-            ))}
+              <button
+                type="button"
+                onClick={() => onChangeSortOrder('oldest')}
+                className={`px-2 py-1 rounded border text-[11px] font-semibold transition cursor-pointer ${
+                  sortOrder === 'oldest'
+                    ? 'bg-[#E2F3E8] dark:bg-[#343D37] border-[#39755D] dark:border-[#A3BDA8] text-[#1F533E] dark:text-[#E4E1D8]'
+                    : 'bg-[#FFFDF7] dark:bg-[#292E2B] border-[#CFE2D6] dark:border-[#49554D] text-[#527062] dark:text-[#B8BDB5]'
+                }`}
+              >
+                Cũ nhất
+              </button>
+            </div>
           </div>
         </div>
 

@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Copy, ExternalLink, Plus, Trash2 } from 'lucide-react';
 import type { CharacterSocialLink, SocialPlatform } from '../../types';
 import {
   SOCIAL_PLATFORM_OPTIONS,
   createSocialLinkId,
+  detectSocialPlatformFromUrl,
   isSafeExternalHttpUrl,
 } from '../../utils/contentBlocks';
 import { SocialPlatformIcon } from '../common/SocialPlatformIcon';
@@ -15,6 +16,8 @@ interface SocialLinksEditorProps {
 
 export function SocialLinksEditor({ links, onChange }: SocialLinksEditorProps) {
   const [expandedLabelIds, setExpandedLabelIds] = useState<Record<string, boolean>>({});
+  const [manualPlatformIds, setManualPlatformIds] = useState<Record<string, boolean>>({});
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const handleAddLink = () => {
     const newId = createSocialLinkId();
@@ -22,7 +25,7 @@ export function SocialLinksEditor({ links, onChange }: SocialLinksEditorProps) {
       ...links,
       {
         id: newId,
-        platform: 'facebook',
+        platform: 'website',
         url: '',
       },
     ]);
@@ -33,11 +36,32 @@ export function SocialLinksEditor({ links, onChange }: SocialLinksEditorProps) {
     patch: Partial<Pick<CharacterSocialLink, 'platform' | 'url' | 'label'>>,
   ) => {
     onChange(
-      links.map((item) => (item.id === id ? { ...item, ...patch } : item)),
+      links.map((item) => {
+        if (item.id !== id) return item;
+        const next: CharacterSocialLink = { ...item, ...patch };
+        if (typeof patch.url === 'string' && !manualPlatformIds[id]) {
+          const detected = detectSocialPlatformFromUrl(patch.url, 'website');
+          if (patch.url.trim()) {
+            next.platform = detected;
+          }
+        }
+        return next;
+      }),
     );
   };
 
+  const handleManualPlatformChange = (id: string, platform: SocialPlatform) => {
+    setManualPlatformIds((prev) => ({ ...prev, [id]: true }));
+    onChange(links.map((item) => (item.id === id ? { ...item, platform } : item)));
+  };
+
   const handleRemoveLink = (id: string) => {
+    setManualPlatformIds((prev) => {
+      if (!prev[id]) return prev;
+      const copy = { ...prev };
+      delete copy[id];
+      return copy;
+    });
     onChange(links.filter((item) => item.id !== id));
   };
 
@@ -45,15 +69,28 @@ export function SocialLinksEditor({ links, onChange }: SocialLinksEditorProps) {
     setExpandedLabelIds((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
+  const handleCopyUrl = async (id: string, url: string) => {
+    if (!url.trim() || typeof navigator === 'undefined' || !navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(url.trim());
+      setCopiedId(id);
+      setTimeout(() => {
+        setCopiedId((prev) => (prev === id ? null : prev));
+      }, 1400);
+    } catch {
+      // Ignore clipboard write rejection
+    }
+  };
+
   return (
     <div className="retro-callout-mint p-3.5 space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h4 className="text-[11px] font-bold text-[#2B5A47] dark:text-[#A3BDA8] uppercase tracking-wider">
-            Mạng Xã Hội Liên Kết (Không bắt buộc)
+            Mạng Xã Hội Liên Kết (Tự nhận diện logo)
           </h4>
           <p className="text-[11px] text-[#587568] dark:text-[#B8BDB5] mt-0.5">
-            Thêm bao nhiêu liên kết tùy thích hoặc bỏ trống nếu không cần.
+            Dán link để tự động nhận diện nền tảng hoặc chọn thủ công. Có thể để trống.
           </p>
         </div>
 
@@ -87,8 +124,9 @@ export function SocialLinksEditor({ links, onChange }: SocialLinksEditorProps) {
               SOCIAL_PLATFORM_OPTIONS[SOCIAL_PLATFORM_OPTIONS.length - 1];
             const hasCustomLabel = Boolean(link.label && link.label.trim().length > 0);
             const isLabelExpanded = Boolean(expandedLabelIds[link.id] ?? hasCustomLabel);
-            const hasInvalidUrl =
-              link.url.trim().length > 0 && !isSafeExternalHttpUrl(link.url);
+            const trimmedUrl = link.url.trim();
+            const isValidUrl = trimmedUrl.length > 0 && isSafeExternalHttpUrl(trimmedUrl);
+            const hasInvalidUrl = trimmedUrl.length > 0 && !isValidUrl;
 
             return (
               <div
@@ -96,20 +134,21 @@ export function SocialLinksEditor({ links, onChange }: SocialLinksEditorProps) {
                 className="rounded-md border border-[#C3DDCD] dark:border-[#49554D] bg-[#FFFDF7] dark:bg-[#202423] p-2.5 space-y-2"
               >
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                  {/* Platform dropdown */}
-                  <div className="flex items-center gap-1.5 sm:w-40 shrink-0">
-                    <div className="w-7 h-8 rounded border border-[#C3DDCD] dark:border-[#49554D] bg-[#E2F3E8]/70 dark:bg-[#292E2B] flex items-center justify-center shrink-0">
-                      <SocialPlatformIcon platform={link.platform} className="w-3.5 h-3.5" />
+                  {/* Platform dropdown with live detected/selected logo */}
+                  <div className="flex items-center gap-1.5 sm:w-44 shrink-0">
+                    <div
+                      className="w-8 h-8 rounded border border-[#C3DDCD] dark:border-[#49554D] bg-[#E2F3E8]/70 dark:bg-[#292E2B] flex items-center justify-center shrink-0"
+                      title={`Nền tảng: ${platformMeta.label}`}
+                    >
+                      <SocialPlatformIcon platform={link.platform} className="w-4 h-4" />
                     </div>
                     <select
                       value={link.platform}
                       onChange={(e) =>
-                        handleUpdateLink(link.id, {
-                          platform: e.target.value as SocialPlatform,
-                        })
+                        handleManualPlatformChange(link.id, e.target.value as SocialPlatform)
                       }
                       aria-label="Chọn loại mạng xã hội"
-                      className="retro-input flex-1 h-8 px-2 text-xs font-semibold cursor-pointer"
+                      className="retro-input flex-1 h-8 px-2 text-xs font-semibold cursor-pointer min-w-0"
                     >
                       {SOCIAL_PLATFORM_OPTIONS.map((opt) => (
                         <option key={opt.id} value={opt.id}>
@@ -133,8 +172,36 @@ export function SocialLinksEditor({ links, onChange }: SocialLinksEditorProps) {
                     />
                   </div>
 
-                  {/* Action controls: custom label toggle + delete */}
+                  {/* Action controls: copy, open, custom label toggle, delete */}
                   <div className="flex items-center justify-end gap-1.5 shrink-0">
+                    {isValidUrl && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => void handleCopyUrl(link.id, trimmedUrl)}
+                          className="retro-btn h-8 w-8 flex items-center justify-center cursor-pointer"
+                          title="Sao chép liên kết"
+                          aria-label="Sao chép liên kết"
+                        >
+                          {copiedId === link.id ? (
+                            <Check className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
+                          ) : (
+                            <Copy className="w-3.5 h-3.5 text-[#4E6E60] dark:text-[#B8BDB5]" />
+                          )}
+                        </button>
+                        <a
+                          href={trimmedUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="retro-btn h-8 w-8 flex items-center justify-center cursor-pointer"
+                          title="Mở liên kết trong tab mới"
+                          aria-label="Mở liên kết"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5 text-[#4E6E60] dark:text-[#B8BDB5]" />
+                        </a>
+                      </>
+                    )}
+
                     <button
                       type="button"
                       onClick={() => toggleCustomLabel(link.id)}

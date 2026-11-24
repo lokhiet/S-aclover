@@ -12,15 +12,25 @@ import {
   Lock,
   Check,
   X,
+  User,
 } from 'lucide-react';
 import type { Character, CharacterComment } from '../../types';
 import {
+  createAnonymousCharacterComment,
   createCharacterComment,
   deleteCharacterComment,
   fetchCharacterComments,
   moderateCharacterComment,
   updateCharacterComment,
 } from '../../services/communityService';
+import {
+  GUEST_CUSTOM_NAME_MAX_LENGTH,
+  GUEST_DISPLAY_PREFIX,
+  loadGuestCommentIdentity,
+  normalizeGuestCustomName,
+  resolveGuestIdentityForSubmission,
+  saveGuestCustomName,
+} from '../../utils/guestCommentIdentity';
 import { AuthorAvatar } from '../common/AuthorAvatar';
 
 interface CharacterCommentsSectionProps {
@@ -65,6 +75,13 @@ export function CharacterCommentsSection({
   const [hideReasonDraft, setHideReasonDraft] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
 
+  const [guestNameInput, setGuestNameInput] = useState<string>(
+    () => loadGuestCommentIdentity().customName,
+  );
+  const [guestRandomCode, setGuestRandomCode] = useState<string | null>(
+    () => loadGuestCommentIdentity().randomCode,
+  );
+
   const canCommentTarget = Boolean(
     character.ownerId && (character.isPublic || character.isSystem),
   );
@@ -91,14 +108,63 @@ export function CharacterCommentsSection({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [character.ownerId, character.id, character.isPublic, character.isSystem, profileRevision]);
 
+  useEffect(() => {
+    if (!isAuthenticated) {
+      const saved = loadGuestCommentIdentity();
+      setGuestNameInput(saved.customName);
+      setGuestRandomCode(saved.randomCode);
+    }
+  }, [isAuthenticated]);
+
+  const handleGuestNameChange = (value: string) => {
+    setGuestNameInput(value);
+    const saved = saveGuestCustomName(value);
+    setGuestRandomCode(saved.randomCode);
+  };
+
+  const handleClearGuestName = () => {
+    setGuestNameInput('');
+    const saved = saveGuestCustomName('');
+    setGuestRandomCode(saved.randomCode);
+  };
+
+  const normalizedPreviewName = normalizeGuestCustomName(guestNameInput);
+  const guestPreviewDisplayName = normalizedPreviewName
+    ? `${GUEST_DISPLAY_PREFIX} (${normalizedPreviewName})`
+    : guestRandomCode
+      ? `${GUEST_DISPLAY_PREFIX} (${guestRandomCode})`
+      : `${GUEST_DISPLAY_PREFIX} (Số ngẫu nhiên 4 chữ số)`;
+
   const handlePostComment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canCommentTarget || !character.ownerId) return;
+    if (!newContent.trim() || isSubmitting) return;
+
     if (!isAuthenticated || !currentUserId) {
-      onRequireAuth();
+      const identity = resolveGuestIdentityForSubmission(guestNameInput);
+      setGuestNameInput(identity.state.customName);
+      setGuestRandomCode(identity.state.randomCode);
+
+      setIsSubmitting(true);
+      const res = await createAnonymousCharacterComment({
+        characterOwnerId: character.ownerId,
+        characterItemId: character.id,
+        guestName: identity.label,
+        content: newContent,
+        clientToken: identity.state.clientToken,
+      });
+      setIsSubmitting(false);
+
+      if (!res.ok || !res.data) {
+        onToast(res.error?.message || 'Không thể gửi bình luận ẩn danh.');
+        return;
+      }
+
+      setComments((prev) => [res.data!, ...prev]);
+      setNewContent('');
+      onToast('Đã đăng bình luận ẩn danh!');
       return;
     }
-    if (!newContent.trim() || isSubmitting) return;
 
     setIsSubmitting(true);
     const res = await createCharacterComment(
@@ -120,6 +186,10 @@ export function CharacterCommentsSection({
   };
 
   const handleSaveEdit = async (commentId: string) => {
+    if (!isAuthenticated || !currentUserId) {
+      onRequireAuth();
+      return;
+    }
     if (!editDraft.trim() || busyId) return;
     setBusyId(commentId);
     const res = await updateCharacterComment(commentId, editDraft);
@@ -134,6 +204,10 @@ export function CharacterCommentsSection({
   };
 
   const handleDelete = async (commentId: string) => {
+    if (!isAuthenticated || !currentUserId) {
+      onRequireAuth();
+      return;
+    }
     if (busyId) return;
     setBusyId(commentId);
     const res = await deleteCharacterComment(commentId);
@@ -147,7 +221,7 @@ export function CharacterCommentsSection({
   };
 
   const handleToggleHide = async (comment: CharacterComment, reason?: string) => {
-    if (!isAdmin || busyId) return;
+    if (!isAuthenticated || !isAdmin || busyId) return;
     setBusyId(comment.id);
     const res = await moderateCharacterComment(comment.id, !comment.isHidden, reason);
     setBusyId(null);
@@ -220,18 +294,73 @@ export function CharacterCommentsSection({
                 </div>
               </form>
             ) : (
-              <div className="retro-callout-mint px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xs text-[#3C584C] dark:text-[#B8BDB5]">
-                  Khách chưa đăng nhập có thể đọc bình luận. Đăng nhập để tham gia thảo luận nhé!
-                </p>
-                <button
-                  type="button"
-                  onClick={onRequireAuth}
-                  className="retro-btn-primary px-3 py-1 text-xs font-semibold cursor-pointer"
-                >
-                  Đăng nhập để bình luận
-                </button>
-              </div>
+              <form onSubmit={handlePostComment} className="retro-callout-mint p-3.5 space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-[#224C3B] dark:text-[#E4E1D8] flex items-center gap-1.5">
+                    <User className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
+                    Bình luận ẩn danh
+                  </span>
+                  <span className="text-[11px] text-[#3C584C] dark:text-[#B8BDB5]">
+                    Hiển thị:{' '}
+                    <strong className="text-[#1F533E] dark:text-[#E4E1D8]">
+                      {guestPreviewDisplayName}
+                    </strong>
+                  </span>
+                </div>
+
+                <div className="space-y-1">
+                  <div className="relative">
+                    <input
+                      type="text"
+                      maxLength={GUEST_CUSTOM_NAME_MAX_LENGTH}
+                      value={guestNameInput}
+                      onChange={(e) => handleGuestNameChange(e.target.value)}
+                      placeholder="Tên của bạn (không bắt buộc)"
+                      className="retro-input w-full px-3 py-1.5 pr-8 text-xs sm:text-sm"
+                    />
+                    {guestNameInput && (
+                      <button
+                        type="button"
+                        onClick={handleClearGuestName}
+                        title="Xóa tên tự đặt để dùng số ngẫu nhiên"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-[#587568] dark:text-[#B8BDB5] hover:text-[#224C3B] dark:hover:text-[#E4E1D8] cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-[#5B776A] dark:text-[#B8BDB5]">
+                    Nếu không đặt tên, SéaClover sẽ tự tạo một số ngẫu nhiên cho bạn.
+                  </p>
+                </div>
+
+                <textarea
+                  rows={3}
+                  maxLength={1500}
+                  value={newContent}
+                  onChange={(e) => setNewContent(e.target.value)}
+                  placeholder={`Viết bình luận ẩn danh về ${character.name}...`}
+                  className="retro-input w-full px-3 py-2 text-xs sm:text-sm leading-relaxed resize-y"
+                />
+
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] text-[#6B877B] dark:text-[#B8BDB5] tabular-nums-mono">
+                    {newContent.trim().length}/1500
+                  </span>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting || !newContent.trim()}
+                    className="retro-btn-primary px-3.5 py-1.5 text-xs font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    {isSubmitting ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Send className="w-3.5 h-3.5" />
+                    )}
+                    Gửi bình luận
+                  </button>
+                </div>
+              </form>
             )}
 
             {isLoading ? (
@@ -246,7 +375,15 @@ export function CharacterCommentsSection({
             ) : (
               <div className="space-y-2.5">
                 {comments.map((comment) => {
-                  const isOwn = Boolean(currentUserId && comment.userId === currentUserId);
+                  const isAnonymousComment = Boolean(
+                    comment.isAnonymous || comment.authorRole === 'guest' || !comment.userId,
+                  );
+                  const isOwn = Boolean(
+                    isAuthenticated &&
+                      currentUserId &&
+                      !isAnonymousComment &&
+                      comment.userId === currentUserId,
+                  );
                   const isEditing = editingId === comment.id;
                   const isModerating = moderatingId === comment.id;
                   const isBusy = busyId === comment.id;
@@ -262,19 +399,34 @@ export function CharacterCommentsSection({
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                          <AuthorAvatar
-                            name={comment.authorDisplayName}
-                            avatarUrl={comment.authorAvatarUrl}
-                            size="sm"
-                          />
+                          {isAnonymousComment ? (
+                            <span
+                              className="w-6 h-6 rounded-full bg-[#EDF6F0] dark:bg-[#2F3933] border border-[#9FC4AF] dark:border-[#4E6155] flex items-center justify-center text-[#39755D] dark:text-[#A3BDA8] shrink-0"
+                              aria-hidden="true"
+                            >
+                              <User className="w-3.5 h-3.5" />
+                            </span>
+                          ) : (
+                            <AuthorAvatar
+                              name={comment.authorDisplayName}
+                              avatarUrl={comment.authorAvatarUrl}
+                              size="sm"
+                            />
+                          )}
                           <span className="text-xs font-bold text-[#1E3B2E] dark:text-[#E4E1D8] truncate">
                             {comment.authorDisplayName}
                           </span>
-                          {comment.authorRole === 'admin' && (
-                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-[#E2F3E8] dark:bg-[#343D37] text-[#1F533E] dark:text-[#A3BDA8] text-[10px] font-bold">
-                              <ShieldCheck className="w-3 h-3" />
-                              Admin
+                          {isAnonymousComment ? (
+                            <span className="px-1.5 py-0.5 rounded bg-[#FAF6EA] dark:bg-[#292E2B] border border-[#D4E2D9] dark:border-[#49554D] text-[#5B776A] dark:text-[#B8BDB5] text-[10px] font-semibold">
+                              Ẩn danh
                             </span>
+                          ) : (
+                            comment.authorRole === 'admin' && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-[#E2F3E8] dark:bg-[#343D37] text-[#1F533E] dark:text-[#A3BDA8] text-[10px] font-bold">
+                                <ShieldCheck className="w-3 h-3" />
+                                Admin
+                              </span>
+                            )
                           )}
                           <span className="inline-flex items-center gap-1 text-[10px] text-[#6B877B] dark:text-[#B8BDB5]">
                             <Clock className="w-3 h-3" />
@@ -302,6 +454,7 @@ export function CharacterCommentsSection({
                             >
                               <Pencil className="w-3 h-3" />
                             </button>
+                          
                           )}
 
                           {isAdmin && (

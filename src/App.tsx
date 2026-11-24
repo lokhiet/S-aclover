@@ -31,10 +31,31 @@ import {
   Bell,
   Lock,
   ShieldCheck,
+  Calendar,
+  ArrowUpDown,
+  RotateCcw,
+  X,
 } from 'lucide-react';
 import CloverClickBurst from './components/CloverClickBurst';
-import { Note, Idea, Character, AppState, LibraryPrompt, SystemAnnouncement, SharedTag } from './types';
-import { CharacterForm, NoteForm, IdeaForm, LibraryPromptForm } from './components/RepositoryForms';
+import {
+  Note,
+  Idea,
+  Character,
+  CharacterImage,
+  AppState,
+  LibraryPrompt,
+  SystemAnnouncement,
+  SharedTag,
+  MAX_CHARACTER_IMAGES,
+  SortOrder,
+} from './types';
+import {
+  CharacterForm,
+  NoteForm,
+  IdeaForm,
+  LibraryPromptForm,
+  type CharacterFormSavePayload,
+} from './components/RepositoryForms';
 import Toast from './components/Toast';
 import AccountButton from './components/auth/AccountButton';
 import AuthModal from './components/auth/AuthModal';
@@ -50,16 +71,20 @@ import { ContentInteractionBar } from './components/community/ContentInteraction
 import { CharacterCommentsSection } from './components/community/CharacterCommentsSection';
 import { PromptRatingSection } from './components/community/PromptRatingSection';
 import { SocialPlatformIcon } from './components/common/SocialPlatformIcon';
+import { CharacterAvatarThumb, CharacterDetailGallery } from './components/common/CharacterImageDisplay';
 import { PromptBlocksView } from './components/prompts/PromptBlocksView';
 import { TagFilterBar } from './components/tags/TagFilterBar';
 import { AllTagsModal, type TagMutationEvent } from './components/tags/AllTagsModal';
 import {
+  detectSocialPlatformFromUrl,
   extractPromptStoragePaths,
+  getCharacterImages,
   getCharacterSocialLinks,
   getLibraryPromptBlocks,
   getNoteDescriptionAndBlocks,
   getSocialPlatformLabel,
   isSafeExternalHttpUrl,
+  normalizeCharacterImages,
 } from './utils/contentBlocks';
 import {
   applyTagsToCharacterFields,
@@ -79,7 +104,29 @@ import {
   fetchSharedTags,
   type BuiltinTagOverridesMap,
 } from './services/tagAdminService';
-import { deletePromptIllustrationPaths } from './services/mediaService';
+import {
+  deleteCharacterImagePaths,
+  deletePromptIllustrationPaths,
+  invalidateCharacterImageSignedCache,
+  uploadCharacterImageBlob,
+} from './services/mediaService';
+import {
+  getLocalImageBlob,
+  hasIndexedDbStoredImages,
+} from './services/localImageStore';
+import {
+  buildSavedCharacterDatesList,
+  formatCreatedDateShort,
+  getCharacterDateFilterBadgeLabel,
+  matchesCharacterDateFilter,
+  sortItemsByCreatedOrder,
+  toLocalDateKey,
+  type CharacterDateFilter,
+} from './utils/dateFilterSort';
+import {
+  findPromptsByOriginalAuthor,
+  isSameOriginalAuthor,
+} from './utils/authorMatching';
 import {
   PixelCloverIcon,
   PixelCharacterIcon,
@@ -97,13 +144,9 @@ import { initialCharacters, initialIdeas } from './initialData';
 import { defaultLibraryPrompts } from './promptsData';
 import { authorsList } from './authorsData';
 import { 
-  loadState, 
-  saveState, 
-  loadGuestMeta,
+  getGuestPublicBuiltinState,
   loadUiPrefs,
   saveUiPrefs,
-  markGuestItemCustomized,
-  markGuestItemDeleted,
   readRawLocalStorageState,
 } from './utils';
 import {
@@ -140,6 +183,28 @@ import {
 import { fetchSystemAnnouncements } from './services/communityService';
 
 const BUILTIN_LIB_PROMPT_IDS = new Set(defaultLibraryPrompts.map((p) => p.id));
+const BUILTIN_CHAR_IDS = new Set(BUILTIN_CHARACTER_MAP.keys());
+const BUILTIN_IDEA_IDS = new Set(BUILTIN_IDEA_MAP.keys());
+
+function collectStoragePathsExcluding(
+  chars: Character[],
+  excludeChar?: { id: string; ownerId?: string },
+): Set<string> {
+  const paths = new Set<string>();
+  for (const c of chars) {
+    if (
+      excludeChar &&
+      c.id === excludeChar.id &&
+      (c.ownerId || '') === (excludeChar.ownerId || '')
+    ) {
+      continue;
+    }
+    for (const img of getCharacterImages(c)) {
+      if (img.storagePath) paths.add(img.storagePath);
+    }
+  }
+  return paths;
+}
 
 function getItemKey(item: { id: string; ownerId?: string; cloudKey?: string }): string {
   return item.cloudKey || (item.ownerId ? `${item.ownerId}:${item.id}` : item.id);
@@ -263,80 +328,31 @@ export const getIdeaIcon = (idea: Idea): string => {
   return emojiPalette[charSum % emojiPalette.length];
 };
 
-// Official Brand Logos for Social Links
-const BrandFacebookLogo = ({ className = "w-5 h-5" }: { className?: string }) => (
-  <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <circle cx="12" cy="12" r="12" fill="#1877F2"/>
-    <path d="M14.6 12H12.7V17.2H10.5V12H9.5V10.1H10.5V8.9C10.5 7.1 11.4 6.2 13.2 6.2H14.7V8.1H13.7C12.9 8.1 12.7 8.5 12.7 9V10.1H14.7L14.6 12Z" fill="white"/>
-  </svg>
+const renderBrandLogoForUrl = (url: string) => (
+  <SocialPlatformIcon
+    platform={detectSocialPlatformFromUrl(url)}
+    className="w-5 h-5 flex-shrink-0"
+  />
 );
-
-const BrandDiscordLogo = ({ className = "w-5 h-5" }: { className?: string }) => (
-  <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <circle cx="12" cy="12" r="12" fill="#5865F2"/>
-    <path d="M16.6 8.5C15.5 8 14.3 7.7 13 7.5L12.8 7.9C14.1 8.3 15.2 8.9 16.3 9.7C15.1 9.1 13.9 8.7 12.6 8.6C11.3 8.4 10 8.5 8.7 8.8C7.6 9 6.5 9.4 5.5 10C6.5 9.1 7.7 8.5 9 8.1L8.8 7.7C7.6 7.9 6.4 8.2 5.2 8.7C4.6 10.6 4 13.8 4.6 16.8C5.8 17.7 7.3 18.2 8.8 18.3L9.6 17.2C8.6 16.9 7.6 16.4 6.7 15.7C7.4 16.1 8.2 16.4 9 16.6C10.4 16.9 11.9 17 13.3 16.8C14.3 16.7 15.2 16.4 16 16C15.1 16.6 14.1 17 13.1 17.3L13.9 18.4C15.4 18.3 16.9 17.8 18.1 16.9C18.8 13.7 18.1 10.5 16.6 8.5ZM9.3 14.4C8.5 14.4 7.8 13.7 7.8 12.9C7.8 12.1 8.5 11.4 9.3 11.4C10.1 11.4 10.8 12.1 10.8 12.9C10.8 13.7 10.1 14.4 9.3 14.4ZM14 14.4C13.2 14.4 12.5 13.7 12.5 12.9C12.5 12.1 13.2 11.4 14 11.4C14.8 11.4 15.5 12.1 15.5 12.9C15.5 13.7 14.8 14.4 14 14.4Z" fill="white"/>
-  </svg>
-);
-
-const BrandGoogleLogo = ({ className = "w-5 h-5" }: { className?: string }) => (
-  <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#FBBC05"/>
-    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335"/>
-  </svg>
-);
-
-const BrandGoogleDriveLogo = ({ className = "w-5 h-5" }: { className?: string }) => (
-  <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path d="M15.135 3H8.865L2 14.9L5.135 20.35H11.4L18.265 8.45L15.135 3Z" fill="#34A853"/>
-    <path d="M11.4 8.45H22L18.865 3H8.865L11.4 8.45Z" fill="#4285F4"/>
-    <path d="M22 8.45H11.4L5.135 20.35H18.865L22 8.45Z" fill="#FBBC05"/>
-  </svg>
-);
-
-const BrandGithubLogo = ({ className = "w-5 h-5" }: { className?: string }) => (
-  <svg className={className} viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
-  </svg>
-);
-
-const BrandGlobeLogo = ({ className = "w-5 h-5", color = "#10B981" }: { className?: string; color?: string }) => (
-  <svg className={className} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" xmlns="http://www.w3.org/2000/svg">
-    <circle cx="12" cy="12" r="10" />
-    <line x1="2" y1="12" x2="22" y2="12" />
-    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-  </svg>
-);
-
-const getLogoForUrl = (url: string) => {
-  const norm = url.toLowerCase();
-  if (norm.includes('facebook.com') || norm.includes('fb.com') || norm.includes('fb.watch')) {
-    return <BrandFacebookLogo className="w-5 h-5 flex-shrink-0" />;
-  }
-  if (norm.includes('discord.gg') || norm.includes('discord.com')) {
-    return <BrandDiscordLogo className="w-5 h-5 flex-shrink-0" />;
-  }
-  if (norm.includes('drive.google.com') || norm.includes('docs.google.com') || norm.includes('sheets.google.com') || norm.includes('forms.gle')) {
-    return <BrandGoogleDriveLogo className="w-5 h-5 flex-shrink-0" />;
-  }
-  if (norm.includes('github.com')) {
-    return <BrandGithubLogo className="w-5 h-5 flex-shrink-0" />;
-  }
-  return <BrandGlobeLogo className="w-5 h-5 flex-shrink-0" color="#10B981" />;
-};
 
 export default function App() {
-  // Load initial states from LocalStorage or seed data safely on startup
-  const initialLocalStateRef = useRef<AppState | null>(null);
-  if (initialLocalStateRef.current === null) {
-    initialLocalStateRef.current = loadState();
+  // Khởi tạo chế độ Khách thuần đọc (không đọc ghi chú cá nhân cũ và tuyệt đối không ghi đè seaclover_state)
+  const rawLegacyStateRef = useRef<Partial<AppState> | null>(null);
+  if (rawLegacyStateRef.current === null) {
+    rawLegacyStateRef.current = readRawLocalStorageState() ?? {};
   }
-  const initialLocalState = initialLocalStateRef.current;
   const initialUiPrefs = loadUiPrefs({
-    theme: initialLocalState.theme,
-    cloverEffect: initialLocalState.cloverEffect,
+    theme: rawLegacyStateRef.current.theme === 'dark' ? 'dark' : 'light',
+    cloverEffect:
+      typeof rawLegacyStateRef.current.cloverEffect === 'boolean'
+        ? rawLegacyStateRef.current.cloverEffect
+        : true,
   });
+  const initialGuestStateRef = useRef<AppState | null>(null);
+  if (initialGuestStateRef.current === null) {
+    initialGuestStateRef.current = getGuestPublicBuiltinState(initialUiPrefs);
+  }
+  const initialLocalState = initialGuestStateRef.current;
 
   const [notes, setNotes] = useState<Note[]>(() => initialLocalState.notes);
   const [ideas, setIdeas] = useState<Idea[]>(() => initialLocalState.ideas);
@@ -410,9 +426,19 @@ export default function App() {
   const [isAnnouncementsModalOpen, setIsAnnouncementsModalOpen] = useState(false);
   const [sourceFilter, setSourceFilter] = useState<'all' | 'system' | 'community' | 'mine'>('all');
 
+  // Character Date Saved Filter & Unified Newest/Oldest Sort preferences
+  const [charDateFilter, setCharDateFilter] = useState<CharacterDateFilter>({ mode: 'all' });
+  const [isCharDateFilterOpen, setIsCharDateFilterOpen] = useState(false);
+  const [promptAuthorFilter, setPromptAuthorFilter] = useState('');
+  const [charSort, setCharSort] = useState<SortOrder>(() => initialUiPrefs.charSort);
+  const [noteSort, setNoteSort] = useState<SortOrder>(() => initialUiPrefs.noteSort);
+  const [ideaSort, setIdeaSort] = useState<SortOrder>(() => initialUiPrefs.ideaSort);
+  const [vaultSort, setVaultSort] = useState<SortOrder>(() => initialUiPrefs.vaultSort);
+
   // Conflict resolution modal state (Optimistic Concurrency Control)
   const [activeConflict, setActiveConflict] = useState<ConflictDetail | null>(null);
   const [isResolvingConflict, setIsResolvingConflict] = useState(false);
+  const conflictUploadPathsRef = useRef<string[]>([]);
 
   // Local migration & Cloud JSON import modal state
   const [isMigrationModalOpen, setIsMigrationModalOpen] = useState(false);
@@ -421,6 +447,8 @@ export default function App() {
   const [migrationBackupPayload, setMigrationBackupPayload] = useState<Partial<AppState> | null>(null);
   const [pendingResumableJob, setPendingResumableJob] = useState<ImportJobPlan | null>(null);
   const [hasLocalDataToImport, setHasLocalDataToImport] = useState(false);
+  const [hasLegacyGuestData, setHasLegacyGuestData] = useState(false);
+  const [legacyNoticeDismissed, setLegacyNoticeDismissed] = useState(false);
 
   // Refs to guard against stale async fetches and avoid disrupting active edits
   const fetchRequestIdRef = useRef(0);
@@ -479,6 +507,37 @@ export default function App() {
       clearAuthError();
     }
   }, [authError, isAuthModalOpen, clearAuthError]);
+
+  // Kiểm tra không phá hủy xem trình duyệt còn dữ liệu cục bộ cũ từ phiên bản trước hay không
+  useEffect(() => {
+    if (isAuthenticated) {
+      setHasLegacyGuestData(false);
+      return;
+    }
+
+    let cancelled = false;
+    const personal = extractPersonalLocalData();
+    const hasLocalItems =
+      personal.characters.length > 0 ||
+      personal.notes.length > 0 ||
+      personal.ideas.length > 0 ||
+      personal.libraryPrompts.length > 0;
+
+    if (hasLocalItems) {
+      setHasLegacyGuestData(true);
+      return;
+    }
+
+    void hasIndexedDbStoredImages().then((hasImgs) => {
+      if (!cancelled) {
+        setHasLegacyGuestData(hasImgs);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated]);
 
   // Set page-level dark class globally on HTML node when theme changes
   useEffect(() => {
@@ -688,7 +747,7 @@ export default function App() {
         void syncFromSupabase(userId, { silent: false, checkLocalPrompt: true });
       }
     } else if (activeSyncedUserIdRef.current !== null) {
-      // Đã đăng xuất về chế độ Khách: khôi phục dữ liệu cục bộ nguyên vẹn từ seaclover_state
+      // Đã đăng xuất về chế độ Khách: chỉ hiển thị nội dung hệ thống/công khai (tuyệt đối không xóa dữ liệu cục bộ cũ)
       fetchRequestIdRef.current += 1;
       activeSyncedUserIdRef.current = null;
       setIsCreating(false);
@@ -709,7 +768,7 @@ export default function App() {
       setSelectedLibraryPromptId(null);
       setSourceFilter('all');
 
-      const guestState = loadState();
+      const guestState = getGuestPublicBuiltinState({ theme, cloverEffect });
       setNotes(guestState.notes);
       setIdeas(guestState.ideas);
       setCharacters(guestState.characters);
@@ -787,28 +846,13 @@ export default function App() {
     setIsMigrationModalOpen(true);
   };
 
-  // Sync back to local storage ONLY in Guest mode (tuyệt đối không ghi dữ liệu tài khoản vào seaclover_state)
-  const persistToLocalStorage = (currentState: AppState) => {
-    if (isAuthenticated && userId) return;
-    saveState(currentState);
-  };
-
-  const syncState = (updatedNotes: Note[], updatedIdeas: Idea[], updatedChars: Character[], updatedLibraryPrompts?: LibraryPrompt[]) => {
-    setNotes(updatedNotes);
-    setIdeas(updatedIdeas);
-    setCharacters(updatedChars);
-    if (updatedLibraryPrompts) {
-      setLibraryPrompts(updatedLibraryPrompts);
-    }
-    persistToLocalStorage({
-      notes: updatedNotes,
-      ideas: updatedIdeas,
-      characters: updatedChars,
-      theme,
-      cloverEffect,
-      libraryPrompts: updatedLibraryPrompts || libraryPrompts,
-    });
-  };
+  const requireAuthForWriteAction = useCallback(
+    (message = 'Đăng nhập để lưu nội dung và đồng bộ kho cá nhân của bạn.') => {
+      showToast(message, 'info');
+      openAuthModal('login');
+    },
+    [showToast],
+  );
 
   // Clipboard copy procedure with absolute safety helper
   const copyToClipboard = async (text: string, label: string) => {
@@ -836,6 +880,8 @@ export default function App() {
     setActiveTab(tab);
     setSearchQuery('');
     setSourceFilter('all');
+    setIsCharDateFilterOpen(false);
+    setPromptAuthorFilter('');
     setIsCreating(false);
     setIsEditing(false);
     setIsCreatingLibraryPrompt(false);
@@ -851,6 +897,8 @@ export default function App() {
     setSelectedLibraryPromptId(null);
     setSelectedIdeaId(null);
     setSelectedCharId(null);
+    setIsCharDateFilterOpen(false);
+    setPromptAuthorFilter('');
     setIsCreating(false);
     setIsEditing(false);
     setIsCreatingLibraryPrompt(false);
@@ -859,14 +907,11 @@ export default function App() {
     setSearchQuery('');
   };
 
-  // Toggle dark theme
+  // Toggle dark theme (lưu riêng trong seaclover_ui_prefs, không chạm vào seaclover_state cũ)
   const toggleTheme = () => {
     const nextTheme = theme === 'light' ? 'dark' : 'light';
     setTheme(nextTheme);
     saveUiPrefs({ theme: nextTheme, cloverEffect });
-    if (!isAuthenticated) {
-      persistToLocalStorage({ notes, ideas, characters, theme: nextTheme, cloverEffect, libraryPrompts });
-    }
   };
 
   /* ----------------- MERGED DISPLAY LISTS (PERSONAL/GUEST + SYSTEM + COMMUNITY) ----------------- */
@@ -877,9 +922,6 @@ export default function App() {
         .filter((c) => Boolean(c.ownerId) && Boolean(c.isSystem))
         .map((c) => c.id),
     );
-    const guestCustomizedIds = !isAuthenticated
-      ? new Set(loadGuestMeta().customizedCharacterIds)
-      : null;
 
     const seenKeys = new Set<string>();
     const ownFiltered: Character[] = [];
@@ -891,7 +933,6 @@ export default function App() {
       if (
         !c.ownerId &&
         builtinTagOverrides.schemaReady &&
-        !(guestCustomizedIds && guestCustomizedIds.has(c.id)) &&
         Object.prototype.hasOwnProperty.call(builtinTagOverrides.characterTags, c.id)
       ) {
         const nextFields = applyTagsToCharacterFields(builtinTagOverrides.characterTags[c.id]);
@@ -909,7 +950,7 @@ export default function App() {
       extra.push(pub);
     }
     return [...extra.filter((c) => c.isSystem), ...ownFiltered, ...extra.filter((c) => !c.isSystem)];
-  }, [characters, publicSnapshot, builtinTagOverrides, isAuthenticated]);
+  }, [characters, publicSnapshot, builtinTagOverrides]);
 
   const displayNotes = useMemo<Note[]>(() => {
     const seenKeys = new Set<string>();
@@ -936,9 +977,6 @@ export default function App() {
         .filter((i) => Boolean(i.ownerId) && Boolean(i.isSystem))
         .map((i) => i.id),
     );
-    const guestCustomizedIds = !isAuthenticated
-      ? new Set(loadGuestMeta().customizedIdeaIds)
-      : null;
 
     const seenKeys = new Set<string>();
     const ownFiltered: Idea[] = [];
@@ -950,7 +988,6 @@ export default function App() {
       if (
         !i.ownerId &&
         builtinTagOverrides.schemaReady &&
-        !(guestCustomizedIds && guestCustomizedIds.has(i.id)) &&
         Object.prototype.hasOwnProperty.call(builtinTagOverrides.ideaTags, i.id)
       ) {
         ownFiltered.push({ ...i, tags: builtinTagOverrides.ideaTags[i.id] });
@@ -967,7 +1004,7 @@ export default function App() {
       extra.push(pub);
     }
     return [...extra.filter((i) => i.isSystem), ...extra.filter((i) => !i.isSystem), ...ownFiltered];
-  }, [ideas, publicSnapshot, builtinTagOverrides, isAuthenticated]);
+  }, [ideas, publicSnapshot, builtinTagOverrides]);
 
   const displayLibraryPrompts = useMemo<LibraryPrompt[]>(() => {
     const systemCloudIds = new Set(
@@ -975,9 +1012,6 @@ export default function App() {
         .filter((p) => Boolean(p.ownerId) && Boolean(p.isSystem))
         .map((p) => p.id),
     );
-    const guestCustomizedIds = !isAuthenticated
-      ? new Set(loadGuestMeta().customizedLibraryPromptIds)
-      : null;
 
     const seenKeys = new Set<string>();
     const ownSystemOrCustom: LibraryPrompt[] = [];
@@ -992,7 +1026,6 @@ export default function App() {
         ownSystemOrCustom.push(p);
       } else if (
         builtinTagOverrides.schemaReady &&
-        !(guestCustomizedIds && guestCustomizedIds.has(p.id)) &&
         Object.prototype.hasOwnProperty.call(builtinTagOverrides.libraryPromptTags, p.id)
       ) {
         builtins.push({ ...p, tags: builtinTagOverrides.libraryPromptTags[p.id] });
@@ -1009,22 +1042,21 @@ export default function App() {
       extra.push(pub);
     }
     return [...extra.filter((p) => p.isSystem), ...ownSystemOrCustom, ...extra.filter((p) => !p.isSystem), ...builtins];
-  }, [libraryPrompts, publicSnapshot, builtinTagOverrides, isAuthenticated]);
+  }, [libraryPrompts, publicSnapshot, builtinTagOverrides]);
 
-  // Quyền sửa / xóa khớp 100% với RLS phía Supabase
+  // Quyền sửa / xóa khớp 100% với RLS phía Supabase (Khách chưa đăng nhập luôn trả false)
   const canEditOrDeleteItem = useCallback(
     (
       kind: 'character' | 'note' | 'idea',
       item: { id: string; ownerId?: string; isSystem?: boolean } | null | undefined,
     ): boolean => {
-      if (!item) return false;
-      if (item.isSystem) return Boolean(isAuthenticated && isAdmin);
-      if (item.ownerId) return Boolean(isAuthenticated && userId && item.ownerId === userId);
-      // Nội dung mặc định tích hợp sẵn (rp-1..rp-160) không cho sửa/xóa chéo khi đã đăng nhập
+      if (!item || !isAuthenticated || !userId) return false;
+      if (item.isSystem) return isAdmin;
+      if (item.ownerId) return item.ownerId === userId;
       if (kind === 'idea' && BUILTIN_IDEA_MAP.has(item.id)) {
-        return !isAuthenticated;
+        return false;
       }
-      return true;
+      return false;
     },
     [isAuthenticated, isAdmin, userId],
   );
@@ -1152,29 +1184,105 @@ export default function App() {
     }
   };
 
-  // Characters
-  const handleSaveCharacter = async (data: Omit<Character, 'id' | 'createdAt'> & { id?: string }) => {
-    // Chế độ tài khoản Supabase: chờ máy chủ xác nhận trước khi cập nhật UI
+  // Characters (hỗ trợ 0..5 ảnh qua Supabase Storage — yêu cầu đăng nhập)
+  const handleSaveCharacter = async (data: CharacterFormSavePayload) => {
+    if (!isAuthenticated || !userId) {
+      requireAuthForWriteAction('Đăng nhập để lưu nhân vật và đồng bộ kho nội dung của bạn.');
+      return;
+    }
+    const { draftImages, ...charPayload } = data;
+    const targetCharId = charPayload.id || `char-${Date.now()}`;
+
+    // Chế độ tài khoản Supabase: tải ảnh mới trước, lưu DB sau, rollback nếu lỗi/conflict
     if (isAuthenticated && userId) {
       if (isSavingItem) return;
       setIsSavingItem(true);
+      const newlyUploadedPaths: string[] = [];
       try {
-        if (data.id) {
-          const existing =
-            findBySelectedKey<Character>(displayCharacters, selectedCharId)?.id === data.id
+        let existing: Character | undefined;
+        if (charPayload.id) {
+          const foundExisting =
+            findBySelectedKey<Character>(displayCharacters, selectedCharId)?.id === charPayload.id
               ? findBySelectedKey<Character>(displayCharacters, selectedCharId)
-              : displayCharacters.find((c) => c.id === data.id && canEditOrDeleteItem('character', c));
-          if (!existing || !canEditOrDeleteItem('character', existing)) {
+              : displayCharacters.find((c) => c.id === charPayload.id && canEditOrDeleteItem('character', c));
+          if (!foundExisting || !canEditOrDeleteItem('character', foundExisting)) {
             showToast('Bạn không có quyền chỉnh sửa nhân vật này.', 'error');
             return;
           }
+          existing = foundExisting;
+        }
+
+        const resolvedImages: CharacterImage[] = [];
+        if (draftImages && draftImages.length > 0) {
+          for (const draft of draftImages.slice(0, MAX_CHARACTER_IMAGES)) {
+            if (draft.pendingBlob) {
+              // Luôn upload dưới userId (auth.uid()) để thỏa mãn RLS folder[1] ngay cả khi Admin sửa nhân vật hệ thống của Admin khác
+              const upRes = await uploadCharacterImageBlob(
+                userId,
+                targetCharId,
+                draft.pendingBlob,
+                draft.image.mimeType,
+              );
+              if (!upRes.ok || !upRes.storagePath) {
+                if (newlyUploadedPaths.length > 0) {
+                  void deleteCharacterImagePaths(userId, newlyUploadedPaths);
+                }
+                showToast(upRes.error || 'Không thể tải ảnh nhân vật lên máy chủ.', 'error');
+                return;
+              }
+              newlyUploadedPaths.push(upRes.storagePath);
+              resolvedImages.push({
+                id: draft.image.id || draft.id,
+                storagePath: upRes.storagePath,
+                mimeType: draft.image.mimeType || draft.pendingBlob.type,
+                width: draft.image.width,
+                height: draft.image.height,
+                name: draft.image.name,
+              });
+            } else if (draft.image.localId && !draft.image.storagePath && !draft.image.url) {
+              const localBlob = await getLocalImageBlob(draft.image.localId);
+              if (localBlob) {
+                const upRes = await uploadCharacterImageBlob(
+                  userId,
+                  targetCharId,
+                  localBlob,
+                  draft.image.mimeType || localBlob.type,
+                );
+                if (!upRes.ok || !upRes.storagePath) {
+                  if (newlyUploadedPaths.length > 0) {
+                    void deleteCharacterImagePaths(userId, newlyUploadedPaths);
+                  }
+                  showToast(upRes.error || 'Không thể đồng bộ ảnh cục bộ lên máy chủ.', 'error');
+                  return;
+                }
+                newlyUploadedPaths.push(upRes.storagePath);
+                resolvedImages.push({
+                  id: draft.image.id || draft.id,
+                  storagePath: upRes.storagePath,
+                  mimeType: draft.image.mimeType || localBlob.type,
+                  width: draft.image.width,
+                  height: draft.image.height,
+                  name: draft.image.name,
+                });
+              }
+            } else {
+              resolvedImages.push(draft.image);
+            }
+          }
+        }
+        const finalImages = normalizeCharacterImages(
+          draftImages ? resolvedImages : charPayload.images,
+        ).slice(0, MAX_CHARACTER_IMAGES);
+
+        if (existing) {
           const targetOwnerId = existing.ownerId || userId;
-          const nextIsSystem = existing.isSystem ? true : Boolean(isAdmin && data.isSystem);
-          const nextIsPublic = nextIsSystem ? true : Boolean(data.isPublic);
+          const nextIsSystem = existing.isSystem ? true : Boolean(isAdmin && charPayload.isSystem);
+          const nextIsPublic = nextIsSystem ? true : Boolean(charPayload.isPublic);
           const updatedChar: Character = {
             ...existing,
-            ...data,
+            ...charPayload,
             id: existing.id,
+            images: finalImages,
             isSystem: nextIsSystem,
             isPublic: nextIsPublic,
           };
@@ -1189,17 +1297,50 @@ export default function App() {
           });
 
           if (res.conflict) {
+            conflictUploadPathsRef.current = newlyUploadedPaths;
             setActiveConflict(res.conflict);
             return;
           }
           if (!res.ok || !res.data) {
+            if (newlyUploadedPaths.length > 0) {
+              void deleteCharacterImagePaths(userId, newlyUploadedPaths);
+            }
             showToast(res.error?.message || 'Không thể lưu nhân vật lên tài khoản.', 'error');
             return;
           }
 
           const confirmedChar = res.data;
+          // Dọn dẹp an toàn các ảnh đã gỡ bỏ và không còn được nhân vật nào khác tham chiếu
+          const keptPathSet = new Set(
+            getCharacterImages(confirmedChar)
+              .map((img) => img.storagePath)
+              .filter(Boolean) as string[],
+          );
+          const otherReferencedPaths = collectStoragePathsExcluding(displayCharacters, {
+            id: existing.id,
+            ownerId: existing.ownerId,
+          });
+          const pathsToDelete = getCharacterImages(existing)
+            .map((img) => img.storagePath)
+            .filter((p): p is string => Boolean(p) && !keptPathSet.has(p) && !otherReferencedPaths.has(p));
+          if (pathsToDelete.length > 0) {
+            invalidateCharacterImageSignedCache(pathsToDelete);
+            void deleteCharacterImagePaths(userId, pathsToDelete);
+          }
+
           if (targetOwnerId === userId) {
             setCharacters((prev) => prev.map((c) => (c.id === confirmedChar.id ? confirmedChar : c)));
+          } else {
+            setPublicSnapshot((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    characters: prev.characters.map((c) =>
+                      c.id === confirmedChar.id && c.ownerId === confirmedChar.ownerId ? confirmedChar : c,
+                    ),
+                  }
+                : prev,
+            );
           }
           recordCloudVersion('character', confirmedChar.id, res.version, res.updatedAt, targetOwnerId);
           setSelectedCharId(getItemKey(confirmedChar));
@@ -1210,11 +1351,12 @@ export default function App() {
           setIsEditing(false);
           showToast('Đã cập nhật và đồng bộ nhân vật lên tài khoản! 🍀');
         } else {
-          const nextIsSystem = Boolean(isAdmin && data.isSystem);
-          const nextIsPublic = nextIsSystem ? true : Boolean(data.isPublic);
+          const nextIsSystem = Boolean(isAdmin && charPayload.isSystem);
+          const nextIsPublic = nextIsSystem ? true : Boolean(charPayload.isPublic);
           const newChar: Character = {
-            ...data,
-            id: `char-${Date.now()}`,
+            ...charPayload,
+            id: targetCharId,
+            images: finalImages,
             createdAt: new Date().toISOString(),
             isSystem: nextIsSystem,
             isPublic: nextIsPublic,
@@ -1224,6 +1366,9 @@ export default function App() {
             isSystem: nextIsSystem,
           });
           if (!res.ok || !res.data) {
+            if (newlyUploadedPaths.length > 0) {
+              void deleteCharacterImagePaths(userId, newlyUploadedPaths);
+            }
             showToast(res.error?.message || 'Không thể lưu nhân vật mới lên tài khoản.', 'error');
             return;
           }
@@ -1248,31 +1393,13 @@ export default function App() {
       }
       return;
     }
-
-    // Chế độ Khách (localStorage)
-    if (data.id) {
-      const nextList = characters.map((c) => (c.id === data.id ? { ...c, ...data } : c));
-      if (BUILTIN_CHARACTER_MAP.has(data.id)) {
-        markGuestItemCustomized('character', data.id);
-      }
-      syncState(notes, ideas, nextList);
-      showToast('Đã cập nhật nhân vật thành công!');
-    } else {
-      const newChar: Character = {
-        ...data,
-        id: `char-${Date.now()}`,
-        createdAt: new Date().toISOString(),
-      };
-      const nextList = [...characters, newChar];
-      syncState(notes, ideas, nextList);
-      setSelectedCharId(getItemKey(newChar));
-      showToast('Đã gieo nhân vật mới thắng lợi! 🎉');
-    }
-    setIsCreating(false);
-    setIsEditing(false);
   };
 
   const handleDeleteCharacter = async (target: Character) => {
+    if (!isAuthenticated || !userId) {
+      requireAuthForWriteAction('Đăng nhập để quản lý nhân vật trong tài khoản của bạn.');
+      return;
+    }
     if (!canEditOrDeleteItem('character', target)) {
       showToast('Bạn không có quyền xóa nhân vật này.', 'error');
       return;
@@ -1292,6 +1419,17 @@ export default function App() {
           showToast(res.error?.message || 'Không thể xóa nhân vật trên máy chủ.', 'error');
           return;
         }
+        const otherPaths = collectStoragePathsExcluding(displayCharacters, {
+          id: target.id,
+          ownerId: target.ownerId,
+        });
+        const orphanPaths = getCharacterImages(target)
+          .map((img) => img.storagePath)
+          .filter((p): p is string => Boolean(p) && !otherPaths.has(p));
+        if (orphanPaths.length > 0) {
+          invalidateCharacterImageSignedCache(orphanPaths);
+          void deleteCharacterImagePaths(userId, orphanPaths);
+        }
         if (targetOwnerId === userId) {
           setCharacters((prev) => prev.filter((c) => c.id !== target.id));
         }
@@ -1307,22 +1445,16 @@ export default function App() {
       }
       return;
     }
-
-    if (BUILTIN_CHARACTER_MAP.has(target.id)) {
-      markGuestItemDeleted('character', target.id);
-    }
-    const nextList = characters.filter((c) => c.id !== target.id);
-    const nextNotes = notes.map((n) => (n.characterId === target.id ? { ...n, characterId: '' } : n));
-    syncState(nextNotes, ideas, nextList);
-    setSelectedCharId(nextList.length > 0 ? getItemKey(nextList[0]) : null);
-    setShowDetailOnMobile(false);
-    showToast('Đã hóa giải liên kết và xóa nhân vật.', 'info');
   };
 
   // Notes/Prompts
   const handleSaveNote = async (
     data: Omit<Note, 'id' | 'createdAt' | 'updatedAt'> & { id?: string; draftId?: string },
   ) => {
+    if (!isAuthenticated || !userId) {
+      requireAuthForWriteAction('Đăng nhập để lưu câu lệnh và đồng bộ kho nội dung của bạn.');
+      return;
+    }
     if (isAuthenticated && userId) {
       if (isSavingItem) return;
       setIsSavingItem(true);
@@ -1432,54 +1564,13 @@ export default function App() {
       }
       return;
     }
-
-    if (data.id) {
-      const nextList = notes.map((n) =>
-        n.id === data.id
-          ? {
-              ...n,
-              title: data.title,
-              command: data.command,
-              content: data.content,
-              description: data.description,
-              blocks: data.blocks,
-              autoNumberSteps: data.autoNumberSteps,
-              tags: data.tags,
-              categoryOffline: data.categoryOffline,
-              characterId: data.characterId,
-              icon: data.icon,
-              updatedAt: new Date().toISOString(),
-            }
-          : n,
-      );
-      syncState(nextList, ideas, characters);
-      showToast('Đã sửa bài đăng Kho Lệnh thành công!');
-    } else {
-      const newNote: Note = {
-        id: data.draftId || `note-${Date.now()}`,
-        title: data.title,
-        command: data.command,
-        content: data.content,
-        description: data.description,
-        blocks: data.blocks,
-        autoNumberSteps: data.autoNumberSteps,
-        tags: data.tags,
-        categoryOffline: data.categoryOffline,
-        characterId: data.characterId,
-        icon: data.icon || '☘️',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      const nextList = [...notes, newNote];
-      syncState(nextList, ideas, characters);
-      setSelectedNoteId(getItemKey(newNote));
-      showToast('Đã thêm bài đăng Kho Lệnh thành công! ☘️');
-    }
-    setIsCreating(false);
-    setIsEditing(false);
   };
 
   const handleDeleteNote = async (target: Note) => {
+    if (!isAuthenticated || !userId) {
+      requireAuthForWriteAction('Đăng nhập để quản lý câu lệnh trong tài khoản của bạn.');
+      return;
+    }
     if (!canEditOrDeleteItem('note', target)) {
       showToast('Bạn không có quyền xóa ghi chú này.', 'error');
       return;
@@ -1517,12 +1608,6 @@ export default function App() {
       }
       return;
     }
-
-    const nextList = notes.filter((n) => n.id !== target.id);
-    syncState(nextList, ideas, characters);
-    setSelectedNoteId(nextList.length > 0 ? getItemKey(nextList[0]) : null);
-    setShowDetailOnMobile(false);
-    showToast('Đã xóa bỏ bài đăng Kho Lệnh thành công.', 'info');
   };
 
   // System / Cloud Library Prompts (Kho Lệnh Thư Viện — Admin quản lý nội dung hệ thống)
@@ -1662,6 +1747,10 @@ export default function App() {
 
   // Ideas
   const handleSaveIdea = async (data: Omit<Idea, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) => {
+    if (!isAuthenticated || !userId) {
+      requireAuthForWriteAction('Đăng nhập để lưu ý tưởng và đồng bộ kho nội dung của bạn.');
+      return;
+    }
     if (isAuthenticated && userId) {
       if (isSavingItem) return;
       setIsSavingItem(true);
@@ -1760,43 +1849,13 @@ export default function App() {
       }
       return;
     }
-
-    if (data.id) {
-      const nextList = ideas.map((i) =>
-        i.id === data.id
-          ? {
-              ...i,
-              title: data.title,
-              content: data.content,
-              tags: data.tags,
-              updatedAt: new Date().toISOString(),
-            }
-          : i,
-      );
-      if (BUILTIN_IDEA_MAP.has(data.id)) {
-        markGuestItemCustomized('idea', data.id);
-      }
-      syncState(notes, nextList, characters);
-      showToast('Ý tưởng đã được làm mới thành công!');
-    } else {
-      const newIdea: Idea = {
-        id: `idea-${Date.now()}`,
-        title: data.title,
-        content: data.content,
-        tags: data.tags,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      const nextList = [...ideas, newIdea];
-      syncState(notes, nextList, characters);
-      setSelectedIdeaId(getItemKey(newIdea));
-      showToast('Hạt giống ý tưởng mới đã được nảy mầm! 💡');
-    }
-    setIsCreating(false);
-    setIsEditing(false);
   };
 
   const handleDeleteIdea = async (target: Idea) => {
+    if (!isAuthenticated || !userId) {
+      requireAuthForWriteAction('Đăng nhập để quản lý ý tưởng trong tài khoản của bạn.');
+      return;
+    }
     if (!canEditOrDeleteItem('idea', target)) {
       showToast('Bạn không có quyền xóa ý tưởng này.', 'error');
       return;
@@ -1830,15 +1889,6 @@ export default function App() {
       }
       return;
     }
-
-    if (BUILTIN_IDEA_MAP.has(target.id)) {
-      markGuestItemDeleted('idea', target.id);
-    }
-    const nextList = ideas.filter((i) => i.id !== target.id);
-    syncState(notes, nextList, characters);
-    setSelectedIdeaId(nextList.length > 0 ? getItemKey(nextList[0]) : null);
-    setShowDetailOnMobile(false);
-    showToast('Đã dọn dẹp ý tưởng khỏi kho.', 'info');
   };
 
   /* ----------------- CONFLICT RESOLUTION HANDLERS ----------------- */
@@ -1847,6 +1897,11 @@ export default function App() {
     if (!activeConflict || !userId) return;
     setIsResolvingConflict(true);
     try {
+      if (conflictUploadPathsRef.current.length > 0) {
+        const toClean = [...conflictUploadPathsRef.current];
+        conflictUploadPathsRef.current = [];
+        void deleteCharacterImagePaths(userId, toClean);
+      }
       setActiveConflict(null);
       setIsEditing(false);
       setIsCreating(false);
@@ -1867,6 +1922,7 @@ export default function App() {
     try {
       if (activeConflict.kind === 'character') {
         const localChar = activeConflict.localItem as Character;
+        const serverChar = activeConflict.serverItem as Character | undefined;
         const res = await saveCharacterToCloud(targetOwnerId, localChar, {
           forceOverwrite: true,
           isPublic: localChar.isPublic,
@@ -1876,7 +1932,26 @@ export default function App() {
           showToast(res.error?.message || 'Không thể ghi đè nhân vật lên máy chủ.', 'error');
           return;
         }
+        conflictUploadPathsRef.current = [];
         const confirmed = res.data;
+        if (serverChar) {
+          const keptSet = new Set(
+            getCharacterImages(confirmed)
+              .map((img) => img.storagePath)
+              .filter(Boolean) as string[],
+          );
+          const otherRefs = collectStoragePathsExcluding(displayCharacters, {
+            id: confirmed.id,
+            ownerId: confirmed.ownerId,
+          });
+          const orphanPaths = getCharacterImages(serverChar)
+            .map((img) => img.storagePath)
+            .filter((p): p is string => Boolean(p) && !keptSet.has(p) && !otherRefs.has(p));
+          if (orphanPaths.length > 0) {
+            invalidateCharacterImageSignedCache(orphanPaths);
+            void deleteCharacterImagePaths(userId, orphanPaths);
+          }
+        }
         if (targetOwnerId === userId) {
           setCharacters((prev) => {
             const exists = prev.some((c) => c.id === confirmed.id);
@@ -1982,6 +2057,7 @@ export default function App() {
           showToast(res.error?.message || 'Không thể tạo bản sao nhân vật.', 'error');
           return;
         }
+        conflictUploadPathsRef.current = [];
         setSelectedCharId(getItemKey(res.data));
       } else if (activeConflict.kind === 'note') {
         const localNote = activeConflict.localItem as Note;
@@ -2144,10 +2220,16 @@ export default function App() {
     setter((prev) => prev.filter((t) => toTagComparisonKey(t) !== key));
   };
 
-  // Filtration logic for active left lists (multi-tag AND + source + text)
+  // Filtration logic for active left lists (multi-tag AND + source + date/author + text)
   const queryLower = searchQuery.toLowerCase();
 
+  const savedCharDates = useMemo(
+    () => buildSavedCharacterDatesList(displayCharacters),
+    [displayCharacters],
+  );
+
   const filteredNotes = displayNotes.filter((n) => {
+    if (promptAuthorFilter.trim()) return false;
     if (!matchesSourceFilter(n)) return false;
     const nTags = getNoteTags(n);
     if (!itemMatchesSelectedTags(nTags, selectedNoteTags, sharedTags)) return false;
@@ -2173,20 +2255,35 @@ export default function App() {
     );
   });
 
+  const sortedIdeas = useMemo(
+    () => sortItemsByCreatedOrder(filteredIdeas, ideaSort, BUILTIN_IDEA_IDS),
+    [filteredIdeas, ideaSort],
+  );
+
   const filteredCharacters = displayCharacters.filter((c) => {
     if (!matchesSourceFilter(c)) return false;
+    if (!matchesCharacterDateFilter(c.createdAt, charDateFilter)) return false;
     const cTags = getCharacterTags(c);
     if (!itemMatchesSelectedTags(cTags, selectedCharTags, sharedTags)) return false;
     if (!queryLower) return true;
     return (
       c.name.toLowerCase().includes(queryLower) ||
       c.role.toLowerCase().includes(queryLower) ||
+      (c.author && c.author.toLowerCase().includes(queryLower)) ||
       (c.description && c.description.toLowerCase().includes(queryLower)) ||
       itemHasTagMatchingQuery(cTags, searchQuery, sharedTags)
     );
   });
 
+  const sortedCharacters = useMemo(
+    () => sortItemsByCreatedOrder(filteredCharacters, charSort, BUILTIN_CHAR_IDS),
+    [filteredCharacters, charSort],
+  );
+
   const filteredLibraryPrompts = displayLibraryPrompts.filter((p) => {
+    if (promptAuthorFilter.trim() && !isSameOriginalAuthor(p.author, promptAuthorFilter)) {
+      return false;
+    }
     if (!matchesSourceFilter(p)) return false;
     const pTags = getLibraryPromptTags(p);
     if (!itemMatchesSelectedTags(pTags, selectedNoteTags, sharedTags)) return false;
@@ -2198,6 +2295,31 @@ export default function App() {
       itemHasTagMatchingQuery(pTags, searchQuery, sharedTags)
     );
   });
+
+  const sortedKhoLenhEntries = useMemo(() => {
+    type KhoLenhEntry =
+      | { kind: 'note'; id: string; ownerId?: string; createdAt?: string; item: Note }
+      | { kind: 'library_prompt'; id: string; ownerId?: string; createdAt?: string; item: LibraryPrompt };
+
+    const combined: KhoLenhEntry[] = [
+      ...filteredNotes.map((item) => ({
+        kind: 'note' as const,
+        id: item.id,
+        ownerId: item.ownerId,
+        createdAt: item.createdAt,
+        item,
+      })),
+      ...filteredLibraryPrompts.map((item) => ({
+        kind: 'library_prompt' as const,
+        id: item.id,
+        ownerId: item.ownerId,
+        createdAt: item.createdAt,
+        item,
+      })),
+    ];
+
+    return sortItemsByCreatedOrder(combined, noteSort, BUILTIN_LIB_PROMPT_IDS);
+  }, [filteredNotes, filteredLibraryPrompts, noteSort]);
 
   // Filtered authors based on search query
   const filteredAuthors = authorsList.filter(author => {
@@ -2311,6 +2433,9 @@ export default function App() {
     setIsMyVaultOpen(false);
     setSearchQuery('');
     setSourceFilter('all');
+    setCharDateFilter({ mode: 'all' });
+    setIsCharDateFilterOpen(false);
+    setPromptAuthorFilter('');
     setSelectedNoteTags([]);
     setSelectedIdeaTags([]);
     setSelectedCharTags([]);
@@ -2441,6 +2566,33 @@ export default function App() {
         </div>
       </header>
 
+      {/* Subtle Legacy Local Data Notice (read-only detection, zero forced popups) */}
+      {isAuthReady && !isAuthenticated && hasLegacyGuestData && !legacyNoticeDismissed && (
+        <div className="px-3 sm:px-4 py-1.5 bg-[#FFF9EA] dark:bg-[#242926] border-b border-[#DCE7DF] dark:border-[#49554D] flex items-center justify-between gap-2 text-[11px] sm:text-xs text-[#4C6A5C] dark:text-[#B8BDB5] flex-shrink-0 z-20">
+          <div className="flex items-center gap-2 min-w-0 flex-wrap">
+            <Info className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8] shrink-0" />
+            <span className="truncate sm:whitespace-normal">
+              Bạn có dữ liệu đã lưu từ phiên bản trước. Hãy đăng nhập để nhập dữ liệu vào tài khoản.
+            </span>
+            <button
+              type="button"
+              onClick={() => openAuthModal('login')}
+              className="font-bold text-[#224C3B] dark:text-[#A3BDA8] underline hover:text-[#39755D] cursor-pointer shrink-0"
+            >
+              Đăng nhập ngay
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => setLegacyNoticeDismissed(true)}
+            aria-label="Đóng thông báo"
+            className="p-0.5 rounded text-[#587568] hover:text-[#224C3B] dark:text-[#B8BDB5] cursor-pointer shrink-0"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* 2-COLUMN WORKSPACE SHELL (1 column on mobile) */}
       <div className="flex-1 min-h-0 flex flex-col md:flex-row overflow-hidden relative z-20">
         
@@ -2558,28 +2710,212 @@ export default function App() {
               />
             </div>
 
-            {/* Source Filter Bar (All / System / Community / Mine) */}
+            {/* Source Filter Bar + Newest/Oldest Sort + Character Date Saved Filter */}
             {activeTab !== 'authors' && (
-              <div className="mt-2 flex items-center gap-1 flex-wrap">
-                {([
-                  { id: 'all', label: 'Tất cả' },
-                  { id: 'system', label: 'Hệ thống' },
-                  { id: 'community', label: 'Cộng đồng' },
-                  ...(isAuthenticated ? [{ id: 'mine', label: 'Của tôi' }] : []),
-                ] as const).map((opt) => (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => setSourceFilter(opt.id)}
-                    className={`px-2 py-0.5 rounded border text-[10px] font-semibold transition cursor-pointer ${
-                      sourceFilter === opt.id
-                        ? 'bg-[#E2F3E8] dark:bg-[#343D37] border-[#39755D] dark:border-[#A3BDA8] text-[#214C3B] dark:text-[#E4E1D8]'
-                        : 'bg-[#FFF9EA] dark:bg-[#202423] border-[#CFE2D6] dark:border-[#49554D] text-[#587568] dark:text-[#B8BDB5] hover:bg-[#E2F3E8]/50 dark:hover:bg-[#343D37]'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
+              <div className="mt-2 space-y-1.5">
+                <div className="flex items-center justify-between gap-1.5 flex-wrap">
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {([
+                      { id: 'all', label: 'Tất cả' },
+                      { id: 'system', label: 'Hệ thống' },
+                      { id: 'community', label: 'Cộng đồng' },
+                      ...(isAuthenticated ? [{ id: 'mine', label: 'Của tôi' }] : []),
+                    ] as const).map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => setSourceFilter(opt.id)}
+                        className={`px-2 py-0.5 rounded border text-[10px] font-semibold transition cursor-pointer ${
+                          sourceFilter === opt.id
+                            ? 'bg-[#E2F3E8] dark:bg-[#343D37] border-[#39755D] dark:border-[#A3BDA8] text-[#214C3B] dark:text-[#E4E1D8]'
+                            : 'bg-[#FFF9EA] dark:bg-[#202423] border-[#CFE2D6] dark:border-[#49554D] text-[#587568] dark:text-[#B8BDB5] hover:bg-[#E2F3E8]/50 dark:hover:bg-[#343D37]'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Toolbar right controls: Character Date Filter + Sort (Mới nhất / Cũ nhất) */}
+                  <div className="flex items-center gap-1">
+                    {activeTab === 'characters' && (
+                      <button
+                        type="button"
+                        onClick={() => setIsCharDateFilterOpen((prev) => !prev)}
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-semibold transition cursor-pointer ${
+                          charDateFilter.mode !== 'all' || isCharDateFilterOpen
+                            ? 'bg-[#E2F3E8] dark:bg-[#343D37] border-[#39755D] dark:border-[#A3BDA8] text-[#214C3B] dark:text-[#E4E1D8]'
+                            : 'bg-[#FFF9EA] dark:bg-[#202423] border-[#CFE2D6] dark:border-[#49554D] text-[#587568] dark:text-[#B8BDB5] hover:bg-[#E2F3E8]/50 dark:hover:bg-[#343D37]'
+                        }`}
+                        title="Lọc nhân vật theo ngày lưu"
+                      >
+                        <Calendar className="w-3 h-3" />
+                        <span>
+                          {charDateFilter.mode === 'all'
+                            ? 'Ngày lưu'
+                            : getCharacterDateFilterBadgeLabel(charDateFilter)}
+                        </span>
+                      </button>
+                    )}
+
+                    {(() => {
+                      const activeSort: SortOrder =
+                        activeTab === 'characters'
+                          ? charSort
+                          : activeTab === 'notes'
+                            ? noteSort
+                            : ideaSort;
+                      const toggleActiveSort = () => {
+                        const nextSort: SortOrder = activeSort === 'newest' ? 'oldest' : 'newest';
+                        if (activeTab === 'characters') {
+                          setCharSort(nextSort);
+                          saveUiPrefs({ charSort: nextSort });
+                        } else if (activeTab === 'notes') {
+                          setNoteSort(nextSort);
+                          saveUiPrefs({ noteSort: nextSort });
+                        } else {
+                          setIdeaSort(nextSort);
+                          saveUiPrefs({ ideaSort: nextSort });
+                        }
+                      };
+                      return (
+                        <button
+                          type="button"
+                          onClick={toggleActiveSort}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-semibold bg-[#FFF9EA] dark:bg-[#202423] border-[#CFE2D6] dark:border-[#49554D] text-[#285B47] dark:text-[#A3BDA8] hover:bg-[#E2F3E8]/60 dark:hover:bg-[#343D37] transition cursor-pointer"
+                          title="Đổi thứ tự sắp xếp Mới nhất / Cũ nhất"
+                        >
+                          <ArrowUpDown className="w-3 h-3" />
+                          <span>{activeSort === 'newest' ? 'Mới nhất' : 'Cũ nhất'}</span>
+                        </button>
+                      );
+                    })()}
+                  </div>
+                </div>
+
+                {/* Active Author Filter chip on Kho Lệnh */}
+                {activeTab === 'notes' && promptAuthorFilter.trim() && (
+                  <div className="flex items-center justify-between gap-2 px-2 py-1 rounded border border-[#9FC4AF] dark:border-[#63806E] bg-[#E2F3E8]/80 dark:bg-[#343D37] text-[10px]">
+                    <span className="text-[#214C3B] dark:text-[#E4E1D8] truncate">
+                      Tác giả câu lệnh: <strong>{promptAuthorFilter}</strong>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setPromptAuthorFilter('')}
+                      className="text-[#39755D] dark:text-[#A3BDA8] hover:text-red-600 font-semibold inline-flex items-center gap-0.5 shrink-0 cursor-pointer"
+                    >
+                      <X className="w-3 h-3" />
+                      Bỏ lọc
+                    </button>
+                  </div>
+                )}
+
+                {/* Collapsible Character Date Saved Filter Panel */}
+                {activeTab === 'characters' && isCharDateFilterOpen && (
+                  <div className="p-2.5 rounded-md border border-[#9FC4AF] dark:border-[#49554D] bg-[#FFF9EA] dark:bg-[#202423] space-y-2 shadow-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#224C3B] dark:text-[#A3BDA8] flex items-center gap-1">
+                        <Calendar className="w-3 h-3" />
+                        Lọc theo ngày lưu
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {charDateFilter.mode !== 'all' && (
+                          <button
+                            type="button"
+                            onClick={() => setCharDateFilter({ mode: 'all' })}
+                            className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-[#39755D] dark:text-[#A3BDA8] hover:underline cursor-pointer"
+                          >
+                            <RotateCcw className="w-2.5 h-2.5" />
+                            Đặt lại
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setIsCharDateFilterOpen(false)}
+                          className="p-0.5 rounded text-[#587568] hover:text-[#224C3B] dark:text-[#B8BDB5] cursor-pointer"
+                          title="Đóng bộ lọc ngày"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1">
+                      {([
+                        { id: 'all', label: 'Tất cả' },
+                        { id: 'today', label: 'Hôm nay' },
+                        { id: 'yesterday', label: 'Hôm qua' },
+                        { id: 'last7days', label: '7 ngày qua' },
+                        { id: 'thisMonth', label: 'Tháng này' },
+                      ] as const).map((preset) => (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => setCharDateFilter({ mode: preset.id })}
+                          className={`px-2 py-0.5 rounded border text-[10px] font-semibold cursor-pointer ${
+                            charDateFilter.mode === preset.id
+                              ? 'bg-[#39755D] text-[#FFF9EA] border-[#285B47] dark:bg-[#496A59] dark:border-[#A3BDA8]'
+                              : 'bg-white/80 dark:bg-[#292E2B] text-[#2B463A] dark:text-[#E4E1D8] border-[#CFE2D6] dark:border-[#49554D] hover:bg-[#E2F3E8]/60'
+                          }`}
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <label className="text-[10px] font-semibold text-[#4B6A5C] dark:text-[#B8BDB5] shrink-0">
+                        Chọn ngày cụ thể:
+                      </label>
+                      <input
+                        type="date"
+                        value={charDateFilter.mode === 'exact' ? (charDateFilter.dateKey || '') : ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (!val) {
+                            setCharDateFilter({ mode: 'all' });
+                          } else {
+                            setCharDateFilter({ mode: 'exact', dateKey: val });
+                          }
+                        }}
+                        className="retro-input px-2 py-0.5 text-[11px] flex-1 min-w-0"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <p className="text-[10px] font-semibold text-[#4B6A5C] dark:text-[#B8BDB5]">
+                        Các ngày đã lưu ({savedCharDates.length}):
+                      </p>
+                      {savedCharDates.length === 0 ? (
+                        <p className="text-[10px] text-[#6B877A] dark:text-[#B8BDB5] italic">
+                          Chưa có ngày lưu hợp lệ.
+                        </p>
+                      ) : (
+                        <div className="flex flex-wrap gap-1 max-h-28 overflow-y-auto pr-0.5">
+                          {savedCharDates.map((entry) => {
+                            const isSelectedDate =
+                              charDateFilter.mode === 'exact' &&
+                              charDateFilter.dateKey === entry.dateKey;
+                            return (
+                              <button
+                                key={entry.dateKey}
+                                type="button"
+                                onClick={() => setCharDateFilter({ mode: 'exact', dateKey: entry.dateKey })}
+                                className={`px-1.5 py-0.5 rounded border text-[10px] font-mono cursor-pointer transition ${
+                                  isSelectedDate
+                                    ? 'bg-[#39755D] text-[#FFF9EA] border-[#285B47] dark:bg-[#496A59] dark:border-[#A3BDA8]'
+                                    : 'bg-white/80 dark:bg-[#292E2B] text-[#2B463A] dark:text-[#E4E1D8] border-[#CFE2D6] dark:border-[#49554D] hover:bg-[#E2F3E8]/60'
+                                }`}
+                              >
+                                {entry.label} ({entry.count})
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -2593,7 +2929,7 @@ export default function App() {
               onRemoveTag={(t) => removeTagFromList(setSelectedCharTags, t)}
               onClearAll={() => setSelectedCharTags([])}
               onOpenAllTags={() => setIsAllTagsModalOpen(true)}
-              isAdmin={isAdmin}
+              isAdmin={Boolean(isAuthenticated && isAdmin)}
             />
           )}
 
@@ -2605,7 +2941,7 @@ export default function App() {
               onRemoveTag={(t) => removeTagFromList(setSelectedNoteTags, t)}
               onClearAll={() => setSelectedNoteTags([])}
               onOpenAllTags={() => setIsAllTagsModalOpen(true)}
-              isAdmin={isAdmin}
+              isAdmin={Boolean(isAuthenticated && isAdmin)}
             />
           )}
 
@@ -2617,7 +2953,7 @@ export default function App() {
               onRemoveTag={(t) => removeTagFromList(setSelectedIdeaTags, t)}
               onClearAll={() => setSelectedIdeaTags([])}
               onOpenAllTags={() => setIsAllTagsModalOpen(true)}
-              isAdmin={isAdmin}
+              isAdmin={Boolean(isAuthenticated && isAdmin)}
             />
           )}
 
@@ -2625,82 +2961,87 @@ export default function App() {
           <div className="flex-1 overflow-y-auto px-2 py-2 pb-16 space-y-1.5">
             {activeTab === 'notes' && (
               <>
-                {filteredNotes.map((note) => {
-                  const noteKey = getItemKey(note);
-                  const correlatedChar = displayCharacters.find(
-                    (c) => c.id === note.characterId && (!note.ownerId || !c.ownerId || c.ownerId === note.ownerId),
-                  ) || displayCharacters.find((c) => c.id === note.characterId);
-                  const isSelected =
-                    selectedNoteId === noteKey &&
-                    !selectedLibraryPromptId &&
-                    !isCreating &&
-                    !isCreatingLibraryPrompt;
-                  const canMutate = canEditOrDeleteItem('note', note);
-                  return (
-                    <div
-                      key={noteKey}
-                      onClick={() => {
-                        setSelectedNoteId(noteKey);
-                        setSelectedLibraryPromptId(null);
-                        setIsCreating(false);
-                        setIsEditing(false);
-                        setIsCreatingLibraryPrompt(false);
-                        setIsEditingLibraryPrompt(false);
-                        setShowDetailOnMobile(true);
-                      }}
-                      className={`group relative w-full text-left p-2.5 rounded-md transition flex items-start gap-2.5 border cursor-pointer select-none ${
-                        isSelected
-                          ? 'bg-[#E2F3E8] border-[#39755D] dark:bg-[#343D37] dark:border-[#A3BDA8] text-[#1E4434] dark:text-[#E4E1D8]'
-                          : 'bg-[#FFF9EA]/70 dark:bg-[#292E2B] border-transparent hover:border-[#B8D7C5] dark:hover:border-[#A3BDA8] hover:bg-[#E2F3E8]/45 dark:hover:bg-[#343D37] text-[#284237] dark:text-[#E4E1D8]'
-                      }`}
-                    >
-                      <span className="text-lg mt-0.5 leading-none">{note.icon || '☘️'}</span>
-                      <div className="flex-1 min-w-0 pr-6">
-                        <div className="flex items-center gap-1.5">
-                          <p className="font-semibold text-xs truncate leading-snug">{note.title}</p>
+                {sortedKhoLenhEntries.map((entry) => {
+                  if (entry.kind === 'note') {
+                    const note = entry.item;
+                    const noteKey = getItemKey(note);
+                    const correlatedChar =
+                      displayCharacters.find(
+                        (c) =>
+                          c.id === note.characterId &&
+                          (!note.ownerId || !c.ownerId || c.ownerId === note.ownerId),
+                      ) || displayCharacters.find((c) => c.id === note.characterId);
+                    const isSelected =
+                      selectedNoteId === noteKey &&
+                      !selectedLibraryPromptId &&
+                      !isCreating &&
+                      !isCreatingLibraryPrompt;
+                    const canMutate = canEditOrDeleteItem('note', note);
+                    return (
+                      <div
+                        key={`note-${noteKey}`}
+                        onClick={() => {
+                          setSelectedNoteId(noteKey);
+                          setSelectedLibraryPromptId(null);
+                          setIsCreating(false);
+                          setIsEditing(false);
+                          setIsCreatingLibraryPrompt(false);
+                          setIsEditingLibraryPrompt(false);
+                          setShowDetailOnMobile(true);
+                        }}
+                        className={`group relative w-full text-left p-2.5 rounded-md transition flex items-start gap-2.5 border cursor-pointer select-none ${
+                          isSelected
+                            ? 'bg-[#E2F3E8] border-[#39755D] dark:bg-[#343D37] dark:border-[#A3BDA8] text-[#1E4434] dark:text-[#E4E1D8]'
+                            : 'bg-[#FFF9EA]/70 dark:bg-[#292E2B] border-transparent hover:border-[#B8D7C5] dark:hover:border-[#A3BDA8] hover:bg-[#E2F3E8]/45 dark:hover:bg-[#343D37] text-[#284237] dark:text-[#E4E1D8]'
+                        }`}
+                      >
+                        <span className="text-lg mt-0.5 leading-none">{note.icon || '☘️'}</span>
+                        <div className="flex-1 min-w-0 pr-6">
+                          <div className="flex items-center gap-1.5">
+                            <p className="font-semibold text-xs truncate leading-snug">{note.title}</p>
+                          </div>
+                          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                            {note.isSystem ? (
+                              <span className="px-1 py-0 text-[9px] font-bold rounded bg-[#E2F3E8] dark:bg-[#343D37] text-[#285B47] dark:text-[#A3BDA8] border border-[#9FC4AF] dark:border-[#49554D]">
+                                Hệ thống
+                              </span>
+                            ) : note.isPublic ? (
+                              <span className="px-1 py-0 text-[9px] font-bold rounded bg-[#FFFDF7] dark:bg-[#202423] text-[#2E6B53] dark:text-[#A3BDA8] border border-[#B8D7C5] dark:border-[#49554D]">
+                                Công khai
+                              </span>
+                            ) : note.ownerId ? (
+                              <span className="px-1 py-0 text-[9px] font-semibold rounded bg-[#F5F2E8] dark:bg-[#202423] text-[#668476] dark:text-[#B8BDB5] border border-[#D4E2D8] dark:border-[#49554D]">
+                                Riêng tư
+                              </span>
+                            ) : null}
+                            <p className="text-[10px] text-[#587568] dark:text-[#B8BDB5] truncate tabular-nums-mono">
+                              {correlatedChar ? `${correlatedChar.name} • ` : ''}
+                              {note.authorDisplayName ? `${note.authorDisplayName} • ` : ''}
+                              {new Date(note.updatedAt).toLocaleDateString('vi-VN')}
+                            </p>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                          {note.isSystem ? (
-                            <span className="px-1 py-0 text-[9px] font-bold rounded bg-[#E2F3E8] dark:bg-[#343D37] text-[#285B47] dark:text-[#A3BDA8] border border-[#9FC4AF] dark:border-[#49554D]">
-                              Hệ thống
-                            </span>
-                          ) : note.isPublic ? (
-                            <span className="px-1 py-0 text-[9px] font-bold rounded bg-[#FFFDF7] dark:bg-[#202423] text-[#2E6B53] dark:text-[#A3BDA8] border border-[#B8D7C5] dark:border-[#49554D]">
-                              Công khai
-                            </span>
-                          ) : note.ownerId ? (
-                            <span className="px-1 py-0 text-[9px] font-semibold rounded bg-[#F5F2E8] dark:bg-[#202423] text-[#668476] dark:text-[#B8BDB5] border border-[#D4E2D8] dark:border-[#49554D]">
-                              Riêng tư
-                            </span>
-                          ) : null}
-                          <p className="text-[10px] text-[#587568] dark:text-[#B8BDB5] truncate tabular-nums-mono">
-                            {correlatedChar ? `${correlatedChar.name} • ` : ''}
-                            {note.authorDisplayName ? `${note.authorDisplayName} • ` : ''}
-                            {new Date(note.updatedAt).toLocaleDateString('vi-VN')}
-                          </p>
-                        </div>
-                      </div>
-                      
-                      {/* Quick Delete Trash Button (Author / Admin only) */}
-                      {canMutate && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteNote(note);
-                          }}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded text-[#6B877A] hover:text-red-600 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-all"
-                          title="Xóa nhanh câu lệnh này"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
 
-                {filteredLibraryPrompts.map((p) => {
+                        {canMutate && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteNote(note);
+                            }}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded text-[#6B877A] hover:text-red-600 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-all"
+                            title="Xóa nhanh câu lệnh này"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  const p = entry.item;
                   const promptKey = getItemKey(p);
+                  const displayPromptAuthor = p.author || p.authorDisplayName || 'Cộng đồng';
                   const isSelected =
                     selectedLibraryPromptId === promptKey &&
                     !selectedNoteId &&
@@ -2708,7 +3049,7 @@ export default function App() {
                     !isCreatingLibraryPrompt;
                   return (
                     <button
-                      key={promptKey}
+                      key={`lib-${promptKey}`}
                       type="button"
                       onClick={() => {
                         setSelectedLibraryPromptId(promptKey);
@@ -2744,7 +3085,9 @@ export default function App() {
                           {p.description}
                         </p>
                         <div className="mt-1.5 flex items-center justify-between text-[10px] text-[#648174] dark:text-[#B8BDB5]">
-                          <span className="truncate">Tác giả: <strong className="text-[#2D5544] dark:text-[#E4E1D8]">{p.authorDisplayName || p.author}</strong></span>
+                          <span className="truncate">
+                            Tác giả: <strong className="text-[#2D5544] dark:text-[#E4E1D8]">{displayPromptAuthor}</strong>
+                          </span>
                           <span className="flex items-center gap-1 font-semibold text-[#39755D] dark:text-[#A3BDA8] tabular-nums-mono shrink-0">
                             <Terminal className="w-3 h-3" />
                             {p.steps.length} phần
@@ -2755,7 +3098,7 @@ export default function App() {
                   );
                 })}
 
-                {filteredNotes.length === 0 && filteredLibraryPrompts.length === 0 && (
+                {sortedKhoLenhEntries.length === 0 && (
                   <div className="p-6 text-center text-[#6B877A] dark:text-[#B8BDB5] text-xs">
                     Thư mục này chưa có câu lệnh phù hợp.
                   </div>
@@ -2765,13 +3108,13 @@ export default function App() {
 
             {activeTab === 'ideas' && (
               <>
-                {filteredIdeas.length === 0 ? (
+                {sortedIdeas.length === 0 ? (
                   <div className="p-6 text-center text-[#6B877A] dark:text-[#B8BDB5] text-xs">
                     Không có ý tưởng nào khớp.
                   </div>
                 ) : (
                   <div className="space-y-2.5 pt-0.5">
-                    {filteredIdeas.map((idea) => {
+                    {sortedIdeas.map((idea) => {
                       const ideaKey = getItemKey(idea);
                       const ideaIcon = getIdeaIcon(idea);
                       const ideaTags = getIdeaTags(idea);
@@ -2892,15 +3235,26 @@ export default function App() {
 
             {activeTab === 'characters' && (
               <>
-                {filteredCharacters.length === 0 ? (
-                  <div className="p-6 text-center text-[#6B877A] dark:text-[#B8BDB5] text-xs">
-                    Chưa có nhân vật nào trong thư mục.
+                {sortedCharacters.length === 0 ? (
+                  <div className="p-6 text-center text-[#6B877A] dark:text-[#B8BDB5] text-xs space-y-2">
+                    <p>Chưa có nhân vật nào phù hợp trong thư mục.</p>
+                    {charDateFilter.mode !== 'all' && (
+                      <button
+                        type="button"
+                        onClick={() => setCharDateFilter({ mode: 'all' })}
+                        className="retro-btn px-2.5 py-1 text-[11px] font-semibold cursor-pointer"
+                      >
+                        Đặt lại bộ lọc ngày
+                      </button>
+                    )}
                   </div>
                 ) : (
-                  filteredCharacters.map((char) => {
+                  sortedCharacters.map((char) => {
                     const charKey = getItemKey(char);
+                    const charImages = getCharacterImages(char);
                     const isSelected = selectedCharId === charKey && !isCreating;
                     const canMutate = canEditOrDeleteItem('character', char);
+                    const displayCharAuthor = char.author || char.authorDisplayName;
                     return (
                       <div
                         key={charKey}
@@ -2916,6 +3270,13 @@ export default function App() {
                             : 'bg-[#FFF9EA]/70 dark:bg-[#292E2B] border-transparent hover:border-[#B8D7C5] dark:hover:border-[#A3BDA8] hover:bg-[#E2F3E8]/45 dark:hover:bg-[#343D37] text-[#284237] dark:text-[#E4E1D8]'
                         }`}
                       >
+                        <CharacterAvatarThumb
+                          firstImage={charImages[0]}
+                          totalImages={charImages.length}
+                          emojiFallback={char.avatar}
+                          name={char.name}
+                          isSelected={isSelected}
+                        />
                         <div className="flex-1 min-w-0 pr-6">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <p className="font-semibold text-xs truncate leading-snug text-[#20372D] dark:text-[#E4E1D8] group-hover:text-[#39755D] dark:group-hover:text-[#A3BDA8] transition-colors">
@@ -2934,12 +3295,12 @@ export default function App() {
                                 Riêng tư
                               </span>
                             ) : null}
-                            {(char.author || char.authorDisplayName) && (
+                            {displayCharAuthor && (
                               <span
                                 className="px-1.5 py-0.5 text-[9px] bg-[#E2F3E8]/80 dark:bg-[#343D37] text-[#39755D] dark:text-[#A3BDA8] rounded border border-[#BDD9C9] dark:border-[#49554D] font-medium max-w-[95px] truncate"
-                                title={`Tác giả: ${char.authorDisplayName || char.author}`}
+                                title={`Tác giả: ${displayCharAuthor}`}
                               >
-                                {char.authorDisplayName || char.author}
+                                {displayCharAuthor}
                               </span>
                             )}
                           </div>
@@ -3007,8 +3368,8 @@ export default function App() {
             )}
           </div>
 
-          {/* Sidebar Creation Command Anchor */}
-          {activeTab !== 'authors' && (
+          {/* Sidebar Creation Command Anchor (Chỉ hiển thị khi đã đăng nhập) */}
+          {isAuthenticated && activeTab !== 'authors' && (
             <div className="sticky bottom-0 p-2.5 border-t border-[#CBE0D3] dark:border-[#49554D] bg-[#F1F8F3] dark:bg-[#202423] flex flex-col gap-1.5 z-10">
               <button
                 type="button"
@@ -3059,7 +3420,7 @@ export default function App() {
             <div className="max-w-5xl w-full mx-auto space-y-4">
               
               {/* 1. CREATION / FORM SECTOR */}
-              {isCreating && (
+              {isAuthenticated && isCreating && (
                 <div className="w-full">
                   {activeTab === 'notes' && (
                     <NoteForm 
@@ -3104,7 +3465,7 @@ export default function App() {
               )}
 
               {/* 1B. ADMIN / CLOUD LIBRARY PROMPT FORM SECTOR */}
-              {(isCreatingLibraryPrompt || isEditingLibraryPrompt) && activeTab === 'notes' && (
+              {isAuthenticated && (isCreatingLibraryPrompt || isEditingLibraryPrompt) && activeTab === 'notes' && (
                 <div className="w-full">
                   <LibraryPromptForm
                     initialData={isEditingLibraryPrompt ? activeLibraryPrompt ?? undefined : undefined}
@@ -3125,7 +3486,7 @@ export default function App() {
               )}
 
               {/* 2. CHOSEN EDIT STATE */}
-              {isEditing && (
+              {isAuthenticated && isEditing && (
                 <div className="w-full">
                   {activeTab === 'notes' && activeNote && (
                     <NoteForm 
@@ -3518,7 +3879,7 @@ export default function App() {
                               Kho Lệnh AI
                             </span>
                             <span className="text-xs text-[#547264] dark:text-[#B8BDB5] truncate">
-                              Tác giả: <strong className="text-[#23503E] dark:text-[#E4E1D8] font-semibold">{activeLibraryPrompt.authorDisplayName || activeLibraryPrompt.author}</strong>
+                              Tác giả: <strong className="text-[#23503E] dark:text-[#E4E1D8] font-semibold">{activeLibraryPrompt.author || activeLibraryPrompt.authorDisplayName || 'Cộng đồng'}</strong>
                             </span>
                           </div>
                           <span className="text-[10px] tabular-nums-mono text-[#5B7A6C] dark:text-[#B8BDB5]">
@@ -3613,6 +3974,75 @@ export default function App() {
                         onToast={(msg) => showToast(msg, 'info')}
                         profileRevision={profile?.updated_at}
                       />
+
+                      {/* Các câu lệnh khác của cùng tác giả */}
+                      {(() => {
+                        const originalAuthor = activeLibraryPrompt.author?.trim();
+                        if (!originalAuthor) return null;
+                        const otherPrompts = findPromptsByOriginalAuthor(
+                          displayLibraryPrompts,
+                          originalAuthor,
+                          activeLibraryPrompt,
+                        );
+                        if (otherPrompts.length === 0) return null;
+                        return (
+                          <div className="retro-window overflow-hidden">
+                            <div className="retro-window-header px-4 py-2 flex items-center justify-between gap-2">
+                              <h3 className="text-xs font-bold text-[#224C3B] dark:text-[#E4E1D8] flex items-center gap-1.5">
+                                <Terminal className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
+                                <span>Các câu lệnh khác của cùng tác giả ({otherPrompts.length})</span>
+                              </h3>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveTab('notes');
+                                  setSearchQuery('');
+                                  setSourceFilter('all');
+                                  setSelectedNoteTags([]);
+                                  setPromptAuthorFilter(originalAuthor);
+                                  setShowDetailOnMobile(false);
+                                  showToast(`Đang lọc Kho Lệnh theo tác giả: ${originalAuthor}`, 'info');
+                                }}
+                                className="retro-btn px-2.5 py-1 text-[11px] font-semibold cursor-pointer"
+                              >
+                                Xem tất cả
+                              </button>
+                            </div>
+                            <div className="p-3.5 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                              {otherPrompts.slice(0, 6).map((matchPrompt) => {
+                                const matchKey = getItemKey(matchPrompt);
+                                return (
+                                  <button
+                                    key={matchKey}
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedLibraryPromptId(matchKey);
+                                      setSelectedNoteId(null);
+                                      setShowDetailOnMobile(true);
+                                    }}
+                                    className="retro-btn p-2.5 flex items-start gap-2.5 text-left cursor-pointer"
+                                  >
+                                    <span className="text-base leading-none mt-0.5 shrink-0">
+                                      {getLibraryPromptIcon(matchPrompt)}
+                                    </span>
+                                    <div className="min-w-0 flex-1">
+                                      <p className="text-xs font-bold text-[#20372D] dark:text-[#E4E1D8] truncate">
+                                        {matchPrompt.title}
+                                      </p>
+                                      {matchPrompt.description && (
+                                        <p className="text-[10.5px] text-[#587568] dark:text-[#B8BDB5] line-clamp-2 mt-0.5">
+                                          {matchPrompt.description}
+                                        </p>
+                                      )}
+                                    </div>
+                                    <ChevronRight className="w-3.5 h-3.5 text-[#587568] dark:text-[#B8BDB5] shrink-0 mt-1" />
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </article>
                   )}
 
@@ -3697,28 +4127,72 @@ export default function App() {
                   )}
 
                   {/* D. CHARACTER DETAILS COMPONENT DISPLAY */}
-                  {activeTab === 'characters' && activeChar && (
+                  {activeTab === 'characters' && activeChar && (() => {
+                    const activeCharImages = getCharacterImages(activeChar);
+                    const savedDateKey = toLocalDateKey(activeChar.createdAt);
+                    const savedDateLabel = formatCreatedDateShort(activeChar.createdAt);
+                    const displayCharAuthor = activeChar.author || activeChar.authorDisplayName;
+                    const authorPrompts = activeChar.author?.trim()
+                      ? findPromptsByOriginalAuthor(
+                          displayLibraryPrompts,
+                          activeChar.author,
+                        )
+                      : [];
+                    return (
                     <article className="space-y-4 animate-fade-in min-w-0" id="active-character-card">
                       {/* Compact Retro Profile Window */}
                       <div className="retro-window overflow-hidden">
-                        <div className="retro-window-header px-4 py-2 flex items-center justify-between gap-2">
+                        <div className="retro-window-header px-4 py-2 flex flex-wrap items-center justify-between gap-2">
                           <span className="font-mono text-[11px] font-semibold text-[#39755D] dark:text-[#A3BDA8] flex items-center gap-1.5">
                             <PixelCharacterIcon className="w-3.5 h-3.5" />
                             Hồ sơ Nhân Vật
                           </span>
-                          {activeChar.author && (
-                            <span className="px-2 py-0.5 bg-[#FFF9EA] dark:bg-[#292E2B] text-[#39755D] dark:text-[#A3BDA8] rounded text-[10px] font-semibold border border-[#B8D7C5] dark:border-[#49554D]">
-                              Tác giả: {activeChar.author}
-                            </span>
-                          )}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {savedDateLabel && savedDateKey && (
+                              <div className="inline-flex items-center gap-1.5">
+                                <span className="text-[10px] font-mono text-[#547264] dark:text-[#B8BDB5]">
+                                  Lưu: {savedDateLabel}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setCharDateFilter({ mode: 'exact', dateKey: savedDateKey });
+                                    setIsCharDateFilterOpen(true);
+                                    setShowDetailOnMobile(false);
+                                    showToast(`Đang lọc nhân vật lưu ngày ${savedDateLabel}`, 'info');
+                                  }}
+                                  className="px-1.5 py-0.5 bg-[#FFF9EA] dark:bg-[#292E2B] hover:bg-[#E2F3E8] dark:hover:bg-[#343D37] text-[#39755D] dark:text-[#A3BDA8] rounded text-[10px] font-semibold border border-[#B8D7C5] dark:border-[#49554D] inline-flex items-center gap-1 cursor-pointer transition"
+                                  title={`Lọc các nhân vật cùng lưu ngày ${savedDateLabel}`}
+                                >
+                                  <Calendar className="w-2.5 h-2.5" />
+                                  <span>Lọc ngày này</span>
+                                </button>
+                              </div>
+                            )}
+                            {displayCharAuthor && (
+                              <span className="px-2 py-0.5 bg-[#FFF9EA] dark:bg-[#292E2B] text-[#39755D] dark:text-[#A3BDA8] rounded text-[10px] font-semibold border border-[#B8D7C5] dark:border-[#49554D]">
+                                Tác giả: {displayCharAuthor}
+                              </span>
+                            )}
+                          </div>
                         </div>
 
                         <div className="p-4 space-y-3.5">
                           <div className="flex flex-col sm:flex-row justify-between items-start gap-3">
                             <div className="flex items-start gap-3.5 min-w-0 flex-1">
-                              <div className="w-14 h-14 rounded-lg bg-[#E2F3E8] dark:bg-[#343D37] border border-[#9FC4AF] dark:border-[#49554D] flex items-center justify-center text-3xl flex-shrink-0">
-                                {activeChar.avatar}
-                              </div>
+                              {activeCharImages.length > 0 ? (
+                                <CharacterAvatarThumb
+                                  firstImage={activeCharImages[0]}
+                                  totalImages={activeCharImages.length}
+                                  emojiFallback={activeChar.avatar}
+                                  name={activeChar.name}
+                                  isSelected
+                                />
+                              ) : (
+                                <div className="w-14 h-14 rounded-lg bg-[#E2F3E8] dark:bg-[#343D37] border border-[#9FC4AF] dark:border-[#49554D] flex items-center justify-center text-3xl flex-shrink-0">
+                                  {activeChar.avatar}
+                                </div>
+                              )}
                               <div className="min-w-0 flex-1">
                                 <h2 className="text-lg sm:text-xl font-bold text-[#224C3B] dark:text-[#E4E1D8] leading-snug break-words">
                                   {activeChar.name}
@@ -3813,12 +4287,10 @@ export default function App() {
                                       className="retro-btn inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold"
                                       title={`Mở Prompt ${activeChar.name} trong Google AI Studio`}
                                     >
-                                      <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24">
-                                        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                                        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                                        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
-                                        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
-                                      </svg>
+                                      <SocialPlatformIcon
+                                        platform={detectSocialPlatformFromUrl(safeGgaiUrl)}
+                                        className="w-3.5 h-3.5 flex-shrink-0"
+                                      />
                                       <span>{activeChar.name}</span>
                                     </a>
                                     <button
@@ -3836,6 +4308,15 @@ export default function App() {
                           })()}
                         </div>
                       </div>
+
+                      {/* CHARACTER IMAGE GALLERY (0..5 images + Copy PNG + Zoom Lightbox) */}
+                      {activeCharImages.length > 0 && (
+                        <CharacterDetailGallery
+                          images={activeCharImages}
+                          characterName={activeChar.name}
+                          onToast={showToast}
+                        />
+                      )}
 
                       {/* BACKSTORY dual retro windows */}
                       {(activeChar.backstoryUser || activeChar.backstoryChar) && (
@@ -3929,6 +4410,69 @@ export default function App() {
                         </div>
                       )}
 
+                      {/* Các câu lệnh của cùng tác giả gốc với nhân vật */}
+                      {authorPrompts.length > 0 && activeChar.author && (
+                        <div className="retro-window overflow-hidden">
+                          <div className="retro-window-header px-4 py-2 flex items-center justify-between gap-2">
+                            <h4 className="text-xs font-bold text-[#224C3B] dark:text-[#E4E1D8] flex items-center gap-1.5">
+                              <Terminal className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
+                              <span>Các câu lệnh của {activeChar.author} ({authorPrompts.length})</span>
+                            </h4>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveTab('notes');
+                                setSearchQuery('');
+                                setSourceFilter('all');
+                                setSelectedNoteTags([]);
+                                setPromptAuthorFilter(activeChar.author || '');
+                                setShowDetailOnMobile(false);
+                                showToast(`Đang xem Kho Lệnh của tác giả ${activeChar.author}`, 'info');
+                              }}
+                              className="retro-btn px-2.5 py-1 text-[11px] font-semibold cursor-pointer"
+                            >
+                              Xem tất cả
+                            </button>
+                          </div>
+                          <div className="p-3.5 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                            {authorPrompts.slice(0, 6).map((matchPrompt) => {
+                              const matchKey = getItemKey(matchPrompt);
+                              return (
+                                <button
+                                  key={matchKey}
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveTab('notes');
+                                    setPromptAuthorFilter('');
+                                    setSelectedLibraryPromptId(matchKey);
+                                    setSelectedNoteId(null);
+                                    setIsCreating(false);
+                                    setIsEditing(false);
+                                    setShowDetailOnMobile(true);
+                                  }}
+                                  className="retro-btn p-2.5 flex items-start gap-2.5 text-left cursor-pointer"
+                                >
+                                  <span className="text-base leading-none mt-0.5 shrink-0">
+                                    {getLibraryPromptIcon(matchPrompt)}
+                                  </span>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-xs font-bold text-[#20372D] dark:text-[#E4E1D8] truncate">
+                                      {matchPrompt.title}
+                                    </p>
+                                    {matchPrompt.description && (
+                                      <p className="text-[10.5px] text-[#587568] dark:text-[#B8BDB5] line-clamp-2 mt-0.5">
+                                        {matchPrompt.description}
+                                      </p>
+                                    )}
+                                  </div>
+                                  <ChevronRight className="w-3.5 h-3.5 text-[#587568] dark:text-[#B8BDB5] shrink-0 mt-1" />
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
                       <ContentInteractionBar
                         targetType="character"
                         item={activeChar}
@@ -3950,7 +4494,8 @@ export default function App() {
                         profileRevision={profile?.updated_at}
                       />
                     </article>
-                  )}
+                    );
+                  })()}
 
                   {/* E. AUTHOR DETAILS COMPONENT DISPLAY */}
                   {activeTab === 'authors' && activeAuthor && (
@@ -3996,7 +4541,7 @@ export default function App() {
                                     rel="noopener noreferrer"
                                     className="retro-btn flex-1 flex items-center gap-3 py-2 px-3.5 text-left min-w-0 group"
                                   >
-                                    {getLogoForUrl(activeAuthor.fb.url)}
+                                    {renderBrandLogoForUrl(activeAuthor.fb.url)}
                                     <span className="text-xs font-bold text-[#244B3C] dark:text-[#E4E1D8] truncate flex items-center gap-1.5">
                                       {activeAuthor.fb.name}
                                       <ExternalLink className="w-3.5 h-3.5 opacity-50 group-hover:opacity-100 transition-opacity flex-shrink-0" />
@@ -4028,7 +4573,7 @@ export default function App() {
                                       rel="noopener noreferrer"
                                       className="retro-btn flex-1 flex items-center gap-3 py-2 px-3.5 text-left min-w-0 group"
                                     >
-                                      {getLogoForUrl(disc.url)}
+                                      {renderBrandLogoForUrl(disc.url)}
                                       <span className="text-xs font-bold text-[#244B3C] dark:text-[#E4E1D8] truncate flex items-center gap-1.5">
                                         {disc.name}
                                         <ExternalLink className="w-3.5 h-3.5 opacity-50 group-hover:opacity-100 transition-opacity flex-shrink-0" />
@@ -4060,7 +4605,7 @@ export default function App() {
                                     rel="noopener noreferrer"
                                     className="retro-btn flex-1 flex items-center gap-3 py-2 px-3.5 text-left min-w-0 group"
                                   >
-                                    {getLogoForUrl(activeAuthor.web.url)}
+                                    {renderBrandLogoForUrl(activeAuthor.web.url)}
                                     <span className="text-xs font-bold text-[#244B3C] dark:text-[#E4E1D8] truncate flex items-center gap-1.5">
                                       {activeAuthor.web.name}
                                       <ExternalLink className="w-3.5 h-3.5 opacity-50 group-hover:opacity-100 transition-opacity flex-shrink-0" />
@@ -4091,7 +4636,7 @@ export default function App() {
                                     rel="noopener noreferrer"
                                     className="retro-btn flex-1 flex items-center gap-3 py-2 px-3.5 text-left min-w-0 group"
                                   >
-                                    {getLogoForUrl(activeAuthor.other.url)}
+                                    {renderBrandLogoForUrl(activeAuthor.other.url)}
                                     <span className="text-xs font-bold text-[#244B3C] dark:text-[#E4E1D8] truncate flex items-center gap-1.5">
                                       {activeAuthor.other.name}
                                       <ExternalLink className="w-3.5 h-3.5 opacity-50 group-hover:opacity-100 transition-opacity flex-shrink-0" />
@@ -4145,6 +4690,7 @@ export default function App() {
                                 .filter(c => c.author?.toLowerCase() === activeAuthor.id?.toLowerCase() || c.author?.toLowerCase() === activeAuthor.name?.toLowerCase() || c.author?.toLowerCase() === activeAuthor.fullName?.toLowerCase())
                                 .map((char) => {
                                   const charKey = getItemKey(char);
+                                  const charImages = getCharacterImages(char);
                                   return (
                                     <button
                                       key={charKey}
@@ -4158,7 +4704,12 @@ export default function App() {
                                       }}
                                       className="retro-btn p-3 flex items-center gap-3 text-left cursor-pointer"
                                     >
-                                      <span className="text-xl flex-shrink-0">{char.avatar || '👤'}</span>
+                                      <CharacterAvatarThumb
+                                        firstImage={charImages[0]}
+                                        totalImages={charImages.length}
+                                        emojiFallback={char.avatar}
+                                        name={char.name}
+                                      />
                                       <div className="min-w-0 flex-1">
                                         <p className="text-xs font-bold text-[#20372D] dark:text-[#E4E1D8] truncate">{char.name}</p>
                                         <p className="text-[10px] text-[#587568] dark:text-[#B8BDB5] truncate mt-0.5">{char.role}</p>
@@ -4210,7 +4761,7 @@ export default function App() {
           else if (activeTab === 'ideas') setSelectedIdeaTags([]);
           else setSelectedCharTags([]);
         }}
-        isAdmin={isAdmin}
+        isAdmin={Boolean(isAuthenticated && isAdmin)}
         tabLabel={
           activeTab === 'notes'
             ? 'Kho Lệnh'
@@ -4296,6 +4847,11 @@ export default function App() {
           libraryPrompts={displayLibraryPrompts}
           isTogglingPublic={isTogglingPublic}
           isSavingItem={isSavingItem}
+          sortOrder={vaultSort}
+          onChangeSortOrder={(next) => {
+            setVaultSort(next);
+            saveUiPrefs({ vaultSort: next });
+          }}
           onViewItem={(kind, item) => handleVaultNavigateItem(kind, item, 'view')}
           onEditItem={(kind, item) => handleVaultNavigateItem(kind, item, 'edit')}
           onDeleteItem={handleVaultDeleteItem}
@@ -4308,7 +4864,7 @@ export default function App() {
         isOpen={isAnnouncementsModalOpen}
         onClose={() => setIsAnnouncementsModalOpen(false)}
         announcements={announcements}
-        isAdmin={isAdmin}
+        isAdmin={Boolean(isAuthenticated && isAdmin)}
         currentUserId={userId}
         onChanged={refreshAnnouncements}
         onToast={(msg) => showToast(msg, 'success')}

@@ -1,12 +1,14 @@
-import type {
-  Character,
-  CharacterSocialLink,
-  LibraryPrompt,
-  Note,
-  PromptBlock,
-  PromptBlockType,
-  PromptStep,
-  SocialPlatform,
+import {
+  MAX_CHARACTER_IMAGES,
+  type Character,
+  type CharacterImage,
+  type CharacterSocialLink,
+  type LibraryPrompt,
+  type Note,
+  type PromptBlock,
+  type PromptBlockType,
+  type PromptStep,
+  type SocialPlatform,
 } from '../types';
 
 export const NOTE_V2_PREFIX = '__SEACLOVER_NOTE_V2__:';
@@ -30,6 +32,30 @@ export const SOCIAL_PLATFORM_OPTIONS: Array<{
     defaultDisplayName: 'Discord',
   },
   {
+    id: 'google_ai_studio',
+    label: 'Google AI Studio',
+    placeholder: 'https://aistudio.google.com/...',
+    defaultDisplayName: 'Google AI Studio',
+  },
+  {
+    id: 'gemini',
+    label: 'Gemini',
+    placeholder: 'https://gemini.google.com/...',
+    defaultDisplayName: 'Gemini',
+  },
+  {
+    id: 'google_drive',
+    label: 'Google Drive',
+    placeholder: 'https://drive.google.com/...',
+    defaultDisplayName: 'Google Drive',
+  },
+  {
+    id: 'github',
+    label: 'GitHub',
+    placeholder: 'https://github.com/...',
+    defaultDisplayName: 'GitHub',
+  },
+  {
     id: 'tiktok',
     label: 'TikTok',
     placeholder: 'https://tiktok.com/@...',
@@ -42,14 +68,32 @@ export const SOCIAL_PLATFORM_OPTIONS: Array<{
     defaultDisplayName: 'Instagram',
   },
   {
+    id: 'x',
+    label: 'X (Twitter)',
+    placeholder: 'https://x.com/...',
+    defaultDisplayName: 'X',
+  },
+  {
     id: 'youtube',
     label: 'YouTube',
     placeholder: 'https://youtube.com/@...',
     defaultDisplayName: 'YouTube',
   },
   {
+    id: 'weibo',
+    label: 'Weibo',
+    placeholder: 'https://weibo.com/...',
+    defaultDisplayName: 'Weibo',
+  },
+  {
+    id: 'reddit',
+    label: 'Reddit',
+    placeholder: 'https://reddit.com/r/...',
+    defaultDisplayName: 'Reddit',
+  },
+  {
     id: 'website',
-    label: 'Website',
+    label: 'Website khác',
     placeholder: 'https://...',
     defaultDisplayName: 'Website',
   },
@@ -64,9 +108,16 @@ export const SOCIAL_PLATFORM_OPTIONS: Array<{
 const VALID_PLATFORMS = new Set<SocialPlatform>([
   'facebook',
   'discord',
+  'google_ai_studio',
+  'gemini',
+  'google_drive',
+  'github',
   'tiktok',
   'instagram',
+  'x',
   'youtube',
+  'weibo',
+  'reddit',
   'website',
   'other',
 ]);
@@ -99,20 +150,89 @@ export function isSafeImageUrl(rawUrl?: string | null): boolean {
   }
 }
 
+export function isSafeDataImageUrl(rawUrl?: string | null): boolean {
+  if (!rawUrl || typeof rawUrl !== 'string') return false;
+  return /^data:image\/(png|jpeg|jpg|webp|gif);base64,[a-z0-9+/=]+$/i.test(rawUrl.trim());
+}
+
 export function getSocialPlatformLabel(platform: SocialPlatform): string {
   return SOCIAL_PLATFORM_OPTIONS.find((opt) => opt.id === platform)?.label || 'Khác';
+}
+
+function extractUrlHost(rawUrl: string): string {
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return '';
+  try {
+    const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+    return new URL(withProtocol).hostname.toLowerCase().replace(/^www\./, '');
+  } catch {
+    return trimmed
+      .toLowerCase()
+      .replace(/^https?:\/\//, '')
+      .replace(/^www\./, '')
+      .split('/')[0]
+      .split('?')[0]
+      .split('#')[0];
+  }
+}
+
+function hostMatches(host: string, domains: string[]): boolean {
+  return domains.some((d) => host === d || host.endsWith(`.${d}`));
 }
 
 export function detectSocialPlatformFromUrl(
   url: string,
   fallback: SocialPlatform = 'website',
 ): SocialPlatform {
-  const lower = url.trim().toLowerCase();
-  if (lower.includes('facebook.com') || lower.includes('fb.com')) return 'facebook';
-  if (lower.includes('discord.gg') || lower.includes('discord.com')) return 'discord';
-  if (lower.includes('tiktok.com')) return 'tiktok';
-  if (lower.includes('instagram.com')) return 'instagram';
-  if (lower.includes('youtube.com') || lower.includes('youtu.be')) return 'youtube';
+  const host = extractUrlHost(url);
+  if (!host) return fallback;
+
+  // Phân biệt rõ từng dịch vụ thuộc Google trước
+  if (hostMatches(host, ['aistudio.google.com', 'makersuite.google.com'])) {
+    return 'google_ai_studio';
+  }
+  if (hostMatches(host, ['gemini.google.com'])) {
+    return 'gemini';
+  }
+  if (
+    hostMatches(host, [
+      'drive.google.com',
+      'docs.google.com',
+      'sheets.google.com',
+      'slides.google.com',
+      'forms.gle',
+    ])
+  ) {
+    return 'google_drive';
+  }
+
+  if (hostMatches(host, ['facebook.com', 'fb.com', 'fb.watch', 'fb.me'])) {
+    return 'facebook';
+  }
+  if (hostMatches(host, ['discord.com', 'discord.gg', 'discordapp.com'])) {
+    return 'discord';
+  }
+  if (hostMatches(host, ['github.com', 'gist.github.com', 'github.io'])) {
+    return 'github';
+  }
+  if (hostMatches(host, ['tiktok.com'])) {
+    return 'tiktok';
+  }
+  if (hostMatches(host, ['instagram.com', 'instagr.am'])) {
+    return 'instagram';
+  }
+  if (hostMatches(host, ['x.com', 'twitter.com', 't.co'])) {
+    return 'x';
+  }
+  if (hostMatches(host, ['youtube.com', 'youtu.be'])) {
+    return 'youtube';
+  }
+  if (hostMatches(host, ['weibo.com', 'weibo.cn'])) {
+    return 'weibo';
+  }
+  if (hostMatches(host, ['reddit.com', 'redd.it'])) {
+    return 'reddit';
+  }
   return fallback;
 }
 
@@ -271,6 +391,118 @@ export function applySocialLinksToCharacter<T extends Partial<Character>>(
       links: cleanLinks,
     },
   };
+}
+
+// ----------------------------------------------------------------------------
+// Character Images Helpers (0..5 ảnh, tương thích ngược dữ liệu cũ)
+// ----------------------------------------------------------------------------
+
+export function createCharacterImageId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `cimg-${crypto.randomUUID()}`;
+  }
+  return `cimg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function normalizeCharacterImages(raw: unknown): CharacterImage[] {
+  if (!Array.isArray(raw)) return [];
+  const normalized: CharacterImage[] = [];
+  const seenIds = new Set<string>();
+  const seenSources = new Set<string>();
+
+  for (let idx = 0; idx < raw.length; idx += 1) {
+    if (normalized.length >= MAX_CHARACTER_IMAGES) break;
+    const entry = raw[idx];
+
+    // Tương thích chuỗi URL / data URL từ phiên bản cũ
+    if (typeof entry === 'string') {
+      const trimmed = entry.trim();
+      if (!isSafeImageUrl(trimmed) && !isSafeDataImageUrl(trimmed)) continue;
+      const srcKey = `url:${trimmed}`;
+      if (seenSources.has(srcKey)) continue;
+      seenSources.add(srcKey);
+      normalized.push({
+        id: `cimg-legacy-${idx}`,
+        url: trimmed,
+      });
+      continue;
+    }
+
+    if (!entry || typeof entry !== 'object') continue;
+    const obj = entry as Record<string, unknown>;
+    const storagePath =
+      typeof obj.storagePath === 'string' && obj.storagePath.trim()
+        ? obj.storagePath.trim()
+        : undefined;
+    const localId =
+      typeof obj.localId === 'string' && obj.localId.trim() ? obj.localId.trim() : undefined;
+    const rawUrl = typeof obj.url === 'string' ? obj.url.trim() : undefined;
+    const safeUrl =
+      rawUrl && (isSafeImageUrl(rawUrl) || isSafeDataImageUrl(rawUrl)) ? rawUrl : undefined;
+
+    if (!storagePath && !localId && !safeUrl) continue;
+
+    const srcKey = storagePath
+      ? `sp:${storagePath}`
+      : localId
+        ? `loc:${localId}`
+        : `url:${safeUrl}`;
+    if (seenSources.has(srcKey)) continue;
+    seenSources.add(srcKey);
+
+    let id =
+      typeof obj.id === 'string' && obj.id.trim()
+        ? obj.id.trim()
+        : `cimg-restored-${idx}`;
+    if (seenIds.has(id)) {
+      id = `${id}-${idx}`;
+    }
+    seenIds.add(id);
+
+    const img: CharacterImage = { id };
+    if (storagePath) img.storagePath = storagePath;
+    if (localId) img.localId = localId;
+    if (safeUrl) img.url = safeUrl;
+    if (typeof obj.mimeType === 'string' && obj.mimeType.trim()) {
+      img.mimeType = obj.mimeType.trim();
+    }
+    if (typeof obj.width === 'number' && Number.isFinite(obj.width) && obj.width > 0) {
+      img.width = Math.round(obj.width);
+    }
+    if (typeof obj.height === 'number' && Number.isFinite(obj.height) && obj.height > 0) {
+      img.height = Math.round(obj.height);
+    }
+    if (typeof obj.name === 'string' && obj.name.trim()) {
+      img.name = obj.name.trim().slice(0, 120);
+    }
+    normalized.push(img);
+  }
+
+  return normalized;
+}
+
+/**
+ * Đọc danh sách 0..5 ảnh của nhân vật, hỗ trợ cả cấu trúc mới (`images`)
+ * lẫn các trường legacy nếu tồn tại trong bản sao lưu cũ (`imageUrls`, `avatarImage`).
+ */
+export function getCharacterImages(
+  char?: (Partial<Character> & { imageUrls?: unknown; avatarImage?: unknown }) | null,
+): CharacterImage[] {
+  if (!char) return [];
+  if (Array.isArray(char.images) && char.images.length > 0) {
+    return normalizeCharacterImages(char.images);
+  }
+  const fallbackList: unknown[] = [];
+  if (typeof char.avatarImage === 'string' && char.avatarImage.trim()) {
+    fallbackList.push(char.avatarImage);
+  }
+  if (Array.isArray(char.imageUrls)) {
+    fallbackList.push(...char.imageUrls);
+  }
+  if (fallbackList.length > 0) {
+    return normalizeCharacterImages(fallbackList);
+  }
+  return [];
 }
 
 // ----------------------------------------------------------------------------

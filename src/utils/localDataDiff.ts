@@ -2,7 +2,7 @@ import type { AppState, Character, Idea, LibraryPrompt, Note } from '../types';
 import { initialCharacters, initialIdeas } from '../initialData';
 import { defaultLibraryPrompts } from '../promptsData';
 import { readRawLocalStorageState } from '../utils';
-import { getCharacterSocialLinks, getNoteDescriptionAndBlocks } from './contentBlocks';
+import { getCharacterImages, getCharacterSocialLinks, getNoteDescriptionAndBlocks } from './contentBlocks';
 
 export const BUILTIN_CHARACTER_MAP = new Map<string, Character>(
   initialCharacters.map((c) => [c.id, c]),
@@ -118,6 +118,18 @@ export function isSameCharacterContent(a: Character, b: Character): boolean {
     url: l.url,
     label: l.label || '',
   }));
+  const imgsA = getCharacterImages(a).map((img) => ({
+    id: img.id,
+    storagePath: img.storagePath || '',
+    localId: img.localId || '',
+    url: img.url || '',
+  }));
+  const imgsB = getCharacterImages(b).map((img) => ({
+    id: img.id,
+    storagePath: img.storagePath || '',
+    localId: img.localId || '',
+    url: img.url || '',
+  }));
 
   return (
     normStr(a.name) === normStr(b.name) &&
@@ -125,6 +137,7 @@ export function isSameCharacterContent(a: Character, b: Character): boolean {
     normStr(a.avatar) === normStr(b.avatar) &&
     normStr(a.description) === normStr(b.description) &&
     normStr(a.author) === normStr(b.author) &&
+    stableStringify(imgsA) === stableStringify(imgsB) &&
     stableStringify(linksA) === stableStringify(linksB) &&
     normStr(a.ggai) === normStr(b.ggai) &&
     normStr(a.backstoryUser) === normStr(b.backstoryUser) &&

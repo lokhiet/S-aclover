@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase';
 import type {
   Character,
+  CharacterImage,
   CharacterSocialLink,
   Idea,
   LibraryPrompt,
@@ -12,11 +13,16 @@ import { initialCharacters, initialIdeas } from '../initialData';
 import { defaultLibraryPrompts } from '../promptsData';
 import type { ImportChunk, ImportJobPlan } from '../utils/localDataDiff';
 import { fetchPublicProfilesMap, isMissingCommunitySchemaError } from './communityService';
+import { getLocalImageBlob } from './localImageStore';
+import { processCharacterImageForUpload, uploadCharacterImageBlob } from './mediaService';
 import {
   applySocialLinksToCharacter,
   buildNoteFieldsFromBlocks,
+  createCharacterImageId,
+  getCharacterImages,
   getCharacterSocialLinks,
   getNoteDescriptionAndBlocks,
+  normalizeCharacterImages,
   normalizePromptBlock,
   sanitizePromptBlocks,
 } from '../utils/contentBlocks';
@@ -190,6 +196,13 @@ function isMissingVisibilityColumnError(error: unknown): boolean {
   );
 }
 
+function isMissingImagesColumnError(error: unknown): boolean {
+  const errObj = error as { code?: string; message?: string } | null;
+  const code = String(errObj?.code || '');
+  const lower = String(errObj?.message || '').toLowerCase();
+  return (code === '42703' || code === 'PGRST204') && lower.includes('images');
+}
+
 // ----------------------------------------------------------------------------
 // Row <-> TypeScript Mappers (100% lossless round-trip + visibility metadata)
 // ----------------------------------------------------------------------------
@@ -221,6 +234,7 @@ interface CharacterRow extends VisibilityColumns {
   user_profile: string | null;
   user_profile_title: string | null;
   prompt: string | null;
+  images?: CharacterImage[] | null;
   item_created_at: string;
   is_deleted: boolean;
   version: number;
@@ -291,11 +305,32 @@ function attachAuthorMeta(
   };
 }
 
+function serializeCharacterImagesForCloud(images: CharacterImage[]): CharacterImage[] {
+  return normalizeCharacterImages(images)
+    .map((img) => {
+      const cleaned: CharacterImage = { id: img.id };
+      if (img.storagePath) cleaned.storagePath = img.storagePath;
+      // Không gửi data: URL khổng lồ vào cột jsonb Postgres; chỉ giữ HTTPS url nếu có
+      if (img.url && !img.url.startsWith('data:')) cleaned.url = img.url;
+      if (img.mimeType) cleaned.mimeType = img.mimeType;
+      if (img.width) cleaned.width = img.width;
+      if (img.height) cleaned.height = img.height;
+      if (img.name) cleaned.name = img.name;
+      return cleaned;
+    })
+    .filter((img) => Boolean(img.storagePath || img.url));
+}
+
 function characterToRowPayload(
   userId: string,
   char: Character,
   isDeleted = false,
-  visibility?: { isPublic?: boolean; isSystem?: boolean; omitVisibility?: boolean },
+  options?: {
+    isPublic?: boolean;
+    isSystem?: boolean;
+    omitVisibility?: boolean;
+    omitImages?: boolean;
+  },
 ) {
   const syncedChar = Array.isArray(char.socialLinks)
     ? applySocialLinksToCharacter(char.socialLinks, char)
@@ -326,10 +361,14 @@ function characterToRowPayload(
     is_deleted: isDeleted,
   };
 
-  if (!visibility?.omitVisibility) {
-    const isSystem = Boolean(visibility?.isSystem ?? syncedChar.isSystem ?? false);
-    const isPublic = isSystem ? true : Boolean(visibility?.isPublic ?? syncedChar.isPublic ?? false);
-    if (isSystem || isPublic || visibility?.isPublic !== undefined || visibility?.isSystem !== undefined) {
+  if (!options?.omitImages) {
+    base.images = serializeCharacterImagesForCloud(getCharacterImages(syncedChar));
+  }
+
+  if (!options?.omitVisibility) {
+    const isSystem = Boolean(options?.isSystem ?? syncedChar.isSystem ?? false);
+    const isPublic = isSystem ? true : Boolean(options?.isPublic ?? syncedChar.isPublic ?? false);
+    if (isSystem || isPublic || options?.isPublic !== undefined || options?.isSystem !== undefined) {
       base.is_system = isSystem;
       base.is_public = isDeleted ? false : isPublic;
     }
@@ -342,6 +381,7 @@ function rowToCharacter(
   row: CharacterRow,
   profilesMap?: Record<string, PublicProfile>,
 ): Character {
+  const normalizedImages = normalizeCharacterImages(row.images);
   const baseChar: Character = {
     id: row.item_id,
     name: row.name,
@@ -351,6 +391,7 @@ function rowToCharacter(
       .map((t) => t.trim())
       .filter(Boolean),
     avatar: row.avatar || '🍀',
+    ...(normalizedImages.length > 0 ? { images: normalizedImages } : {}),
     description: nullToUndefined(row.description),
     createdAt: row.item_created_at || row.created_at,
     author: nullToUndefined(row.author),
@@ -994,6 +1035,29 @@ const TABLE_BY_KIND: Record<DataEntityKind, string> = {
  * Bật / Tắt trạng thái Công khai (is_public) cho một mục cá nhân bằng cập nhật hẹp
  * kèm kiểm tra version (OCC) để bảo đảm không mất nội dung và không ghi đè chỉnh sửa từ thiết bị khác.
  */
+async function requireAuthenticatedSession(): Promise<DataServiceError | null> {
+  if (!supabase) {
+    return { code: 'NOT_CONFIGURED', message: 'Supabase chưa được cấu hình.' };
+  }
+  try {
+    const { data, error } = await supabase.auth.getSession();
+    if (error || !data.session?.user?.id) {
+      return {
+        code: 'AUTH_REQUIRED',
+        message: 'Bạn cần đăng nhập để lưu hoặc chỉnh sửa dữ liệu.',
+        isAuthError: true,
+      };
+    }
+    return null;
+  } catch {
+    return {
+      code: 'AUTH_REQUIRED',
+      message: 'Bạn cần đăng nhập để lưu hoặc chỉnh sửa dữ liệu.',
+      isAuthError: true,
+    };
+  }
+}
+
 export async function toggleItemPublicStatus(
   kind: DataEntityKind,
   ownerId: string,
@@ -1001,8 +1065,9 @@ export async function toggleItemPublicStatus(
   nextIsPublic: boolean,
   expectedVersion: number,
 ): Promise<DataServiceResult<{ isPublic: boolean; publishedAt?: string }>> {
-  if (!supabase) {
-    return { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Supabase chưa được cấu hình.' } };
+  const authErr = await requireAuthenticatedSession();
+  if (authErr) {
+    return { ok: false, error: authErr };
   }
 
   const table = TABLE_BY_KIND[kind];
@@ -1094,18 +1159,22 @@ export async function saveCharacterToCloud(
   character: Character,
   options: SaveOptions = {},
 ): Promise<DataServiceResult<Character>> {
-  if (!supabase) {
-    return { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Supabase chưa được cấu hình.' } };
+  const authErr = await requireAuthenticatedSession();
+  if (authErr) {
+    return { ok: false, error: authErr };
   }
 
   const wantsVisibility = Boolean(
     options.isPublic || options.isSystem || character.isPublic || character.isSystem,
   );
-  const runWrite = async (omitVisibility: boolean) => {
+  const charImages = getCharacterImages(character);
+
+  const runWrite = async (omitVisibility: boolean, omitImages: boolean) => {
     const payload = characterToRowPayload(ownerId, character, false, {
       isPublic: options.isPublic,
       isSystem: options.isSystem,
       omitVisibility,
+      omitImages,
     });
 
     if (options.forceOverwrite) {
@@ -1132,11 +1201,32 @@ export async function saveCharacterToCloud(
   };
 
   try {
-    let { data, error } = await runWrite(false);
+    let omitVisibility = false;
+    let omitImages = false;
+    let { data, error } = await runWrite(omitVisibility, omitImages);
+
+    if (error && isMissingImagesColumnError(error)) {
+      if (charImages.length === 0) {
+        omitImages = true;
+        const retry = await runWrite(omitVisibility, omitImages);
+        data = retry.data;
+        error = retry.error;
+      } else {
+        return {
+          ok: false,
+          error: {
+            code: 'MIGRATION_009_REQUIRED',
+            message:
+              'Cơ sở dữ liệu chưa chạy migration 009_character_images.sql để lưu ảnh nhân vật. Vui lòng chạy migration 009 trên Supabase.',
+          },
+        };
+      }
+    }
 
     // Nếu chưa chạy migration 003 và người dùng chỉ lưu riêng tư -> tự lùi an toàn không gửi cột mới
     if (error && isMissingVisibilityColumnError(error) && !wantsVisibility) {
-      const retry = await runWrite(true);
+      omitVisibility = true;
+      const retry = await runWrite(omitVisibility, omitImages);
       data = retry.data;
       error = retry.error;
     }
@@ -1197,8 +1287,9 @@ export async function deleteCharacterFromCloud(
   isBuiltin: boolean,
   actingUserId?: string,
 ): Promise<DataServiceResult<{ id: string }>> {
-  if (!supabase) {
-    return { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Supabase chưa được cấu hình.' } };
+  const authErr = await requireAuthenticatedSession();
+  if (authErr) {
+    return { ok: false, error: authErr };
   }
 
   try {
@@ -1257,8 +1348,9 @@ export async function saveNoteToCloud(
   note: Note,
   options: SaveOptions = {},
 ): Promise<DataServiceResult<Note>> {
-  if (!supabase) {
-    return { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Supabase chưa được cấu hình.' } };
+  const authErr = await requireAuthenticatedSession();
+  if (authErr) {
+    return { ok: false, error: authErr };
   }
 
   const wantsVisibility = Boolean(
@@ -1356,8 +1448,9 @@ export async function deleteNoteFromCloud(
   ownerId: string,
   noteId: string,
 ): Promise<DataServiceResult<{ id: string }>> {
-  if (!supabase) {
-    return { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Supabase chưa được cấu hình.' } };
+  const authErr = await requireAuthenticatedSession();
+  if (authErr) {
+    return { ok: false, error: authErr };
   }
 
   try {
@@ -1382,8 +1475,9 @@ export async function saveIdeaToCloud(
   idea: Idea,
   options: SaveOptions = {},
 ): Promise<DataServiceResult<Idea>> {
-  if (!supabase) {
-    return { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Supabase chưa được cấu hình.' } };
+  const authErr = await requireAuthenticatedSession();
+  if (authErr) {
+    return { ok: false, error: authErr };
   }
 
   const wantsVisibility = Boolean(
@@ -1482,8 +1576,9 @@ export async function deleteIdeaFromCloud(
   ideaId: string,
   isBuiltin: boolean,
 ): Promise<DataServiceResult<{ id: string }>> {
-  if (!supabase) {
-    return { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Supabase chưa được cấu hình.' } };
+  const authErr = await requireAuthenticatedSession();
+  if (authErr) {
+    return { ok: false, error: authErr };
   }
 
   try {
@@ -1523,8 +1618,9 @@ export async function saveLibraryPromptToCloud(
   prompt: LibraryPrompt,
   options: SaveOptions = {},
 ): Promise<DataServiceResult<LibraryPrompt>> {
-  if (!supabase) {
-    return { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Supabase chưa được cấu hình.' } };
+  const authErr = await requireAuthenticatedSession();
+  if (authErr) {
+    return { ok: false, error: authErr };
   }
 
   const wantsVisibility = Boolean(
@@ -1637,8 +1733,9 @@ export async function deleteLibraryPromptFromCloud(
   promptId: string,
   isBuiltin: boolean,
 ): Promise<DataServiceResult<{ id: string }>> {
-  if (!supabase) {
-    return { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Supabase chưa được cấu hình.' } };
+  const authErr = await requireAuthenticatedSession();
+  if (authErr) {
+    return { ok: false, error: authErr };
   }
 
   try {
@@ -1687,22 +1784,132 @@ export async function deleteLibraryPromptFromCloud(
 // Bảo đảm dữ liệu nhập từ localStorage luôn ở trạng thái riêng tư (omitVisibility: true)
 // ----------------------------------------------------------------------------
 
+async function migrateCharacterImagesForCloudImport(
+  userId: string,
+  character: Character,
+): Promise<{ ok: boolean; character?: Character; error?: DataServiceError }> {
+  const images = getCharacterImages(character);
+  if (images.length === 0) {
+    return { ok: true, character };
+  }
+
+  const migratedImages: CharacterImage[] = [];
+  for (const img of images) {
+    if (img.storagePath) {
+      migratedImages.push(img);
+      continue;
+    }
+
+    let sourceBlob: Blob | null = null;
+    if (img.localId) {
+      sourceBlob = await getLocalImageBlob(img.localId);
+    } else if (img.url && img.url.startsWith('data:')) {
+      try {
+        const resp = await fetch(img.url);
+        sourceBlob = await resp.blob();
+      } catch {
+        sourceBlob = null;
+      }
+    } else if (img.url) {
+      migratedImages.push(img);
+      continue;
+    }
+
+    if (!sourceBlob) {
+      return {
+        ok: false,
+        error: {
+          code: 'LOCAL_IMAGE_MISSING',
+          message: `Không tìm thấy dữ liệu ảnh cục bộ của nhân vật "${character.name}" trong trình duyệt để tải lên đám mây.`,
+        },
+      };
+    }
+
+    const processed = await processCharacterImageForUpload(sourceBlob);
+    if (!processed.ok || !processed.blob || !processed.mimeType) {
+      return {
+        ok: false,
+        error: {
+          code: 'IMAGE_PROCESS_FAILED',
+          message: processed.error || `Không thể xử lý ảnh của nhân vật "${character.name}".`,
+        },
+      };
+    }
+
+    const uploaded = await uploadCharacterImageBlob(
+      userId,
+      character.id,
+      processed.blob,
+      processed.mimeType,
+    );
+    if (!uploaded.ok || !uploaded.storagePath) {
+      return {
+        ok: false,
+        error: {
+          code: 'IMAGE_UPLOAD_FAILED',
+          message:
+            uploaded.error || `Không thể tải ảnh nhân vật "${character.name}" lên Supabase Storage.`,
+        },
+      };
+    }
+
+    migratedImages.push({
+      id: img.id || createCharacterImageId(),
+      storagePath: uploaded.storagePath,
+      mimeType: processed.mimeType,
+      width: processed.width ?? img.width,
+      height: processed.height ?? img.height,
+      name: img.name,
+    });
+  }
+
+  return {
+    ok: true,
+    character: {
+      ...character,
+      images: migratedImages,
+    },
+  };
+}
+
 export async function upsertImportChunk(
   userId: string,
   chunk: ImportChunk,
 ): Promise<DataServiceResult<{ count: number }>> {
-  if (!supabase) {
-    return { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Supabase chưa được cấu hình.' } };
+  const authErr = await requireAuthenticatedSession();
+  if (authErr) {
+    return { ok: false, error: authErr };
   }
 
   try {
     if (chunk.kind === 'character') {
-      const rows = (chunk.items as Character[]).map((c) =>
+      const preparedCharacters: Character[] = [];
+      for (const c of chunk.items as Character[]) {
+        const migrated = await migrateCharacterImagesForCloudImport(userId, c);
+        if (!migrated.ok || !migrated.character) {
+          return { ok: false, error: migrated.error };
+        }
+        preparedCharacters.push(migrated.character);
+      }
+
+      const anyHasImages = preparedCharacters.some((c) => getCharacterImages(c).length > 0);
+      let rows = preparedCharacters.map((c) =>
         characterToRowPayload(userId, c, false, { omitVisibility: true }),
       );
-      const { error } = await supabase
+      let { error } = await supabase
         .from('user_characters')
         .upsert(rows, { onConflict: 'user_id,item_id' });
+
+      if (error && isMissingImagesColumnError(error) && !anyHasImages) {
+        rows = preparedCharacters.map((c) =>
+          characterToRowPayload(userId, c, false, { omitVisibility: true, omitImages: true }),
+        );
+        const retry = await supabase
+          .from('user_characters')
+          .upsert(rows, { onConflict: 'user_id,item_id' });
+        error = retry.error;
+      }
+
       if (error) {
         return { ok: false, error: normalizeDataError(error, 'Lỗi khi tải lên nhóm nhân vật.') };
       }

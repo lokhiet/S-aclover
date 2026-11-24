@@ -94,6 +94,13 @@ export function normalizeCommunityError(
     };
   }
 
+  if (code === 'P0001' || code === '22023') {
+    return {
+      code,
+      message: rawMessage || fallbackMessage,
+    };
+  }
+
   if (code === '23514' || lower.includes('check constraint')) {
     return {
       code,
@@ -118,6 +125,37 @@ export function normalizeCommunityError(
     code: code || 'UNKNOWN_ERROR',
     message: fallbackMessage,
   };
+}
+
+async function ensureMemberSession(expectedUserId?: string): Promise<CommunityServiceError | null> {
+  if (!supabase) {
+    return { code: 'NOT_CONFIGURED', message: 'Supabase chưa được cấu hình.' };
+  }
+  try {
+    const { data, error } = await supabase.auth.getSession();
+    const sessionUserId = data.session?.user?.id ?? null;
+    if (error || !sessionUserId) {
+      return {
+        code: 'AUTH_REQUIRED',
+        message: 'Bạn cần đăng nhập để thực hiện thao tác này.',
+        isAuthError: true,
+      };
+    }
+    if (expectedUserId && sessionUserId !== expectedUserId) {
+      return {
+        code: 'FORBIDDEN',
+        message: 'Phiên đăng nhập hiện tại không khớp với tài khoản thao tác.',
+        isAuthError: true,
+      };
+    }
+    return null;
+  } catch {
+    return {
+      code: 'AUTH_REQUIRED',
+      message: 'Bạn cần đăng nhập để thực hiện thao tác này.',
+      isAuthError: true,
+    };
+  }
 }
 
 // ----------------------------------------------------------------------------
@@ -234,8 +272,9 @@ export async function createSystemAnnouncement(
   authorId: string,
   input: SaveAnnouncementInput,
 ): Promise<CommunityResult<SystemAnnouncement>> {
-  if (!supabase) {
-    return { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Supabase chưa được cấu hình.' } };
+  const sessionErr = await ensureMemberSession(authorId);
+  if (sessionErr) {
+    return { ok: false, error: sessionErr };
   }
 
   const title = input.title.trim();
@@ -304,8 +343,9 @@ export async function updateSystemAnnouncement(
   id: string,
   input: SaveAnnouncementInput,
 ): Promise<CommunityResult<SystemAnnouncement>> {
-  if (!supabase) {
-    return { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Supabase chưa được cấu hình.' } };
+  const sessionErr = await ensureMemberSession();
+  if (sessionErr) {
+    return { ok: false, error: sessionErr };
   }
 
   const title = input.title.trim();
@@ -371,8 +411,9 @@ export async function updateSystemAnnouncement(
 }
 
 export async function deleteSystemAnnouncement(id: string): Promise<CommunityResult<{ id: string }>> {
-  if (!supabase) {
-    return { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Supabase chưa được cấu hình.' } };
+  const sessionErr = await ensureMemberSession();
+  if (sessionErr) {
+    return { ok: false, error: sessionErr };
   }
 
   try {
@@ -400,7 +441,9 @@ interface CharacterCommentRow {
   id: string;
   character_owner_id: string;
   character_item_id: string;
-  user_id: string;
+  user_id: string | null;
+  is_anonymous?: boolean;
+  guest_display_name?: string | null;
   content: string;
   is_hidden: boolean;
   hidden_by: string | null;
@@ -408,6 +451,52 @@ interface CharacterCommentRow {
   hidden_reason: string | null;
   created_at: string;
   updated_at: string;
+}
+
+function mapCommentRowToModel(
+  row: CharacterCommentRow,
+  profilesMap: Record<string, PublicProfile>,
+): CharacterComment {
+  const isAnonymous = Boolean(row.is_anonymous || !row.user_id);
+  if (isAnonymous) {
+    const guestLabel = (row.guest_display_name || '').trim() || 'Khách qua đường (Ẩn danh)';
+    return {
+      id: row.id,
+      characterOwnerId: row.character_owner_id,
+      characterItemId: row.character_item_id,
+      userId: null,
+      isAnonymous: true,
+      authorDisplayName: guestLabel,
+      authorAvatarUrl: null,
+      authorRole: 'guest',
+      content: row.content,
+      isHidden: row.is_hidden,
+      hiddenBy: row.hidden_by,
+      hiddenAt: row.hidden_at,
+      hiddenReason: row.hidden_reason,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  const uid = row.user_id as string;
+  return {
+    id: row.id,
+    characterOwnerId: row.character_owner_id,
+    characterItemId: row.character_item_id,
+    userId: uid,
+    isAnonymous: false,
+    authorDisplayName: profilesMap[uid]?.display_name || 'Thành viên SéaClover',
+    authorAvatarUrl: profilesMap[uid]?.avatar_url ?? null,
+    authorRole: profilesMap[uid]?.role || 'user',
+    content: row.content,
+    isHidden: row.is_hidden,
+    hiddenBy: row.hidden_by,
+    hiddenAt: row.hidden_at,
+    hiddenReason: row.hidden_reason,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
 export async function fetchCharacterComments(
@@ -437,24 +526,14 @@ export async function fetchCharacterComments(
     }
 
     const rows = (data ?? []) as CharacterCommentRow[];
-    const profilesMap = await fetchPublicProfilesMap(rows.map((r) => r.user_id));
+    const memberIds = rows
+      .map((r) => r.user_id)
+      .filter((id): id is string => Boolean(id && id.trim()));
+    const profilesMap = await fetchPublicProfilesMap(memberIds);
 
-    const comments: CharacterComment[] = rows.map((row) => ({
-      id: row.id,
-      characterOwnerId: row.character_owner_id,
-      characterItemId: row.character_item_id,
-      userId: row.user_id,
-      authorDisplayName: profilesMap[row.user_id]?.display_name || 'Thành viên SéaClover',
-      authorAvatarUrl: profilesMap[row.user_id]?.avatar_url ?? null,
-      authorRole: profilesMap[row.user_id]?.role || 'user',
-      content: row.content,
-      isHidden: row.is_hidden,
-      hiddenBy: row.hidden_by,
-      hiddenAt: row.hidden_at,
-      hiddenReason: row.hidden_reason,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    }));
+    const comments: CharacterComment[] = rows.map((row) =>
+      mapCommentRowToModel(row, profilesMap),
+    );
 
     return { ok: true, data: comments, schemaReady: true };
   } catch (err) {
@@ -471,8 +550,9 @@ export async function createCharacterComment(
   characterItemId: string,
   rawContent: string,
 ): Promise<CommunityResult<CharacterComment>> {
-  if (!supabase) {
-    return { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Supabase chưa được cấu hình.' } };
+  const sessionErr = await ensureMemberSession(userId);
+  if (sessionErr) {
+    return { ok: false, error: sessionErr };
   }
 
   const content = rawContent.trim();
@@ -487,8 +567,8 @@ export async function createCharacterComment(
   }
 
   try {
-    // Tuyệt đối không gửi các trường kiểm duyệt khi tạo bình luận mới
-    const { data, error } = await supabase
+    // Tuyệt đối không gửi các trường kiểm duyệt hoặc cờ ẩn danh khi thành viên gửi bình luận
+    const { data, error } = await supabase!
       .from('character_comments')
       .insert({
         character_owner_id: characterOwnerId,
@@ -507,25 +587,10 @@ export async function createCharacterComment(
     }
 
     const row = data as CharacterCommentRow;
-    const profilesMap = await fetchPublicProfilesMap([row.user_id]);
+    const profilesMap = row.user_id ? await fetchPublicProfilesMap([row.user_id]) : {};
     return {
       ok: true,
-      data: {
-        id: row.id,
-        characterOwnerId: row.character_owner_id,
-        characterItemId: row.character_item_id,
-        userId: row.user_id,
-        authorDisplayName: profilesMap[row.user_id]?.display_name || 'Thành viên SéaClover',
-        authorAvatarUrl: profilesMap[row.user_id]?.avatar_url ?? null,
-        authorRole: profilesMap[row.user_id]?.role || 'user',
-        content: row.content,
-        isHidden: row.is_hidden,
-        hiddenBy: row.hidden_by,
-        hiddenAt: row.hidden_at,
-        hiddenReason: row.hidden_reason,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-      },
+      data: mapCommentRowToModel(row, profilesMap),
     };
   } catch (err) {
     return {
@@ -535,12 +600,93 @@ export async function createCharacterComment(
   }
 }
 
+export async function createAnonymousCharacterComment(params: {
+  characterOwnerId: string;
+  characterItemId: string;
+  guestName: string;
+  content: string;
+  clientToken?: string | null;
+}): Promise<CommunityResult<CharacterComment>> {
+  if (!supabase) {
+    return { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Supabase chưa được cấu hình.' } };
+  }
+
+  const content = params.content.trim();
+  if (!content) {
+    return { ok: false, error: { code: 'VALIDATION', message: 'Vui lòng nhập nội dung bình luận.' } };
+  }
+  if (content.length > 1500) {
+    return {
+      ok: false,
+      error: { code: 'VALIDATION', message: 'Bình luận tối đa 1500 ký tự.' },
+    };
+  }
+
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (sessionData.session?.user) {
+      return {
+        ok: false,
+        error: {
+          code: 'AUTHENTICATED_USER',
+          message: 'Bạn đang đăng nhập, vui lòng gửi bình luận bằng tài khoản thành viên.',
+        },
+      };
+    }
+
+    const { data, error } = await supabase.rpc('create_anonymous_character_comment', {
+      p_character_owner_id: params.characterOwnerId,
+      p_character_item_id: params.characterItemId,
+      p_guest_name: params.guestName,
+      p_content: content,
+      p_client_token: params.clientToken ?? null,
+    });
+
+    if (error) {
+      const code = String((error as { code?: string }).code || '');
+      const lower = String((error as { message?: string }).message || '').toLowerCase();
+      if (
+        code === '42883' ||
+        code === 'PGRST202' ||
+        lower.includes('create_anonymous_character_comment')
+      ) {
+        return {
+          ok: false,
+          schemaReady: false,
+          error: {
+            code: 'MIGRATION_010_REQUIRED',
+            isMissingSchema: true,
+            message:
+              'Chức năng bình luận ẩn danh cần chạy tệp SQL migration 010_anonymous_guest_comments.sql trên Supabase trước khi sử dụng.',
+          },
+        };
+      }
+      return {
+        ok: false,
+        error: normalizeCommunityError(error, 'Không thể gửi bình luận ẩn danh lúc này.'),
+      };
+    }
+
+    const row = data as CharacterCommentRow;
+    return {
+      ok: true,
+      data: mapCommentRowToModel(row, {}),
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: normalizeCommunityError(err, 'Không thể gửi bình luận ẩn danh lúc này.'),
+    };
+  }
+}
+
 export async function updateCharacterComment(
   commentId: string,
   rawContent: string,
 ): Promise<CommunityResult<CharacterComment>> {
-  if (!supabase) {
-    return { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Supabase chưa được cấu hình.' } };
+  const sessionErr = await ensureMemberSession();
+  if (sessionErr) {
+    return { ok: false, error: sessionErr };
   }
 
   const content = rawContent.trim();
@@ -552,7 +698,7 @@ export async function updateCharacterComment(
   }
 
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabase!
       .from('character_comments')
       .update({ content })
       .eq('id', commentId)
@@ -567,25 +713,10 @@ export async function updateCharacterComment(
     }
 
     const row = data as CharacterCommentRow;
-    const profilesMap = await fetchPublicProfilesMap([row.user_id]);
+    const profilesMap = row.user_id ? await fetchPublicProfilesMap([row.user_id]) : {};
     return {
       ok: true,
-      data: {
-        id: row.id,
-        characterOwnerId: row.character_owner_id,
-        characterItemId: row.character_item_id,
-        userId: row.user_id,
-        authorDisplayName: profilesMap[row.user_id]?.display_name || 'Thành viên SéaClover',
-        authorAvatarUrl: profilesMap[row.user_id]?.avatar_url ?? null,
-        authorRole: profilesMap[row.user_id]?.role || 'user',
-        content: row.content,
-        isHidden: row.is_hidden,
-        hiddenBy: row.hidden_by,
-        hiddenAt: row.hidden_at,
-        hiddenReason: row.hidden_reason,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-      },
+      data: mapCommentRowToModel(row, profilesMap),
     };
   } catch (err) {
     return {
@@ -600,14 +731,15 @@ export async function moderateCharacterComment(
   isHidden: boolean,
   hiddenReason?: string,
 ): Promise<CommunityResult<CharacterComment>> {
-  if (!supabase) {
-    return { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Supabase chưa được cấu hình.' } };
+  const sessionErr = await ensureMemberSession();
+  if (sessionErr) {
+    return { ok: false, error: sessionErr };
   }
 
   const trimmedReason = hiddenReason?.trim() ? hiddenReason.trim().slice(0, 300) : null;
 
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabase!
       .from('character_comments')
       .update({
         is_hidden: isHidden,
@@ -625,25 +757,10 @@ export async function moderateCharacterComment(
     }
 
     const row = data as CharacterCommentRow;
-    const profilesMap = await fetchPublicProfilesMap([row.user_id]);
+    const profilesMap = row.user_id ? await fetchPublicProfilesMap([row.user_id]) : {};
     return {
       ok: true,
-      data: {
-        id: row.id,
-        characterOwnerId: row.character_owner_id,
-        characterItemId: row.character_item_id,
-        userId: row.user_id,
-        authorDisplayName: profilesMap[row.user_id]?.display_name || 'Thành viên SéaClover',
-        authorAvatarUrl: profilesMap[row.user_id]?.avatar_url ?? null,
-        authorRole: profilesMap[row.user_id]?.role || 'user',
-        content: row.content,
-        isHidden: row.is_hidden,
-        hiddenBy: row.hidden_by,
-        hiddenAt: row.hidden_at,
-        hiddenReason: row.hidden_reason,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-      },
+      data: mapCommentRowToModel(row, profilesMap),
     };
   } catch (err) {
     return {
@@ -656,12 +773,13 @@ export async function moderateCharacterComment(
 export async function deleteCharacterComment(
   commentId: string,
 ): Promise<CommunityResult<{ id: string }>> {
-  if (!supabase) {
-    return { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Supabase chưa được cấu hình.' } };
+  const sessionErr = await ensureMemberSession();
+  if (sessionErr) {
+    return { ok: false, error: sessionErr };
   }
 
   try {
-    const { error } = await supabase.from('character_comments').delete().eq('id', commentId);
+    const { error } = await supabase!.from('character_comments').delete().eq('id', commentId);
     if (error) {
       return {
         ok: false,
@@ -781,8 +899,9 @@ export async function savePromptRating(params: {
   score: number;
   review?: string;
 }): Promise<CommunityResult<PromptRating>> {
-  if (!supabase) {
-    return { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Supabase chưa được cấu hình.' } };
+  const sessionErr = await ensureMemberSession(params.userId);
+  if (sessionErr) {
+    return { ok: false, error: sessionErr };
   }
 
   const score = Math.round(params.score);
@@ -895,12 +1014,13 @@ export async function savePromptRating(params: {
 export async function deletePromptRating(
   ratingId: string,
 ): Promise<CommunityResult<{ id: string }>> {
-  if (!supabase) {
-    return { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Supabase chưa được cấu hình.' } };
+  const sessionErr = await ensureMemberSession();
+  if (sessionErr) {
+    return { ok: false, error: sessionErr };
   }
 
   try {
-    const { error } = await supabase.from('prompt_ratings').delete().eq('id', ratingId);
+    const { error } = await supabase!.from('prompt_ratings').delete().eq('id', ratingId);
     if (error) {
       return {
         ok: false,
@@ -973,8 +1093,9 @@ export async function toggleContentLike(params: {
   targetItemId: string;
   currentlyLiked: boolean;
 }): Promise<CommunityResult<{ likedByMe: boolean }>> {
-  if (!supabase) {
-    return { ok: false, error: { code: 'NOT_CONFIGURED', message: 'Supabase chưa được cấu hình.' } };
+  const sessionErr = await ensureMemberSession(params.userId);
+  if (sessionErr) {
+    return { ok: false, error: sessionErr };
   }
 
   const targetScope = buildTargetScope(params.targetOwnerId);
