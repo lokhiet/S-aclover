@@ -9,6 +9,20 @@ export interface TagAdminResult<T = void> {
   error?: string;
 }
 
+export interface BuiltinTagOverridesMap {
+  libraryPromptTags: Record<string, string[]>;
+  ideaTags: Record<string, string[]>;
+  characterTags: Record<string, string[]>;
+  schemaReady: boolean;
+}
+
+export const EMPTY_BUILTIN_TAG_OVERRIDES: BuiltinTagOverridesMap = {
+  libraryPromptTags: {},
+  ideaTags: {},
+  characterTags: {},
+  schemaReady: false,
+};
+
 interface SharedTagRow {
   slug: string;
   label: string;
@@ -16,6 +30,12 @@ interface SharedTagRow {
   description: string | null;
   created_at?: string;
   updated_at?: string;
+}
+
+interface BuiltinTagOverrideRow {
+  target_type: 'library_prompt' | 'idea' | 'character';
+  item_id: string;
+  tags: string[] | null;
 }
 
 function isMissingTagSchemaError(err: unknown): boolean {
@@ -28,6 +48,7 @@ function isMissingTagSchemaError(err: unknown): boolean {
     code === '42883' ||
     code === 'PGRST202' ||
     lower.includes('shared_tags') ||
+    lower.includes('builtin_tag_overrides') ||
     lower.includes('admin_rename_shared_tag') ||
     lower.includes('admin_upsert_shared_tag')
   );
@@ -68,20 +89,83 @@ export async function fetchSharedTags(): Promise<TagAdminResult<SharedTag[]>> {
   }
 }
 
+export async function fetchBuiltinTagOverrides(): Promise<
+  TagAdminResult<BuiltinTagOverridesMap>
+> {
+  try {
+    const { data, error } = await supabase
+      .from('builtin_tag_overrides')
+      .select('target_type, item_id, tags')
+      .range(0, 1999);
+
+    if (error) {
+      if (isMissingTagSchemaError(error)) {
+        return {
+          ok: true,
+          data: { ...EMPTY_BUILTIN_TAG_OVERRIDES },
+          schemaMissing: true,
+        };
+      }
+      return {
+        ok: false,
+        error: error.message || 'Không thể tải cấu hình tag nội dung mặc định.',
+      };
+    }
+
+    const result: BuiltinTagOverridesMap = {
+      libraryPromptTags: {},
+      ideaTags: {},
+      characterTags: {},
+      schemaReady: true,
+    };
+
+    for (const row of (data || []) as BuiltinTagOverrideRow[]) {
+      const cleanTags = dedupeTags(Array.isArray(row.tags) ? row.tags : []);
+      if (row.target_type === 'library_prompt') {
+        result.libraryPromptTags[row.item_id] = cleanTags;
+      } else if (row.target_type === 'idea') {
+        result.ideaTags[row.item_id] = cleanTags;
+      } else if (row.target_type === 'character') {
+        result.characterTags[row.item_id] = cleanTags;
+      }
+    }
+
+    return { ok: true, data: result };
+  } catch (err) {
+    if (isMissingTagSchemaError(err)) {
+      return {
+        ok: true,
+        data: { ...EMPTY_BUILTIN_TAG_OVERRIDES },
+        schemaMissing: true,
+      };
+    }
+    return { ok: false, error: 'Lỗi mạng khi tải cấu hình tag nội dung mặc định.' };
+  }
+}
+
 function formatTagRpcError(
   error: { code?: string; message?: string },
   missingMsg: string,
   fallbackMsg: string,
 ): TagAdminResult<never> {
+  const msg = String(error.message || '');
+  const lower = msg.toLowerCase();
+  if (lower.includes('builtin_tag_overrides')) {
+    return {
+      ok: false,
+      schemaMissing: true,
+      error:
+        'Cơ sở dữ liệu chưa chạy migration 008_builtin_tag_overrides.sql trên Supabase để đồng bộ tag của nội dung hệ thống mặc định.',
+    };
+  }
   if (isMissingTagSchemaError(error)) {
     return { ok: false, schemaMissing: true, error: missingMsg };
   }
-  const msg = String(error.message || '');
-  if (msg.toLowerCase().includes('coalesce types text[] and jsonb')) {
+  if (lower.includes('coalesce types text[] and jsonb')) {
     return {
       ok: false,
       error:
-        'Cơ sở dữ liệu cần chạy thêm migration 007_fix_tag_management.sql trên Supabase để sửa lỗi kiểu dữ liệu text[]/jsonb của hàm quản lý tag.',
+        'Cơ sở dữ liệu cần chạy thêm migration 007_fix_tag_management.sql (và 008_builtin_tag_overrides.sql) trên Supabase.',
     };
   }
   return { ok: false, error: msg || fallbackMsg };
@@ -142,7 +226,7 @@ export async function adminRenameSharedTag(
   if (error) {
     return formatTagRpcError(
       error,
-      'Cần chạy migration 006_shared_tags.sql và 007_fix_tag_management.sql trên Supabase để đổi tên tag chung.',
+      'Cần chạy migration 007_fix_tag_management.sql và 008_builtin_tag_overrides.sql trên Supabase để đổi tên tag chung.',
       'Không thể đổi tên tag chung.',
     );
   }
@@ -169,7 +253,7 @@ export async function adminMergeSharedTags(
   if (error) {
     return formatTagRpcError(
       error,
-      'Cần chạy migration 006_shared_tags.sql và 007_fix_tag_management.sql trên Supabase để gộp tag chung.',
+      'Cần chạy migration 007_fix_tag_management.sql và 008_builtin_tag_overrides.sql trên Supabase để gộp tag chung.',
       'Không thể gộp tag chung.',
     );
   }
@@ -190,7 +274,7 @@ export async function adminDeleteSharedTag(label: string): Promise<TagAdminResul
   if (error) {
     return formatTagRpcError(
       error,
-      'Cần chạy migration 006_shared_tags.sql và 007_fix_tag_management.sql trên Supabase để xóa tag chung.',
+      'Cần chạy migration 007_fix_tag_management.sql và 008_builtin_tag_overrides.sql trên Supabase để xóa tag chung.',
       'Không thể xóa tag chung.',
     );
   }

@@ -52,7 +52,7 @@ import { PromptRatingSection } from './components/community/PromptRatingSection'
 import { SocialPlatformIcon } from './components/common/SocialPlatformIcon';
 import { PromptBlocksView } from './components/prompts/PromptBlocksView';
 import { TagFilterBar } from './components/tags/TagFilterBar';
-import { AllTagsModal } from './components/tags/AllTagsModal';
+import { AllTagsModal, type TagMutationEvent } from './components/tags/AllTagsModal';
 import {
   extractPromptStoragePaths,
   getCharacterSocialLinks,
@@ -62,7 +62,9 @@ import {
   isSafeExternalHttpUrl,
 } from './utils/contentBlocks';
 import {
+  applyTagsToCharacterFields,
   buildTagCatalogFromTagLists,
+  dedupeTags,
   getCharacterTags,
   getIdeaTags,
   getLibraryPromptTags,
@@ -71,7 +73,12 @@ import {
   itemMatchesSelectedTags,
   toTagComparisonKey,
 } from './utils/tagSystem';
-import { fetchSharedTags } from './services/tagAdminService';
+import {
+  EMPTY_BUILTIN_TAG_OVERRIDES,
+  fetchBuiltinTagOverrides,
+  fetchSharedTags,
+  type BuiltinTagOverridesMap,
+} from './services/tagAdminService';
 import { deletePromptIllustrationPaths } from './services/mediaService';
 import {
   PixelCloverIcon,
@@ -92,6 +99,7 @@ import { authorsList } from './authorsData';
 import { 
   loadState, 
   saveState, 
+  loadGuestMeta,
   loadUiPrefs,
   saveUiPrefs,
   markGuestItemCustomized,
@@ -357,6 +365,9 @@ export default function App() {
   const [selectedCharTags, setSelectedCharTags] = useState<string[]>([]);
   const [isAllTagsModalOpen, setIsAllTagsModalOpen] = useState(false);
   const [sharedTags, setSharedTags] = useState<SharedTag[]>([]);
+  const [builtinTagOverrides, setBuiltinTagOverrides] = useState<BuiltinTagOverridesMap>(
+    EMPTY_BUILTIN_TAG_OVERRIDES,
+  );
 
   // Form toggles
   const [isCreating, setIsCreating] = useState(false);
@@ -505,10 +516,19 @@ export default function App() {
     }
   }, []);
 
+  // Tải danh sách tag hiện hành trên Supabase cho các nội dung Hệ thống mặc định
+  const refreshBuiltinTagOverrides = useCallback(async () => {
+    const res = await fetchBuiltinTagOverrides();
+    if (res.ok && res.data) {
+      setBuiltinTagOverrides(res.data);
+    }
+  }, []);
+
   useEffect(() => {
     void refreshPublicSnapshot();
     void refreshSharedTags();
-  }, [refreshPublicSnapshot, refreshSharedTags]);
+    void refreshBuiltinTagOverrides();
+  }, [refreshPublicSnapshot, refreshSharedTags, refreshBuiltinTagOverrides]);
 
   useEffect(() => {
     if (!isAuthReady) return;
@@ -551,6 +571,7 @@ export default function App() {
         void refreshPublicSnapshot();
         void refreshAnnouncements();
         void refreshSharedTags();
+        void refreshBuiltinTagOverrides();
 
         // Kiểm tra thuần (read-only) xem localStorage có dữ liệu cá nhân hoặc phiên nhập bị gián đoạn không
         const personalLocal = extractPersonalLocalData();
@@ -583,18 +604,56 @@ export default function App() {
         }
       }
     },
-    [showToast, refreshProfile, refreshPublicSnapshot, refreshAnnouncements, refreshSharedTags],
+    [
+      showToast,
+      refreshProfile,
+      refreshPublicSnapshot,
+      refreshAnnouncements,
+      refreshSharedTags,
+      refreshBuiltinTagOverrides,
+    ],
   );
 
   const handleRefreshTagsAndData = useCallback(async () => {
     await Promise.all([
       refreshSharedTags(),
+      refreshBuiltinTagOverrides(),
       refreshPublicSnapshot(),
       isAuthenticated && userId
         ? syncFromSupabase(userId, { silent: true, checkLocalPrompt: false })
         : Promise.resolve(true),
     ]);
-  }, [refreshSharedTags, refreshPublicSnapshot, isAuthenticated, userId, syncFromSupabase]);
+  }, [
+    refreshSharedTags,
+    refreshBuiltinTagOverrides,
+    refreshPublicSnapshot,
+    isAuthenticated,
+    userId,
+    syncFromSupabase,
+  ]);
+
+  const handleTagsMutated = useCallback((event: TagMutationEvent) => {
+    const remapList = (prev: string[]): string[] => {
+      if (prev.length === 0) return prev;
+      if (event.type === 'delete') {
+        const targetKey = toTagComparisonKey(event.label);
+        return prev.filter((t) => toTagComparisonKey(t) !== targetKey);
+      }
+      if (event.type === 'rename') {
+        const oldKey = toTagComparisonKey(event.oldLabel);
+        return dedupeTags(
+          prev.map((t) => (toTagComparisonKey(t) === oldKey ? event.newLabel : t)),
+        );
+      }
+      const sourceKeys = new Set(event.sourceLabels.map((s) => toTagComparisonKey(s)));
+      return dedupeTags(
+        prev.map((t) => (sourceKeys.has(toTagComparisonKey(t)) ? event.targetLabel : t)),
+      );
+    };
+    setSelectedNoteTags(remapList);
+    setSelectedIdeaTags(remapList);
+    setSelectedCharTags(remapList);
+  }, []);
 
   // Chuyển đổi an toàn giữa chế độ Khách (localStorage) và Tài khoản (Supabase),
   // bảo đảm cô lập 100%, không rò rỉ dữ liệu giữa các tài khoản khi đổi tài khoản/đăng xuất.
@@ -656,8 +715,18 @@ export default function App() {
       setCharacters(guestState.characters);
       setLibraryPrompts(guestState.libraryPrompts || defaultLibraryPrompts);
       void refreshPublicSnapshot();
+      void refreshSharedTags();
+      void refreshBuiltinTagOverrides();
     }
-  }, [isAuthReady, isAuthenticated, userId, syncFromSupabase, refreshPublicSnapshot]);
+  }, [
+    isAuthReady,
+    isAuthenticated,
+    userId,
+    syncFromSupabase,
+    refreshPublicSnapshot,
+    refreshSharedTags,
+    refreshBuiltinTagOverrides,
+  ]);
 
   // Tự động đồng bộ lại âm thầm khi người dùng quay lại tab (giảm xung đột giữa Edge/Chrome/thiết bị khác)
   useEffect(() => {
@@ -803,44 +872,144 @@ export default function App() {
   /* ----------------- MERGED DISPLAY LISTS (PERSONAL/GUEST + SYSTEM + COMMUNITY) ----------------- */
 
   const displayCharacters = useMemo<Character[]>(() => {
-    const ownKeys = new Set(characters.map((c) => (c.ownerId ? `${c.ownerId}:${c.id}` : `local:${c.id}`)));
-    const extra = (publicSnapshot?.characters ?? []).filter((pub) => {
+    const systemCloudIds = new Set(
+      [...characters, ...(publicSnapshot?.characters ?? [])]
+        .filter((c) => Boolean(c.ownerId) && Boolean(c.isSystem))
+        .map((c) => c.id),
+    );
+    const guestCustomizedIds = !isAuthenticated
+      ? new Set(loadGuestMeta().customizedCharacterIds)
+      : null;
+
+    const seenKeys = new Set<string>();
+    const ownFiltered: Character[] = [];
+    for (const c of characters) {
+      if (!c.ownerId && systemCloudIds.has(c.id)) continue;
+      const k = c.ownerId ? `${c.ownerId}:${c.id}` : `local:${c.id}`;
+      if (seenKeys.has(k)) continue;
+      seenKeys.add(k);
+      if (
+        !c.ownerId &&
+        builtinTagOverrides.schemaReady &&
+        !(guestCustomizedIds && guestCustomizedIds.has(c.id)) &&
+        Object.prototype.hasOwnProperty.call(builtinTagOverrides.characterTags, c.id)
+      ) {
+        const nextFields = applyTagsToCharacterFields(builtinTagOverrides.characterTags[c.id]);
+        ownFiltered.push({ ...c, ...nextFields });
+      } else {
+        ownFiltered.push(c);
+      }
+    }
+
+    const extra: Character[] = [];
+    for (const pub of publicSnapshot?.characters ?? []) {
       const k = pub.ownerId ? `${pub.ownerId}:${pub.id}` : `local:${pub.id}`;
-      return !ownKeys.has(k);
-    });
-    return [...extra.filter((c) => c.isSystem), ...characters, ...extra.filter((c) => !c.isSystem)];
-  }, [characters, publicSnapshot]);
+      if (seenKeys.has(k)) continue;
+      seenKeys.add(k);
+      extra.push(pub);
+    }
+    return [...extra.filter((c) => c.isSystem), ...ownFiltered, ...extra.filter((c) => !c.isSystem)];
+  }, [characters, publicSnapshot, builtinTagOverrides, isAuthenticated]);
 
   const displayNotes = useMemo<Note[]>(() => {
-    const ownKeys = new Set(notes.map((n) => (n.ownerId ? `${n.ownerId}:${n.id}` : `local:${n.id}`)));
-    const extra = (publicSnapshot?.notes ?? []).filter((pub) => {
+    const seenKeys = new Set<string>();
+    const ownFiltered: Note[] = [];
+    for (const n of notes) {
+      const k = n.ownerId ? `${n.ownerId}:${n.id}` : `local:${n.id}`;
+      if (seenKeys.has(k)) continue;
+      seenKeys.add(k);
+      ownFiltered.push(n);
+    }
+    const extra: Note[] = [];
+    for (const pub of publicSnapshot?.notes ?? []) {
       const k = pub.ownerId ? `${pub.ownerId}:${pub.id}` : `local:${pub.id}`;
-      return !ownKeys.has(k);
-    });
-    return [...extra.filter((n) => n.isSystem), ...notes, ...extra.filter((n) => !n.isSystem)];
+      if (seenKeys.has(k)) continue;
+      seenKeys.add(k);
+      extra.push(pub);
+    }
+    return [...extra.filter((n) => n.isSystem), ...ownFiltered, ...extra.filter((n) => !n.isSystem)];
   }, [notes, publicSnapshot]);
 
   const displayIdeas = useMemo<Idea[]>(() => {
-    const ownKeys = new Set(ideas.map((i) => (i.ownerId ? `${i.ownerId}:${i.id}` : `local:${i.id}`)));
-    const extra = (publicSnapshot?.ideas ?? []).filter((pub) => {
+    const systemCloudIds = new Set(
+      [...ideas, ...(publicSnapshot?.ideas ?? [])]
+        .filter((i) => Boolean(i.ownerId) && Boolean(i.isSystem))
+        .map((i) => i.id),
+    );
+    const guestCustomizedIds = !isAuthenticated
+      ? new Set(loadGuestMeta().customizedIdeaIds)
+      : null;
+
+    const seenKeys = new Set<string>();
+    const ownFiltered: Idea[] = [];
+    for (const i of ideas) {
+      if (!i.ownerId && systemCloudIds.has(i.id)) continue;
+      const k = i.ownerId ? `${i.ownerId}:${i.id}` : `local:${i.id}`;
+      if (seenKeys.has(k)) continue;
+      seenKeys.add(k);
+      if (
+        !i.ownerId &&
+        builtinTagOverrides.schemaReady &&
+        !(guestCustomizedIds && guestCustomizedIds.has(i.id)) &&
+        Object.prototype.hasOwnProperty.call(builtinTagOverrides.ideaTags, i.id)
+      ) {
+        ownFiltered.push({ ...i, tags: builtinTagOverrides.ideaTags[i.id] });
+      } else {
+        ownFiltered.push(i);
+      }
+    }
+
+    const extra: Idea[] = [];
+    for (const pub of publicSnapshot?.ideas ?? []) {
       const k = pub.ownerId ? `${pub.ownerId}:${pub.id}` : `local:${pub.id}`;
-      return !ownKeys.has(k);
-    });
-    return [...extra.filter((i) => i.isSystem), ...extra.filter((i) => !i.isSystem), ...ideas];
-  }, [ideas, publicSnapshot]);
+      if (seenKeys.has(k)) continue;
+      seenKeys.add(k);
+      extra.push(pub);
+    }
+    return [...extra.filter((i) => i.isSystem), ...extra.filter((i) => !i.isSystem), ...ownFiltered];
+  }, [ideas, publicSnapshot, builtinTagOverrides, isAuthenticated]);
 
   const displayLibraryPrompts = useMemo<LibraryPrompt[]>(() => {
-    const ownKeys = new Set(
-      libraryPrompts.map((p) => (p.ownerId ? `${p.ownerId}:${p.id}` : `local:${p.id}`)),
+    const systemCloudIds = new Set(
+      [...libraryPrompts, ...(publicSnapshot?.libraryPrompts ?? [])]
+        .filter((p) => Boolean(p.ownerId) && Boolean(p.isSystem))
+        .map((p) => p.id),
     );
-    const extra = (publicSnapshot?.libraryPrompts ?? []).filter((pub) => {
+    const guestCustomizedIds = !isAuthenticated
+      ? new Set(loadGuestMeta().customizedLibraryPromptIds)
+      : null;
+
+    const seenKeys = new Set<string>();
+    const ownSystemOrCustom: LibraryPrompt[] = [];
+    const builtins: LibraryPrompt[] = [];
+
+    for (const p of libraryPrompts) {
+      if (!p.ownerId && systemCloudIds.has(p.id)) continue;
+      const k = p.ownerId ? `${p.ownerId}:${p.id}` : `local:${p.id}`;
+      if (seenKeys.has(k)) continue;
+      seenKeys.add(k);
+      if (p.ownerId) {
+        ownSystemOrCustom.push(p);
+      } else if (
+        builtinTagOverrides.schemaReady &&
+        !(guestCustomizedIds && guestCustomizedIds.has(p.id)) &&
+        Object.prototype.hasOwnProperty.call(builtinTagOverrides.libraryPromptTags, p.id)
+      ) {
+        builtins.push({ ...p, tags: builtinTagOverrides.libraryPromptTags[p.id] });
+      } else {
+        builtins.push(p);
+      }
+    }
+
+    const extra: LibraryPrompt[] = [];
+    for (const pub of publicSnapshot?.libraryPrompts ?? []) {
       const k = pub.ownerId ? `${pub.ownerId}:${pub.id}` : `local:${pub.id}`;
-      return !ownKeys.has(k);
-    });
-    const ownSystemOrCustom = libraryPrompts.filter((p) => Boolean(p.ownerId));
-    const builtins = libraryPrompts.filter((p) => !p.ownerId);
+      if (seenKeys.has(k)) continue;
+      seenKeys.add(k);
+      extra.push(pub);
+    }
     return [...extra.filter((p) => p.isSystem), ...ownSystemOrCustom, ...extra.filter((p) => !p.isSystem), ...builtins];
-  }, [libraryPrompts, publicSnapshot]);
+  }, [libraryPrompts, publicSnapshot, builtinTagOverrides, isAuthenticated]);
 
   // Quyền sửa / xóa khớp 100% với RLS phía Supabase
   const canEditOrDeleteItem = useCallback(
@@ -4050,6 +4219,7 @@ export default function App() {
               : 'Nhân Vật'
         }
         onRefreshTagsAndData={handleRefreshTagsAndData}
+        onTagsMutated={handleTagsMutated}
         onToast={showToast}
       />
 

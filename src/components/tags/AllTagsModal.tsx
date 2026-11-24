@@ -25,6 +25,11 @@ import {
   adminUpsertSharedTag,
 } from '../../services/tagAdminService';
 
+export type TagMutationEvent =
+  | { type: 'delete'; label: string }
+  | { type: 'rename'; oldLabel: string; newLabel: string }
+  | { type: 'merge'; sourceLabels: string[]; targetLabel: string };
+
 interface AllTagsModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -36,6 +41,7 @@ interface AllTagsModalProps {
   isAdmin: boolean;
   tabLabel: string;
   onRefreshTagsAndData: () => Promise<void> | void;
+  onTagsMutated?: (event: TagMutationEvent) => void;
   onToast?: (message: string, type?: 'success' | 'info' | 'error') => void;
 }
 
@@ -73,6 +79,7 @@ export function AllTagsModal({
   isAdmin,
   tabLabel,
   onRefreshTagsAndData,
+  onTagsMutated,
   onToast,
 }: AllTagsModalProps) {
   const [search, setSearch] = useState('');
@@ -295,13 +302,15 @@ export function AllTagsModal({
         updatedCount = renameRes.data ?? 0;
 
         if (aliasesChanged || descriptionChanged) {
-          const parsedAliases = dedupeTags(
-            activeDialog.aliases
+          const existingTargetMeta = sharedTagByKey.get(toTagComparisonKey(cleanNew));
+          const parsedAliases = dedupeTags([
+            ...activeDialog.aliases
               .split(',')
               .map((a) => normalizeTagDisplay(a))
-              .filter(Boolean)
-              .concat(cleanOld),
-          ).filter((a) => toTagComparisonKey(a) !== toTagComparisonKey(cleanNew));
+              .filter(Boolean),
+            ...(existingTargetMeta?.aliases || []),
+            cleanOld,
+          ]).filter((a) => toTagComparisonKey(a) !== toTagComparisonKey(cleanNew));
 
           const upsertRes = await adminUpsertSharedTag({
             label: cleanNew,
@@ -336,13 +345,18 @@ export function AllTagsModal({
         setMergeSources((prev) =>
           dedupeTags(prev.map((s) => (s === activeDialog.originalLabel ? cleanNew : s))),
         );
+        onTagsMutated?.({
+          type: 'rename',
+          oldLabel: cleanOld,
+          newLabel: cleanNew,
+        });
       }
 
       await onRefreshTagsAndData();
       setActiveDialog(null);
 
       const noticeMsg = labelChanged
-        ? `Đã đổi #${cleanOld} thành #${cleanNew} (${updatedCount} bài cloud được cập nhật).`
+        ? `Đã đổi #${cleanOld} thành #${cleanNew} (${updatedCount} mục hệ thống/của bạn được cập nhật).`
         : `Đã cập nhật thông tin tag chung #${cleanNew}.`;
       setAdminNotice({ type: 'ok', text: noticeMsg });
       onToast?.(labelChanged ? 'Đã đổi tên tag chung thành công!' : `Đã cập nhật tag #${cleanNew}`, 'success');
@@ -365,11 +379,12 @@ export function AllTagsModal({
         return;
       }
       setMergeSources((prev) => prev.filter((item) => item !== label));
+      onTagsMutated?.({ type: 'delete', label });
       await onRefreshTagsAndData();
       setActiveDialog(null);
       setAdminNotice({
         type: 'ok',
-        text: `Đã xóa tag chung #${label} (${res.data ?? 0} bài cloud đã gỡ tag).`,
+        text: `Đã xóa tag chung #${label} (${res.data ?? 0} mục hệ thống/của bạn đã gỡ tag).`,
       });
       onToast?.(`Đã xóa tag #${label}`, 'info');
     } finally {
@@ -386,18 +401,24 @@ export function AllTagsModal({
       toTagComparisonKey(mergeSources[0]) === toTagComparisonKey(cleanTarget);
     if (isNoopSingleSelfMerge) return;
 
+    const sourcesCopy = [...mergeSources];
     setAdminActionBusy(true);
     setAdminNotice(null);
     try {
-      const res = await adminMergeSharedTags(mergeSources, cleanTarget);
+      const res = await adminMergeSharedTags(sourcesCopy, cleanTarget);
       if (!res.ok) {
         setAdminNotice({ type: 'err', text: res.error || 'Không thể gộp tag.' });
         return;
       }
+      onTagsMutated?.({
+        type: 'merge',
+        sourceLabels: sourcesCopy,
+        targetLabel: cleanTarget,
+      });
       await onRefreshTagsAndData();
       setAdminNotice({
         type: 'ok',
-        text: `Đã gộp ${mergeSources.length} tag vào #${cleanTarget} (${res.data ?? 0} bài cloud cập nhật).`,
+        text: `Đã gộp ${sourcesCopy.length} tag vào #${cleanTarget} (${res.data ?? 0} mục hệ thống/của bạn được cập nhật).`,
       });
       setMergeSources([]);
       setMergeTargetLabel('');
