@@ -1002,7 +1002,7 @@ export default function App() {
 
   /* ----------------- MERGED DISPLAY LISTS (PERSONAL/GUEST + SYSTEM + COMMUNITY) ----------------- */
 
-  const displayCharacters = useMemo(() => {
+  const displayCharacters = useMemo<Character[]>(() => {
     const ownKeys = new Set(characters.map((c) => (c.ownerId ? `${c.ownerId}:${c.id}` : `local:${c.id}`)));
     const extra = (publicSnapshot?.characters ?? []).filter((pub) => {
       const k = pub.ownerId ? `${pub.ownerId}:${pub.id}` : `local:${pub.id}`;
@@ -1011,7 +1011,7 @@ export default function App() {
     return [...extra.filter((c) => c.isSystem), ...characters, ...extra.filter((c) => !c.isSystem)];
   }, [characters, publicSnapshot]);
 
-  const displayNotes = useMemo(() => {
+  const displayNotes = useMemo<Note[]>(() => {
     const ownKeys = new Set(notes.map((n) => (n.ownerId ? `${n.ownerId}:${n.id}` : `local:${n.id}`)));
     const extra = (publicSnapshot?.notes ?? []).filter((pub) => {
       const k = pub.ownerId ? `${pub.ownerId}:${pub.id}` : `local:${pub.id}`;
@@ -1020,7 +1020,7 @@ export default function App() {
     return [...extra.filter((n) => n.isSystem), ...notes, ...extra.filter((n) => !n.isSystem)];
   }, [notes, publicSnapshot]);
 
-  const displayIdeas = useMemo(() => {
+  const displayIdeas = useMemo<Idea[]>(() => {
     const ownKeys = new Set(ideas.map((i) => (i.ownerId ? `${i.ownerId}:${i.id}` : `local:${i.id}`)));
     const extra = (publicSnapshot?.ideas ?? []).filter((pub) => {
       const k = pub.ownerId ? `${pub.ownerId}:${pub.id}` : `local:${pub.id}`;
@@ -1029,7 +1029,7 @@ export default function App() {
     return [...extra.filter((i) => i.isSystem), ...extra.filter((i) => !i.isSystem), ...ideas];
   }, [ideas, publicSnapshot]);
 
-  const displayLibraryPrompts = useMemo(() => {
+  const displayLibraryPrompts = useMemo<LibraryPrompt[]>(() => {
     const ownKeys = new Set(
       libraryPrompts.map((p) => (p.ownerId ? `${p.ownerId}:${p.id}` : `local:${p.id}`)),
     );
@@ -1192,8 +1192,8 @@ export default function App() {
       try {
         if (data.id) {
           const existing =
-            findBySelectedKey(displayCharacters, selectedCharId)?.id === data.id
-              ? findBySelectedKey(displayCharacters, selectedCharId)
+            findBySelectedKey<Character>(displayCharacters, selectedCharId)?.id === data.id
+              ? findBySelectedKey<Character>(displayCharacters, selectedCharId)
               : displayCharacters.find((c) => c.id === data.id && canEditOrDeleteItem('character', c));
           if (!existing || !canEditOrDeleteItem('character', existing)) {
             showToast('Bạn không có quyền chỉnh sửa nhân vật này.', 'error');
@@ -1358,8 +1358,8 @@ export default function App() {
       try {
         if (data.id) {
           const existing =
-            findBySelectedKey(displayNotes, selectedNoteId)?.id === data.id
-              ? findBySelectedKey(displayNotes, selectedNoteId)
+            findBySelectedKey<Note>(displayNotes, selectedNoteId)?.id === data.id
+              ? findBySelectedKey<Note>(displayNotes, selectedNoteId)
               : displayNotes.find((n) => n.id === data.id && canEditOrDeleteItem('note', n));
           if (!existing || !canEditOrDeleteItem('note', existing)) {
             showToast('Bạn không có quyền chỉnh sửa ghi chú này.', 'error');
@@ -1541,7 +1541,7 @@ export default function App() {
     setIsSavingItem(true);
     try {
       if (data.id) {
-        const existing = findBySelectedKey(displayLibraryPrompts, selectedLibraryPromptId);
+        const existing = findBySelectedKey<LibraryPrompt>(displayLibraryPrompts, selectedLibraryPromptId);
         if (!existing || existing.id !== data.id || !canEditOrDeleteLibraryPrompt(existing)) {
           showToast('Bạn không có quyền chỉnh sửa câu lệnh thư viện này.', 'error');
           return;
@@ -1668,8 +1668,8 @@ export default function App() {
       try {
         if (data.id) {
           const existing =
-            findBySelectedKey(displayIdeas, selectedIdeaId)?.id === data.id
-              ? findBySelectedKey(displayIdeas, selectedIdeaId)
+            findBySelectedKey<Idea>(displayIdeas, selectedIdeaId)?.id === data.id
+              ? findBySelectedKey<Idea>(displayIdeas, selectedIdeaId)
               : displayIdeas.find((i) => i.id === data.id && canEditOrDeleteItem('idea', i));
           if (!existing || !canEditOrDeleteItem('idea', existing)) {
             showToast('Bạn không có quyền chỉnh sửa ý tưởng này.', 'error');
@@ -2119,10 +2119,10 @@ export default function App() {
   });
 
   // Active object selection resolution
-  const activeNote = findBySelectedKey(displayNotes, selectedNoteId);
-  const activeIdea = findBySelectedKey(displayIdeas, selectedIdeaId);
-  const activeChar = findBySelectedKey(displayCharacters, selectedCharId);
-  const activeLibraryPrompt = findBySelectedKey(displayLibraryPrompts, selectedLibraryPromptId);
+  const activeNote = findBySelectedKey<Note>(displayNotes, selectedNoteId);
+  const activeIdea = findBySelectedKey<Idea>(displayIdeas, selectedIdeaId);
+  const activeChar = findBySelectedKey<Character>(displayCharacters, selectedCharId);
+  const activeLibraryPrompt = findBySelectedKey<LibraryPrompt>(displayLibraryPrompts, selectedLibraryPromptId);
   const activeAuthor = authorsList.find(a => a.id === (selectedAuthorId || (filteredAuthors.length > 0 ? filteredAuthors[0].id : authorsList[0]?.id))) || null;
 
   const activeAnnouncementCount = announcements.filter((a) => a.isActive).length;
@@ -2191,6 +2191,22 @@ export default function App() {
 
         {/* Utility buttons: soft square corners with gentle sunken press */}
         <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+          {/* System Announcements button */}
+          <button
+            type="button"
+            onClick={() => setIsAnnouncementsModalOpen(true)}
+            className="retro-btn px-2.5 py-1.5 flex items-center gap-1.5 cursor-pointer relative"
+            title="Thông báo hệ thống"
+            aria-label="Thông báo hệ thống"
+          >
+            <Bell className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
+            {activeAnnouncementCount > 0 && (
+              <span className="px-1 py-0 text-[9px] leading-tight font-mono font-bold rounded bg-[#39755D] dark:bg-[#A3BDA8] text-[#FFF9EA] dark:text-[#202423] tabular-nums-mono">
+                {activeAnnouncementCount}
+              </span>
+            )}
+          </button>
+
           {/* Dark / Light switch */}
           <button
             type="button"
@@ -2273,7 +2289,7 @@ export default function App() {
             >
               <PixelCharacterIcon className="w-4 h-4 flex-shrink-0" />
               <span className="truncate max-w-full leading-tight">Nhân Vật</span>
-              <span className="text-[9px] tabular-nums-mono opacity-80">({characters.length})</span>
+              <span className="text-[9px] tabular-nums-mono opacity-80">({displayCharacters.length})</span>
             </button>
 
             <button
@@ -2301,7 +2317,7 @@ export default function App() {
             >
               <PixelCommandIcon className="w-4 h-4 flex-shrink-0" />
               <span className="truncate max-w-full leading-tight">Kho Lệnh</span>
-              <span className="text-[9px] tabular-nums-mono opacity-80">({notes.length + libraryPrompts.length})</span>
+              <span className="text-[9px] tabular-nums-mono opacity-80">({displayNotes.length + displayLibraryPrompts.length})</span>
             </button>
 
             <button
@@ -2315,7 +2331,7 @@ export default function App() {
             >
               <PixelIdeaIcon className="w-4 h-4 flex-shrink-0" />
               <span className="truncate max-w-full leading-tight">Kho Idea</span>
-              <span className="text-[9px] tabular-nums-mono opacity-80">({ideas.length})</span>
+              <span className="text-[9px] tabular-nums-mono opacity-80">({displayIdeas.length})</span>
             </button>
           </div>
 
@@ -2386,6 +2402,30 @@ export default function App() {
                 )}
               </div>
             )}
+            {/* Source Filter Bar (All / System / Community / Mine) */}
+            {activeTab !== 'authors' && (
+              <div className="mt-2 flex items-center gap-1 flex-wrap">
+                {([
+                  { id: 'all', label: 'Tất cả' },
+                  { id: 'system', label: 'Hệ thống' },
+                  { id: 'community', label: 'Cộng đồng' },
+                  ...(isAuthenticated ? [{ id: 'mine', label: 'Của tôi' }] : []),
+                ] as const).map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setSourceFilter(opt.id)}
+                    className={`px-2 py-0.5 rounded border text-[10px] font-semibold transition cursor-pointer ${
+                      sourceFilter === opt.id
+                        ? 'bg-[#E2F3E8] dark:bg-[#343D37] border-[#39755D] dark:border-[#A3BDA8] text-[#214C3B] dark:text-[#E4E1D8]'
+                        : 'bg-[#FFF9EA] dark:bg-[#202423] border-[#CFE2D6] dark:border-[#49554D] text-[#587568] dark:text-[#B8BDB5] hover:bg-[#E2F3E8]/50 dark:hover:bg-[#343D37]'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Categories / Topics Horizontal Scroll Bar specifically for Prompt Library (Notes Tab) */}
@@ -2393,7 +2433,9 @@ export default function App() {
             <div className="px-2.5 py-2 border-b border-[#E3EFE7] dark:border-[#49554D] flex items-center gap-1.5 overflow-x-auto snap-x snap-mandatory scrollbar-none">
               {LIB_TOPICS.map((topic) => {
                 const isActive = selectedLibTopicId === topic.id;
-                const count = libraryPrompts.filter(topic.match).length + (topic.id === 'all' ? notes.length : 0);
+                const count =
+                  displayLibraryPrompts.filter(matchesSourceFilter).filter(topic.match).length +
+                  (topic.id === 'all' ? displayNotes.filter(matchesSourceFilter).length : 0);
                 
                 const renderLucideIcon = () => {
                   const css = `w-3 h-3 flex-shrink-0 ${isActive ? 'text-[#39755D] dark:text-[#A3BDA8]' : 'text-[#5A786A] dark:text-[#B8BDB5]'}`;
@@ -2436,7 +2478,7 @@ export default function App() {
             <div className="px-2.5 py-2 border-b border-[#E3EFE7] dark:border-[#49554D] flex items-center gap-1.5 overflow-x-auto snap-x snap-mandatory scrollbar-none">
               {TOPICS.map((topic) => {
                 const isActive = selectedTopicId === topic.id;
-                const count = ideas.filter(topic.match).length;
+                const count = displayIdeas.filter(matchesSourceFilter).filter(topic.match).length;
                 
                 const renderLucideIcon = () => {
                   const css = `w-3 h-3 flex-shrink-0 ${isActive ? 'text-[#39755D] dark:text-[#A3BDA8]' : 'text-[#5A786A] dark:text-[#B8BDB5]'}`;
@@ -2477,16 +2519,26 @@ export default function App() {
             {activeTab === 'notes' && (
               <>
                 {filteredNotes.map((note) => {
-                  const correlatedChar = characters.find(c => c.id === note.characterId);
-                  const isSelected = selectedNoteId === note.id && !selectedLibraryPromptId && !isCreating;
+                  const noteKey = getItemKey(note);
+                  const correlatedChar = displayCharacters.find(
+                    (c) => c.id === note.characterId && (!note.ownerId || !c.ownerId || c.ownerId === note.ownerId),
+                  ) || displayCharacters.find((c) => c.id === note.characterId);
+                  const isSelected =
+                    selectedNoteId === noteKey &&
+                    !selectedLibraryPromptId &&
+                    !isCreating &&
+                    !isCreatingLibraryPrompt;
+                  const canMutate = canEditOrDeleteItem('note', note);
                   return (
                     <div
-                      key={note.id}
+                      key={noteKey}
                       onClick={() => {
-                        setSelectedNoteId(note.id);
+                        setSelectedNoteId(noteKey);
                         setSelectedLibraryPromptId(null);
                         setIsCreating(false);
                         setIsEditing(false);
+                        setIsCreatingLibraryPrompt(false);
+                        setIsEditingLibraryPrompt(false);
                         setShowDetailOnMobile(true);
                       }}
                       className={`group relative w-full text-left p-2.5 rounded-md transition flex items-start gap-2.5 border cursor-pointer select-none ${
@@ -2497,62 +2549,105 @@ export default function App() {
                     >
                       <span className="text-lg mt-0.5 leading-none">{note.icon || '☘️'}</span>
                       <div className="flex-1 min-w-0 pr-6">
-                        <p className="font-semibold text-xs truncate leading-snug">{note.title}</p>
-                        <p className="text-[10px] text-[#587568] dark:text-[#B8BDB5] mt-1 truncate tabular-nums-mono">
-                          {correlatedChar ? `${correlatedChar.name} • ` : ''}{new Date(note.updatedAt).toLocaleDateString('vi-VN')}
-                        </p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="font-semibold text-xs truncate leading-snug">{note.title}</p>
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                          {note.isSystem ? (
+                            <span className="px-1 py-0 text-[9px] font-bold rounded bg-[#E2F3E8] dark:bg-[#343D37] text-[#285B47] dark:text-[#A3BDA8] border border-[#9FC4AF] dark:border-[#49554D]">
+                              Hệ thống
+                            </span>
+                          ) : note.isPublic ? (
+                            <span className="px-1 py-0 text-[9px] font-bold rounded bg-[#FFFDF7] dark:bg-[#202423] text-[#2E6B53] dark:text-[#A3BDA8] border border-[#B8D7C5] dark:border-[#49554D]">
+                              Công khai
+                            </span>
+                          ) : note.ownerId ? (
+                            <span className="px-1 py-0 text-[9px] font-semibold rounded bg-[#F5F2E8] dark:bg-[#202423] text-[#668476] dark:text-[#B8BDB5] border border-[#D4E2D8] dark:border-[#49554D]">
+                              Riêng tư
+                            </span>
+                          ) : null}
+                          <p className="text-[10px] text-[#587568] dark:text-[#B8BDB5] truncate tabular-nums-mono">
+                            {correlatedChar ? `${correlatedChar.name} • ` : ''}
+                            {note.authorDisplayName ? `${note.authorDisplayName} • ` : ''}
+                            {new Date(note.updatedAt).toLocaleDateString('vi-VN')}
+                          </p>
+                        </div>
                       </div>
                       
-                      {/* Quick Delete Trash Button */}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteNote(note.id);
-                        }}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded text-[#6B877A] hover:text-red-600 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-all"
-                        title="Xóa nhanh câu lệnh này"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {/* Quick Delete Trash Button (Author / Admin only) */}
+                      {canMutate && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteNote(note);
+                          }}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded text-[#6B877A] hover:text-red-600 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-all"
+                          title="Xóa nhanh câu lệnh này"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   );
                 })}
 
-                {filteredLibraryPrompts.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedLibraryPromptId(p.id);
-                      setSelectedNoteId(null);
-                      setIsCreating(false);
-                      setIsEditing(false);
-                      setShowDetailOnMobile(true);
-                      setVisibleSteps({});
-                    }}
-                    className={`w-full text-left p-2.5 rounded-md transition flex items-start gap-2.5 border cursor-pointer ${
-                      selectedLibraryPromptId === p.id && !selectedNoteId && !isCreating
-                        ? 'bg-[#E2F3E8] border-[#39755D] dark:bg-[#343D37] dark:border-[#A3BDA8] text-[#1E4434] dark:text-[#E4E1D8]'
-                        : 'bg-[#FFF9EA]/70 dark:bg-[#292E2B] border-transparent hover:border-[#B8D7C5] dark:hover:border-[#A3BDA8] hover:bg-[#E2F3E8]/45 dark:hover:bg-[#343D37] text-[#284237] dark:text-[#E4E1D8]'
-                    }`}
-                  >
-                    <span className="text-lg mt-0.5 leading-none">{getLibraryPromptIcon(p)}</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-[12.5px] leading-snug text-[#23503E] dark:text-[#A3BDA8]">{p.title}</p>
-                      <p className="text-[10.5px] text-[#587568] dark:text-[#B8BDB5] mt-1 line-clamp-2 leading-relaxed">
-                        {p.description}
-                      </p>
-                      <div className="mt-1.5 flex items-center justify-between text-[10px] text-[#648174] dark:text-[#B8BDB5]">
-                        <span className="truncate">Tác giả: <strong className="text-[#2D5544] dark:text-[#E4E1D8]">{p.author}</strong></span>
-                        <span className="flex items-center gap-1 font-semibold text-[#39755D] dark:text-[#A3BDA8] tabular-nums-mono shrink-0">
-                          <Terminal className="w-3 h-3" />
-                          {p.steps.length} phần
-                        </span>
+                {filteredLibraryPrompts.map((p) => {
+                  const promptKey = getItemKey(p);
+                  const isSelected =
+                    selectedLibraryPromptId === promptKey &&
+                    !selectedNoteId &&
+                    !isCreating &&
+                    !isCreatingLibraryPrompt;
+                  return (
+                    <button
+                      key={promptKey}
+                      type="button"
+                      onClick={() => {
+                        setSelectedLibraryPromptId(promptKey);
+                        setSelectedNoteId(null);
+                        setIsCreating(false);
+                        setIsEditing(false);
+                        setIsCreatingLibraryPrompt(false);
+                        setIsEditingLibraryPrompt(false);
+                        setShowDetailOnMobile(true);
+                        setVisibleSteps({});
+                      }}
+                      className={`w-full text-left p-2.5 rounded-md transition flex items-start gap-2.5 border cursor-pointer ${
+                        isSelected
+                          ? 'bg-[#E2F3E8] border-[#39755D] dark:bg-[#343D37] dark:border-[#A3BDA8] text-[#1E4434] dark:text-[#E4E1D8]'
+                          : 'bg-[#FFF9EA]/70 dark:bg-[#292E2B] border-transparent hover:border-[#B8D7C5] dark:hover:border-[#A3BDA8] hover:bg-[#E2F3E8]/45 dark:hover:bg-[#343D37] text-[#284237] dark:text-[#E4E1D8]'
+                      }`}
+                    >
+                      <span className="text-lg mt-0.5 leading-none">{getLibraryPromptIcon(p)}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <p className="font-semibold text-[12.5px] leading-snug text-[#23503E] dark:text-[#A3BDA8]">{p.title}</p>
+                          {p.isSystem && (
+                            <span className="px-1 py-0 text-[9px] font-bold rounded bg-[#E2F3E8] dark:bg-[#343D37] text-[#285B47] dark:text-[#A3BDA8] border border-[#9FC4AF] dark:border-[#49554D]">
+                              Hệ thống
+                            </span>
+                          )}
+                          {!p.isSystem && p.isPublic && (
+                            <span className="px-1 py-0 text-[9px] font-bold rounded bg-[#FFFDF7] dark:bg-[#202423] text-[#2E6B53] dark:text-[#A3BDA8] border border-[#B8D7C5] dark:border-[#49554D]">
+                              Công khai
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[10.5px] text-[#587568] dark:text-[#B8BDB5] mt-1 line-clamp-2 leading-relaxed">
+                          {p.description}
+                        </p>
+                        <div className="mt-1.5 flex items-center justify-between text-[10px] text-[#648174] dark:text-[#B8BDB5]">
+                          <span className="truncate">Tác giả: <strong className="text-[#2D5544] dark:text-[#E4E1D8]">{p.authorDisplayName || p.author}</strong></span>
+                          <span className="flex items-center gap-1 font-semibold text-[#39755D] dark:text-[#A3BDA8] tabular-nums-mono shrink-0">
+                            <Terminal className="w-3 h-3" />
+                            {p.steps.length} phần
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  </button>
-                ))}
+                    </button>
+                  );
+                })}
 
                 {filteredNotes.length === 0 && filteredLibraryPrompts.length === 0 && (
                   <div className="p-6 text-center text-[#6B877A] dark:text-[#B8BDB5] text-xs">
@@ -2571,14 +2666,18 @@ export default function App() {
                 ) : (
                   <div className="space-y-2.5 pt-0.5">
                     {filteredIdeas.map((idea) => {
+                      const ideaKey = getItemKey(idea);
                       const topicInfo = getIdeaTopicInfo(idea);
-                      const isActive = selectedIdeaId === idea.id && !isCreating;
+                      const isActive = selectedIdeaId === ideaKey && !isCreating;
+                      const canMutate = canEditOrDeleteItem('idea', idea);
                       
                       return (
                         <div
-                          key={idea.id}
+                          key={ideaKey}
                           onClick={() => {
-                            setSelectedIdeaId(idea.id);
+                            setSelectedIdeaId(ideaKey);
+                            setIsCreating(false);
+                            setIsEditing(false);
                             setShowDetailOnMobile(true);
                           }}
                           className={`group relative text-left p-3 rounded-lg transition-all duration-150 flex flex-col gap-2 border cursor-pointer select-none ${
@@ -2589,41 +2688,56 @@ export default function App() {
                         >
                           {/* Card Header (Icon, Topic & Actions) */}
                           <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-1.5 min-w-0">
+                            <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
                               <span className="text-base leading-none flex-shrink-0">{topicInfo.icon}</span>
                               <span className={`px-2 py-0.5 text-[9px] font-bold rounded border truncate select-none ${topicInfo.colorClass}`}>
                                 {topicInfo.name}
                               </span>
+                              {idea.isSystem ? (
+                                <span className="px-1.5 py-0.5 text-[9px] font-bold rounded bg-[#E2F3E8] dark:bg-[#343D37] text-[#285B47] dark:text-[#A3BDA8] border border-[#9FC4AF] dark:border-[#49554D]">
+                                  Hệ thống
+                                </span>
+                              ) : idea.isPublic ? (
+                                <span className="px-1.5 py-0.5 text-[9px] font-bold rounded bg-[#FFFDF7] dark:bg-[#202423] text-[#2E6B53] dark:text-[#A3BDA8] border border-[#B8D7C5] dark:border-[#49554D]">
+                                  Công khai
+                                </span>
+                              ) : idea.ownerId ? (
+                                <span className="px-1.5 py-0.5 text-[9px] font-semibold rounded bg-[#F5F2E8] dark:bg-[#202423] text-[#668476] dark:text-[#B8BDB5] border border-[#D4E2D8] dark:border-[#49554D]">
+                                  Riêng tư
+                                </span>
+                              ) : null}
                             </div>
                             
-                            {/* Mini Actions */}
-                            <div className="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition-opacity">
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedIdeaId(idea.id);
-                                  setIsEditing(true);
-                                  setIsCreating(false);
-                                  setShowDetailOnMobile(true);
-                                }}
-                                className="p-1 rounded text-[#587568] hover:text-[#39755D] hover:bg-[#39755D]/10 dark:text-[#B8BDB5] dark:hover:text-[#A3BDA8] transition"
-                                title="Sửa ý tưởng"
-                              >
-                                <Edit3 className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleDeleteIdea(idea.id);
-                                }}
-                                className="p-1 rounded text-[#587568] hover:text-red-600 hover:bg-red-500/10 dark:text-[#B8BDB5] dark:hover:text-[#E4A6AA] transition"
-                                title="Xóa ý tưởng"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
+                            {/* Mini Actions (Author / Admin only) */}
+                            {canMutate && (
+                              <div className="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition-opacity">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedIdeaId(ideaKey);
+                                    setIsEditing(true);
+                                    setIsCreating(false);
+                                    setShowDetailOnMobile(true);
+                                  }}
+                                  className="p-1 rounded text-[#587568] hover:text-[#39755D] hover:bg-[#39755D]/10 dark:text-[#B8BDB5] dark:hover:text-[#A3BDA8] transition"
+                                  title="Sửa ý tưởng"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteIdea(idea);
+                                  }}
+                                  className="p-1 rounded text-[#587568] hover:text-red-600 hover:bg-red-500/10 dark:text-[#B8BDB5] dark:hover:text-[#E4A6AA] transition"
+                                  title="Xóa ý tưởng"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            )}
                           </div>
 
                           {/* Card Title */}
@@ -2637,10 +2751,12 @@ export default function App() {
                           </div>
 
                           {/* Card Footer */}
-                          <div className="flex items-center justify-between text-[9px] text-[#668476] dark:text-[#B8BDB5] tabular-nums-mono pt-0.5">
-                            <span>Gieo: {new Date(idea.createdAt).toLocaleDateString('vi-VN')}</span>
+                          <div className="flex items-center justify-between text-[9px] text-[#668476] dark:text-[#B8BDB5] tabular-nums-mono pt-0.5 gap-2">
+                            <span className="truncate">
+                              {idea.authorDisplayName ? `${idea.authorDisplayName} • ` : ''}Gieo: {new Date(idea.createdAt).toLocaleDateString('vi-VN')}
+                            </span>
                             {idea.updatedAt && idea.updatedAt !== idea.createdAt && (
-                              <span>đã sửa</span>
+                              <span className="shrink-0">đã sửa</span>
                             )}
                           </div>
                         </div>
@@ -2659,12 +2775,14 @@ export default function App() {
                   </div>
                 ) : (
                   filteredCharacters.map((char) => {
-                    const isSelected = selectedCharId === char.id && !isCreating;
+                    const charKey = getItemKey(char);
+                    const isSelected = selectedCharId === charKey && !isCreating;
+                    const canMutate = canEditOrDeleteItem('character', char);
                     return (
                       <div
-                        key={char.id}
+                        key={charKey}
                         onClick={() => {
-                          setSelectedCharId(char.id);
+                          setSelectedCharId(charKey);
                           setIsCreating(false);
                           setIsEditing(false);
                           setShowDetailOnMobile(true);
@@ -2680,30 +2798,45 @@ export default function App() {
                             <p className="font-semibold text-xs truncate leading-snug text-[#20372D] dark:text-[#E4E1D8] group-hover:text-[#39755D] dark:group-hover:text-[#A3BDA8] transition-colors">
                               {char.name}
                             </p>
-                            {char.author && (
+                            {char.isSystem ? (
+                              <span className="px-1.5 py-0.5 text-[9px] bg-[#E2F3E8] dark:bg-[#343D37] text-[#285B47] dark:text-[#A3BDA8] rounded border border-[#9FC4AF] dark:border-[#49554D] font-bold">
+                                Hệ thống
+                              </span>
+                            ) : char.isPublic ? (
+                              <span className="px-1.5 py-0.5 text-[9px] bg-[#FFFDF7] dark:bg-[#202423] text-[#2E6B53] dark:text-[#A3BDA8] rounded border border-[#B8D7C5] dark:border-[#49554D] font-bold">
+                                Công khai
+                              </span>
+                            ) : char.ownerId ? (
+                              <span className="px-1.5 py-0.5 text-[9px] bg-[#F5F2E8] dark:bg-[#202423] text-[#668476] dark:text-[#B8BDB5] rounded border border-[#D4E2D8] dark:border-[#49554D] font-semibold">
+                                Riêng tư
+                              </span>
+                            ) : null}
+                            {(char.author || char.authorDisplayName) && (
                               <span
-                                className="px-1.5 py-0.5 text-[9px] bg-[#E2F3E8]/80 dark:bg-[#343D37] text-[#39755D] dark:text-[#A3BDA8] rounded border border-[#BDD9C9] dark:border-[#49554D] font-medium max-w-[85px] truncate"
-                                title={`Tác giả: ${char.author}`}
+                                className="px-1.5 py-0.5 text-[9px] bg-[#E2F3E8]/80 dark:bg-[#343D37] text-[#39755D] dark:text-[#A3BDA8] rounded border border-[#BDD9C9] dark:border-[#49554D] font-medium max-w-[95px] truncate"
+                                title={`Tác giả: ${char.authorDisplayName || char.author}`}
                               >
-                                {char.author}
+                                {char.authorDisplayName || char.author}
                               </span>
                             )}
                           </div>
                           <p className="text-[10px] text-[#5B786B] dark:text-[#B8BDB5] mt-1 truncate">{char.role}</p>
                         </div>
 
-                        {/* Quick Delete Character Button */}
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteCharacter(char.id);
-                          }}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded text-[#6B877A] hover:text-red-600 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-all"
-                          title="Xóa nhanh nhân vật này"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        {/* Quick Delete Character Button (Author / Admin only) */}
+                        {canMutate && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteCharacter(char);
+                            }}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded text-[#6B877A] hover:text-red-600 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-all"
+                            title="Xóa nhanh nhân vật này"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                     );
                   })
@@ -2753,12 +2886,14 @@ export default function App() {
 
           {/* Sidebar Creation Command Anchor */}
           {activeTab !== 'authors' && (
-            <div className="sticky bottom-0 p-2.5 border-t border-[#CBE0D3] dark:border-[#49554D] bg-[#F1F8F3] dark:bg-[#202423] flex justify-center z-10">
+            <div className="sticky bottom-0 p-2.5 border-t border-[#CBE0D3] dark:border-[#49554D] bg-[#F1F8F3] dark:bg-[#202423] flex flex-col gap-1.5 z-10">
               <button
                 type="button"
                 onClick={() => {
                   setIsCreating(true);
                   setIsEditing(false);
+                  setIsCreatingLibraryPrompt(false);
+                  setIsEditingLibraryPrompt(false);
                   setShowDetailOnMobile(true);
                 }}
                 className="retro-btn-primary w-full py-2 px-4 font-semibold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
@@ -2769,6 +2904,23 @@ export default function App() {
                   activeTab === 'ideas' ? 'Ý Tưởng' : 'Nhân Vật'
                 }</span>
               </button>
+
+              {activeTab === 'notes' && isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsCreatingLibraryPrompt(true);
+                    setIsEditingLibraryPrompt(false);
+                    setIsCreating(false);
+                    setIsEditing(false);
+                    setShowDetailOnMobile(true);
+                  }}
+                  className="retro-btn w-full py-1.5 px-3 font-semibold text-[11px] flex items-center justify-center gap-1.5 cursor-pointer text-[#224C3B] dark:text-[#A3BDA8]"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
+                  <span>Đăng Kho Lệnh (Admin)</span>
+                </button>
+              )}
             </div>
           )}
         </aside>
@@ -2788,10 +2940,12 @@ export default function App() {
                 <div className="w-full">
                   {activeTab === 'notes' && (
                     <NoteForm 
-                      characters={characters}
+                      characters={displayCharacters}
                       onSave={handleSaveNote}
                       onCancel={() => setIsCreating(false)}
                       isSaving={isSavingItem}
+                      canPublish={isAuthenticated}
+                      isAdmin={isAdmin}
                     />
                   )}
                   {activeTab === 'ideas' && (
@@ -2799,6 +2953,8 @@ export default function App() {
                       onSave={handleSaveIdea}
                       onCancel={() => setIsCreating(false)}
                       isSaving={isSavingItem}
+                      canPublish={isAuthenticated}
+                      isAdmin={isAdmin}
                     />
                   )}
                   {activeTab === 'characters' && (
@@ -2806,8 +2962,26 @@ export default function App() {
                       onSave={handleSaveCharacter}
                       onCancel={() => setIsCreating(false)}
                       isSaving={isSavingItem}
+                      canPublish={isAuthenticated}
+                      isAdmin={isAdmin}
                     />
                   )}
+                </div>
+              )}
+
+              {/* 1B. ADMIN / CLOUD LIBRARY PROMPT FORM SECTOR */}
+              {(isCreatingLibraryPrompt || isEditingLibraryPrompt) && activeTab === 'notes' && (
+                <div className="w-full">
+                  <LibraryPromptForm
+                    initialData={isEditingLibraryPrompt ? activeLibraryPrompt ?? undefined : undefined}
+                    onSave={handleSaveLibraryPrompt}
+                    onCancel={() => {
+                      setIsCreatingLibraryPrompt(false);
+                      setIsEditingLibraryPrompt(false);
+                    }}
+                    isSaving={isSavingItem}
+                    isAdmin={isAdmin}
+                  />
                 </div>
               )}
 
@@ -2817,10 +2991,12 @@ export default function App() {
                   {activeTab === 'notes' && activeNote && (
                     <NoteForm 
                       initialData={activeNote}
-                      characters={characters}
+                      characters={displayCharacters}
                       onSave={handleSaveNote}
                       onCancel={() => setIsEditing(false)}
                       isSaving={isSavingItem}
+                      canPublish={isAuthenticated}
+                      isAdmin={isAdmin}
                     />
                   )}
                   {activeTab === 'ideas' && activeIdea && (
@@ -2829,6 +3005,8 @@ export default function App() {
                       onSave={handleSaveIdea}
                       onCancel={() => setIsEditing(false)}
                       isSaving={isSavingItem}
+                      canPublish={isAuthenticated}
+                      isAdmin={isAdmin}
                     />
                   )}
                   {activeTab === 'characters' && activeChar && (
@@ -2837,13 +3015,15 @@ export default function App() {
                       onSave={handleSaveCharacter}
                       onCancel={() => setIsEditing(false)}
                       isSaving={isSavingItem}
+                      canPublish={isAuthenticated}
+                      isAdmin={isAdmin}
                     />
                   )}
                 </div>
               )}
 
               {/* 3. COHESIVE READ MODE (ONLY SHOWS IF NOT CREATING OR EDITING) */}
-              {!isCreating && !isEditing && (
+              {!isCreating && !isEditing && !isCreatingLibraryPrompt && !isEditingLibraryPrompt && (
                 <>
                   {/* A. NOT SELECTED STATE — OPENED HANDWRITTEN WELCOME LETTER */}
                   {((activeTab === 'notes' && !activeNote && !activeLibraryPrompt) || 
@@ -2895,6 +3075,15 @@ export default function App() {
                         Mình để dành ở đây những nhân vật, câu lệnh và ý tưởng mình thích. Bạn cứ mở một thư mục và xem từ từ nhé. 🍀
                       </p>
 
+                      {/* System Announcements Banner */}
+                      <div className="mt-4">
+                        <SystemAnnouncementsBanner
+                          announcements={announcements}
+                          isAdmin={isAdmin}
+                          onOpenModal={() => setIsAnnouncementsModalOpen(true)}
+                        />
+                      </div>
+
                       {/* Hairline stationery rule separating letter body & 4 mini folder shortcuts */}
                       <div className="mt-6 pt-5 border-t border-dashed border-[#B7D4C3] dark:border-[#49554D]">
                         <div className="flex items-center justify-between gap-2 mb-3">
@@ -2921,7 +3110,7 @@ export default function App() {
                                 className="w-9 h-8 transition-transform duration-150 group-hover:-translate-y-0.5"
                               />
                               <span className="tabular-nums-mono text-[10px] px-1.5 py-0.5 rounded bg-[#E2F3E8] dark:bg-[#343D37] text-[#2F634E] dark:text-[#A3BDA8] border border-[#BDDAC9] dark:border-[#49554D]">
-                                {characters.length}
+                                {displayCharacters.length}
                               </span>
                             </div>
                             <div className="min-w-0 w-full">
@@ -2975,7 +3164,7 @@ export default function App() {
                                 className="w-9 h-8 transition-transform duration-150 group-hover:-translate-y-0.5"
                               />
                               <span className="tabular-nums-mono text-[10px] px-1.5 py-0.5 rounded bg-[#E2F3E8] dark:bg-[#343D37] text-[#2F634E] dark:text-[#A3BDA8] border border-[#BDDAC9] dark:border-[#49554D]">
-                                {notes.length + libraryPrompts.length}
+                                {displayNotes.length + displayLibraryPrompts.length}
                               </span>
                             </div>
                             <div className="min-w-0 w-full">
@@ -3002,7 +3191,7 @@ export default function App() {
                                 className="w-9 h-8 transition-transform duration-150 group-hover:-translate-y-0.5"
                               />
                               <span className="tabular-nums-mono text-[10px] px-1.5 py-0.5 rounded bg-[#E2F3E8] dark:bg-[#343D37] text-[#2F634E] dark:text-[#A3BDA8] border border-[#BDDAC9] dark:border-[#49554D]">
-                                {ideas.length}
+                                {displayIdeas.length}
                               </span>
                             </div>
                             <div className="min-w-0 w-full">
@@ -3040,61 +3229,85 @@ export default function App() {
                               <span>{activeNote.title}</span>
                             </h2>
                           </div>
-                          <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end flex-shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => setIsEditing(true)}
-                              className="retro-btn px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
-                            >
-                              <Edit3 className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
-                              <span>Chỉnh sửa</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteNote(activeNote.id)}
-                              className="retro-btn-danger px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                              <span>Xóa bỏ</span>
-                            </button>
-                          </div>
+                          {canEditOrDeleteItem('note', activeNote) && (
+                            <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end flex-shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => setIsEditing(true)}
+                                className="retro-btn px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <Edit3 className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
+                                <span>Chỉnh sửa</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteNote(activeNote)}
+                                className="retro-btn-danger px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>Xóa bỏ</span>
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </div>
 
+                      <ContentInteractionBar
+                        targetType="note"
+                        item={activeNote}
+                        isAuthenticated={isAuthenticated}
+                        currentUserId={userId}
+                        isTogglingPublic={isTogglingPublic}
+                        onTogglePublic={(nextPublic) => handleTogglePublic('note', activeNote, nextPublic)}
+                        onRequireAuth={() => openAuthModal('login')}
+                        onToast={(msg) => showToast(msg, 'info')}
+                      />
+
                       {/* Linked Character Strip */}
-                      <div className="retro-callout-mint p-3.5 flex flex-wrap items-center justify-between gap-3">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="w-10 h-10 rounded-md bg-[#FFF9EA] dark:bg-[#292E2B] border border-[#B8D7C5] dark:border-[#49554D] flex items-center justify-center text-2xl flex-shrink-0">
-                            {characters.find(c => c.id === activeNote.characterId)?.avatar || '🍀'}
+                      {(() => {
+                        const linkedChar =
+                          displayCharacters.find(
+                            (c) =>
+                              c.id === activeNote.characterId &&
+                              (!activeNote.ownerId || !c.ownerId || c.ownerId === activeNote.ownerId),
+                          ) || displayCharacters.find((c) => c.id === activeNote.characterId);
+                        if (!activeNote.characterId && !linkedChar) return null;
+                        return (
+                          <div className="retro-callout-mint p-3.5 flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="w-10 h-10 rounded-md bg-[#FFF9EA] dark:bg-[#292E2B] border border-[#B8D7C5] dark:border-[#49554D] flex items-center justify-center text-2xl flex-shrink-0">
+                                {linkedChar?.avatar || '🍀'}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-[10px] font-mono uppercase font-semibold text-[#39755D] dark:text-[#A3BDA8] tracking-wider">
+                                  Nhân vật liên kết
+                                </p>
+                                <h4 className="font-bold text-[#20372D] dark:text-[#E4E1D8] text-sm truncate">
+                                  {linkedChar?.name || 'Không xác định'}
+                                </h4>
+                                <p className="text-xs text-[#547264] dark:text-[#B8BDB5] truncate">
+                                  {linkedChar?.role || 'Vui lòng chỉnh sửa và liên kết nhân vật'}
+                                </p>
+                              </div>
+                            </div>
+                            
+                            {linkedChar && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveTab('characters');
+                                  setSelectedCharId(getItemKey(linkedChar));
+                                }}
+                                className="retro-btn px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 cursor-pointer shrink-0"
+                                title="Đến trang chi tiết nhân vật"
+                              >
+                                <span>Xem nhân vật</span>
+                                <ExternalLink className="w-3 h-3 text-[#39755D] dark:text-[#A3BDA8]" />
+                              </button>
+                            )}
                           </div>
-                          <div className="min-w-0">
-                            <p className="text-[10px] font-mono uppercase font-semibold text-[#39755D] dark:text-[#A3BDA8] tracking-wider">
-                              Nhân vật liên kết
-                            </p>
-                            <h4 className="font-bold text-[#20372D] dark:text-[#E4E1D8] text-sm truncate">
-                              {characters.find(c => c.id === activeNote.characterId)?.name || 'Không xác định'}
-                            </h4>
-                            <p className="text-xs text-[#547264] dark:text-[#B8BDB5] truncate">
-                              {characters.find(c => c.id === activeNote.characterId)?.role || 'Vui lòng chỉnh sửa và liên kết nhân vật'}
-                            </p>
-                          </div>
-                        </div>
-                        
-                        {activeNote.characterId && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setActiveTab('characters');
-                              setSelectedCharId(activeNote.characterId);
-                            }}
-                            className="retro-btn px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 cursor-pointer shrink-0"
-                            title="Đến trang chi tiết nhân vật"
-                          >
-                            <span>Xem nhân vật</span>
-                            <ExternalLink className="w-3 h-3 text-[#39755D] dark:text-[#A3BDA8]" />
-                          </button>
-                        )}
-                      </div>
+                        );
+                      })()}
 
                       {/* Section 1: Prompt cần nhập (Command) */}
                       <div className="retro-window overflow-hidden">
@@ -3139,6 +3352,16 @@ export default function App() {
                           {activeNote.content}
                         </div>
                       </div>
+
+                      <PromptRatingSection
+                        targetType="note"
+                        item={activeNote}
+                        isAuthenticated={isAuthenticated}
+                        currentUserId={userId}
+                        isAdmin={isAdmin}
+                        onRequireAuth={() => openAuthModal('login')}
+                        onToast={(msg) => showToast(msg, 'info')}
+                      />
                     </article>
                   )}
 
@@ -3154,7 +3377,7 @@ export default function App() {
                               Kho Lệnh AI
                             </span>
                             <span className="text-xs text-[#547264] dark:text-[#B8BDB5] truncate">
-                              Tác giả: <strong className="text-[#23503E] dark:text-[#E4E1D8] font-semibold">{activeLibraryPrompt.author}</strong>
+                              Tác giả: <strong className="text-[#23503E] dark:text-[#E4E1D8] font-semibold">{activeLibraryPrompt.authorDisplayName || activeLibraryPrompt.author}</strong>
                             </span>
                           </div>
                           <span className="text-[10px] tabular-nums-mono text-[#5B7A6C] dark:text-[#B8BDB5]">
@@ -3162,13 +3385,45 @@ export default function App() {
                           </span>
                         </div>
 
-                        <div className="px-4 py-3.5">
-                          <h2 className="text-lg sm:text-xl font-bold text-[#224C3B] dark:text-[#E4E1D8] leading-snug flex items-start gap-2.5">
+                        <div className="px-4 py-3.5 flex flex-col sm:flex-row justify-between items-start gap-3">
+                          <h2 className="text-lg sm:text-xl font-bold text-[#224C3B] dark:text-[#E4E1D8] leading-snug flex items-start gap-2.5 flex-1 min-w-0">
                             <span className="text-xl leading-none mt-0.5 flex-shrink-0">{getLibraryPromptIcon(activeLibraryPrompt)}</span>
                             <span className="min-w-0 break-words">{activeLibraryPrompt.title}</span>
                           </h2>
+
+                          {canEditOrDeleteLibraryPrompt(activeLibraryPrompt) && (
+                            <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end flex-shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => setIsEditingLibraryPrompt(true)}
+                                className="retro-btn px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <Edit3 className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
+                                <span>Chỉnh sửa</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteLibraryPrompt(activeLibraryPrompt)}
+                                className="retro-btn-danger px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>Xóa</span>
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </div>
+
+                      <ContentInteractionBar
+                        targetType="library_prompt"
+                        item={activeLibraryPrompt}
+                        isAuthenticated={isAuthenticated}
+                        currentUserId={userId}
+                        isTogglingPublic={isTogglingPublic}
+                        onTogglePublic={(nextPublic) => handleTogglePublic('library_prompt', activeLibraryPrompt, nextPublic)}
+                        onRequireAuth={() => openAuthModal('login')}
+                        onToast={(msg) => showToast(msg, 'info')}
+                      />
 
                       {/* Section Description Card — Mint accent */}
                       <div className="retro-callout-mint p-4 space-y-1.5">
@@ -3358,6 +3613,16 @@ export default function App() {
                           </>
                         )}
                       </div>
+
+                      <PromptRatingSection
+                        targetType="library_prompt"
+                        item={activeLibraryPrompt}
+                        isAuthenticated={isAuthenticated}
+                        currentUserId={userId}
+                        isAdmin={isAdmin}
+                        onRequireAuth={() => openAuthModal('login')}
+                        onToast={(msg) => showToast(msg, 'info')}
+                      />
                     </article>
                   )}
 
@@ -3379,24 +3644,26 @@ export default function App() {
                           <h2 className="text-lg sm:text-xl font-bold text-[#224C3B] dark:text-[#E4E1D8] leading-snug break-words flex-1 min-w-0">
                             {activeIdea.title}
                           </h2>
-                          <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end flex-shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => setIsEditing(true)}
-                              className="retro-btn px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
-                            >
-                              <Edit3 className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
-                              <span>Chỉnh sửa</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteIdea(activeIdea.id)}
-                              className="retro-btn-danger px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                              <span>Xóa</span>
-                            </button>
-                          </div>
+                          {canEditOrDeleteItem('idea', activeIdea) && (
+                            <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end flex-shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => setIsEditing(true)}
+                                className="retro-btn px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <Edit3 className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
+                                <span>Chỉnh sửa</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteIdea(activeIdea)}
+                                className="retro-btn-danger px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>Xóa</span>
+                              </button>
+                            </div>
+                          )}
                         </div>
 
                         <div className="p-4 sm:p-5">
@@ -3405,6 +3672,17 @@ export default function App() {
                           </p>
                         </div>
                       </div>
+
+                      <ContentInteractionBar
+                        targetType="idea"
+                        item={activeIdea}
+                        isAuthenticated={isAuthenticated}
+                        currentUserId={userId}
+                        isTogglingPublic={isTogglingPublic}
+                        onTogglePublic={(nextPublic) => handleTogglePublic('idea', activeIdea, nextPublic)}
+                        onRequireAuth={() => openAuthModal('login')}
+                        onToast={(msg) => showToast(msg, 'info')}
+                      />
                     </article>
                   )}
 
@@ -3459,24 +3737,26 @@ export default function App() {
                               </div>
                             </div>
                             
-                            <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end flex-shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => setIsEditing(true)}
-                                className="retro-btn px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
-                              >
-                                <Edit3 className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
-                                <span>Chỉnh sửa</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteCharacter(activeChar.id)}
-                                className="retro-btn-danger px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                                <span>Xóa</span>
-                              </button>
-                            </div>
+                            {canEditOrDeleteItem('character', activeChar) && (
+                              <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end flex-shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => setIsEditing(true)}
+                                  className="retro-btn px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
+                                  <span>Chỉnh sửa</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteCharacter(activeChar)}
+                                  className="retro-btn-danger px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>Xóa</span>
+                                </button>
+                              </div>
+                            )}
                           </div>
 
                           {activeChar.description && (
@@ -3682,6 +3962,26 @@ export default function App() {
                           </div>
                         </div>
                       )}
+
+                      <ContentInteractionBar
+                        targetType="character"
+                        item={activeChar}
+                        isAuthenticated={isAuthenticated}
+                        currentUserId={userId}
+                        isTogglingPublic={isTogglingPublic}
+                        onTogglePublic={(nextPublic) => handleTogglePublic('character', activeChar, nextPublic)}
+                        onRequireAuth={() => openAuthModal('login')}
+                        onToast={(msg) => showToast(msg, 'info')}
+                      />
+
+                      <CharacterCommentsSection
+                        character={activeChar}
+                        isAuthenticated={isAuthenticated}
+                        currentUserId={userId}
+                        isAdmin={isAdmin}
+                        onRequireAuth={() => openAuthModal('login')}
+                        onToast={(msg) => showToast(msg, 'info')}
+                      />
                     </article>
                   )}
 
@@ -3863,40 +4163,43 @@ export default function App() {
                       <div className="retro-window overflow-hidden">
                         <div className="retro-window-header px-4 py-2.5">
                           <h3 className="text-xs font-bold uppercase tracking-wider text-[#224C3B] dark:text-[#E4E1D8]">
-                            Nhân vật của tác giả ({characters.filter(c => c.author?.toLowerCase() === activeAuthor.id?.toLowerCase() || c.author?.toLowerCase() === activeAuthor.name?.toLowerCase() || c.author?.toLowerCase() === activeAuthor.fullName?.toLowerCase()).length})
+                            Nhân vật của tác giả ({displayCharacters.filter(c => c.author?.toLowerCase() === activeAuthor.id?.toLowerCase() || c.author?.toLowerCase() === activeAuthor.name?.toLowerCase() || c.author?.toLowerCase() === activeAuthor.fullName?.toLowerCase()).length})
                           </h3>
                         </div>
 
                         <div className="p-4">
-                          {characters.filter(c => c.author?.toLowerCase() === activeAuthor.id?.toLowerCase() || c.author?.toLowerCase() === activeAuthor.name?.toLowerCase() || c.author?.toLowerCase() === activeAuthor.fullName?.toLowerCase()).length === 0 ? (
+                          {displayCharacters.filter(c => c.author?.toLowerCase() === activeAuthor.id?.toLowerCase() || c.author?.toLowerCase() === activeAuthor.name?.toLowerCase() || c.author?.toLowerCase() === activeAuthor.fullName?.toLowerCase()).length === 0 ? (
                             <p className="text-[#5B7A6C] dark:text-[#B8BDB5] text-xs py-4 text-center">
-                              Chưa có nhân vật nào của tác giả này trong dữ liệu cá nhân của bạn.
+                              Chưa có nhân vật nào của tác giả này trong dữ liệu đang hiển thị.
                             </p>
                           ) : (
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                              {characters
+                              {displayCharacters
                                 .filter(c => c.author?.toLowerCase() === activeAuthor.id?.toLowerCase() || c.author?.toLowerCase() === activeAuthor.name?.toLowerCase() || c.author?.toLowerCase() === activeAuthor.fullName?.toLowerCase())
-                                .map((char) => (
-                                  <button
-                                    key={char.id}
-                                    type="button"
-                                    onClick={() => {
-                                      setSelectedCharId(char.id);
-                                      setActiveTab('characters');
-                                      setIsCreating(false);
-                                      setIsEditing(false);
-                                      setShowDetailOnMobile(true);
-                                    }}
-                                    className="retro-btn p-3 flex items-center gap-3 text-left cursor-pointer"
-                                  >
-                                    <span className="text-xl flex-shrink-0">{char.avatar || '👤'}</span>
-                                    <div className="min-w-0 flex-1">
-                                      <p className="text-xs font-bold text-[#20372D] dark:text-[#E4E1D8] truncate">{char.name}</p>
-                                      <p className="text-[10px] text-[#587568] dark:text-[#B8BDB5] truncate mt-0.5">{char.role}</p>
-                                    </div>
-                                    <ChevronRight className="w-3.5 h-3.5 text-[#587568] dark:text-[#B8BDB5] flex-shrink-0" />
-                                  </button>
-                                ))}
+                                .map((char) => {
+                                  const charKey = getItemKey(char);
+                                  return (
+                                    <button
+                                      key={charKey}
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedCharId(charKey);
+                                        setActiveTab('characters');
+                                        setIsCreating(false);
+                                        setIsEditing(false);
+                                        setShowDetailOnMobile(true);
+                                      }}
+                                      className="retro-btn p-3 flex items-center gap-3 text-left cursor-pointer"
+                                    >
+                                      <span className="text-xl flex-shrink-0">{char.avatar || '👤'}</span>
+                                      <div className="min-w-0 flex-1">
+                                        <p className="text-xs font-bold text-[#20372D] dark:text-[#E4E1D8] truncate">{char.name}</p>
+                                        <p className="text-[10px] text-[#587568] dark:text-[#B8BDB5] truncate mt-0.5">{char.role}</p>
+                                      </div>
+                                      <ChevronRight className="w-3.5 h-3.5 text-[#587568] dark:text-[#B8BDB5] flex-shrink-0" />
+                                    </button>
+                                  );
+                                })}
                             </div>
                           )}
                         </div>
@@ -3953,14 +4256,14 @@ export default function App() {
                     <span>Danh sách Tag / Thể loại</span>
                   </h4>
                   <span className="text-[10px] tabular-nums-mono text-[#5B7A6C] dark:text-[#B8BDB5]">
-                    Tất cả ({Array.from(new Set(characters.flatMap(c => c.role.split('/').map(r => r.trim())).filter(Boolean))).length})
+                    Tất cả ({Array.from(new Set(displayCharacters.flatMap(c => c.role.split('/').map(r => r.trim())).filter(Boolean))).length})
                   </span>
                 </div>
 
                 <div className="flex flex-wrap gap-2">
-                  {(Array.from(new Set(characters.flatMap(c => c.role.split('/').map(r => r.trim())).filter(Boolean))) as string[]).map((tag) => {
+                  {(Array.from(new Set(displayCharacters.flatMap(c => c.role.split('/').map(r => r.trim())).filter(Boolean))) as string[]).map((tag) => {
                     const isChosen = selectedFilterTag === tag;
-                    const matchingCount = characters.filter(c => 
+                    const matchingCount = displayCharacters.filter(c => 
                       c.role.split('/').map(r => r.trim().toLowerCase()).includes(tag.toLowerCase())
                     ).length;
 
@@ -4012,16 +4315,17 @@ export default function App() {
                   </div>
 
                   <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
-                    {characters.filter(c => {
+                    {displayCharacters.filter(c => {
                       const matchesTag = !selectedFilterTag || c.role.split('/').map(r => r.trim().toLowerCase()).includes(selectedFilterTag.toLowerCase());
                       return matchesTag;
                     }).map((char) => {
-                      const isCurrentlySelected = selectedCharId === char.id;
+                      const charKey = getItemKey(char);
+                      const isCurrentlySelected = selectedCharId === charKey;
                       return (
                         <div
-                           key={char.id}
+                           key={charKey}
                            onClick={() => {
-                             setSelectedCharId(char.id);
+                             setSelectedCharId(charKey);
                              setIsFilterModalOpen(false);
                              showToast(`Đã chọn nhân vật: ${char.name}`, 'success');
                            }}
@@ -4046,9 +4350,9 @@ export default function App() {
                           </div>
 
                           <div className="flex items-center gap-2 flex-shrink-0">
-                            {char.author && (
+                            {(char.authorDisplayName || char.author) && (
                               <span className="text-[10px] bg-[#E2F3E8] dark:bg-[#343D37] px-1.5 py-0.5 rounded text-[#2F634E] dark:text-[#A3BDA8] font-medium">
-                                {char.author}
+                                {char.authorDisplayName || char.author}
                               </span>
                             )}
                           </div>
@@ -4134,6 +4438,17 @@ export default function App() {
           void copyToClipboard(text, 'nội dung đang soạn');
         }}
         onCancel={() => setActiveConflict(null)}
+      />
+
+      {/* SYSTEM ANNOUNCEMENTS MODAL */}
+      <SystemAnnouncementsModal
+        isOpen={isAnnouncementsModalOpen}
+        onClose={() => setIsAnnouncementsModalOpen(false)}
+        announcements={announcements}
+        isAdmin={isAdmin}
+        currentUserId={userId}
+        onChanged={refreshAnnouncements}
+        onToast={(msg) => showToast(msg, 'success')}
       />
 
       {/* Floating dynamic Toast Notifications */}
