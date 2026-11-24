@@ -67,6 +67,7 @@ import {
   getIdeaTags,
   getLibraryPromptTags,
   getNoteTags,
+  itemHasTagMatchingQuery,
   itemMatchesSelectedTags,
   toTagComparisonKey,
 } from './utils/tagSystem';
@@ -586,10 +587,13 @@ export default function App() {
   );
 
   const handleRefreshTagsAndData = useCallback(async () => {
-    await Promise.all([refreshSharedTags(), refreshPublicSnapshot()]);
-    if (isAuthenticated && userId) {
-      await syncFromSupabase(userId, { silent: true, checkLocalPrompt: false });
-    }
+    await Promise.all([
+      refreshSharedTags(),
+      refreshPublicSnapshot(),
+      isAuthenticated && userId
+        ? syncFromSupabase(userId, { silent: true, checkLocalPrompt: false })
+        : Promise.resolve(true),
+    ]);
   }, [refreshSharedTags, refreshPublicSnapshot, isAuthenticated, userId, syncFromSupabase]);
 
   // Chuyển đổi an toàn giữa chế độ Khách (localStorage) và Tài khoản (Supabase),
@@ -1984,7 +1988,7 @@ export default function App() {
       n.command.toLowerCase().includes(queryLower) ||
       n.content.toLowerCase().includes(queryLower) ||
       (n.description && n.description.toLowerCase().includes(queryLower)) ||
-      nTags.some((t) => t.toLowerCase().includes(queryLower))
+      itemHasTagMatchingQuery(nTags, searchQuery, sharedTags)
     );
   });
 
@@ -1996,7 +2000,7 @@ export default function App() {
     return (
       i.title.toLowerCase().includes(queryLower) ||
       i.content.toLowerCase().includes(queryLower) ||
-      iTags.some((t) => t.toLowerCase().includes(queryLower))
+      itemHasTagMatchingQuery(iTags, searchQuery, sharedTags)
     );
   });
 
@@ -2009,7 +2013,7 @@ export default function App() {
       c.name.toLowerCase().includes(queryLower) ||
       c.role.toLowerCase().includes(queryLower) ||
       (c.description && c.description.toLowerCase().includes(queryLower)) ||
-      cTags.some((t) => t.toLowerCase().includes(queryLower))
+      itemHasTagMatchingQuery(cTags, searchQuery, sharedTags)
     );
   });
 
@@ -2022,7 +2026,7 @@ export default function App() {
       p.title.toLowerCase().includes(queryLower) ||
       p.description.toLowerCase().includes(queryLower) ||
       p.author.toLowerCase().includes(queryLower) ||
-      pTags.some((t) => t.toLowerCase().includes(queryLower))
+      itemHasTagMatchingQuery(pTags, searchQuery, sharedTags)
     );
   });
 

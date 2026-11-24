@@ -389,6 +389,42 @@ export function itemMatchesSelectedTags(
 }
 
 /**
+ * Kiểm tra xem danh sách tag của bài viết (hoặc alias của các tag đó trong sharedTags)
+ * có khớp với từ khóa tìm kiếm hay không. Hỗ trợ tìm kiếm lại theo tên tag cũ sau khi Admin gộp tag.
+ */
+export function itemHasTagMatchingQuery(
+  itemTags: string[],
+  rawQuery: string,
+  sharedTags: SharedTag[] = [],
+): boolean {
+  const queryLower = rawQuery.trim().toLowerCase();
+  if (!queryLower) return true;
+  if (itemTags.length === 0) return false;
+
+  const queryKey = toTagComparisonKey(rawQuery);
+  const sharedByKey = new Map<string, SharedTag>();
+  for (const st of sharedTags) {
+    const lk = toTagComparisonKey(st.label);
+    if (lk) sharedByKey.set(lk, st);
+  }
+
+  return itemTags.some((tag) => {
+    if (tag.toLowerCase().includes(queryLower)) return true;
+    const key = toTagComparisonKey(tag);
+    if (queryKey && key.includes(queryKey)) return true;
+    const shared = sharedByKey.get(key);
+    if (shared && Array.isArray(shared.aliases)) {
+      return shared.aliases.some((alias) => {
+        if (alias.toLowerCase().includes(queryLower)) return true;
+        const aliasKey = toTagComparisonKey(alias);
+        return Boolean(queryKey && aliasKey.includes(queryKey));
+      });
+    }
+    return false;
+  });
+}
+
+/**
  * Tạo danh sách nhãn tag hiện có (ưu tiên các tag đang dùng phổ biến + sharedTags)
  * để làm ngữ cảnh tái sử dụng tag cho bộ phân tích từ khóa.
  */

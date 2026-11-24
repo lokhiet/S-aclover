@@ -68,6 +68,25 @@ export async function fetchSharedTags(): Promise<TagAdminResult<SharedTag[]>> {
   }
 }
 
+function formatTagRpcError(
+  error: { code?: string; message?: string },
+  missingMsg: string,
+  fallbackMsg: string,
+): TagAdminResult<never> {
+  if (isMissingTagSchemaError(error)) {
+    return { ok: false, schemaMissing: true, error: missingMsg };
+  }
+  const msg = String(error.message || '');
+  if (msg.toLowerCase().includes('coalesce types text[] and jsonb')) {
+    return {
+      ok: false,
+      error:
+        'Cơ sở dữ liệu cần chạy thêm migration 007_fix_tag_management.sql trên Supabase để sửa lỗi kiểu dữ liệu text[]/jsonb của hàm quản lý tag.',
+    };
+  }
+  return { ok: false, error: msg || fallbackMsg };
+}
+
 export async function adminUpsertSharedTag(params: {
   label: string;
   aliases?: string[];
@@ -91,14 +110,11 @@ export async function adminUpsertSharedTag(params: {
   });
 
   if (error) {
-    if (isMissingTagSchemaError(error)) {
-      return {
-        ok: false,
-        schemaMissing: true,
-        error: 'Cơ sở dữ liệu chưa chạy migration 006_shared_tags.sql.',
-      };
-    }
-    return { ok: false, error: error.message || 'Không thể lưu tag chung.' };
+    return formatTagRpcError(
+      error,
+      'Cơ sở dữ liệu chưa chạy migration 006_shared_tags.sql.',
+      'Không thể lưu tag chung.',
+    );
   }
 
   return {
@@ -124,14 +140,11 @@ export async function adminRenameSharedTag(
   });
 
   if (error) {
-    if (isMissingTagSchemaError(error)) {
-      return {
-        ok: false,
-        schemaMissing: true,
-        error: 'Cần chạy migration 006_shared_tags.sql trên Supabase để đổi tên tag chung.',
-      };
-    }
-    return { ok: false, error: error.message || 'Không thể đổi tên tag chung.' };
+    return formatTagRpcError(
+      error,
+      'Cần chạy migration 006_shared_tags.sql và 007_fix_tag_management.sql trên Supabase để đổi tên tag chung.',
+      'Không thể đổi tên tag chung.',
+    );
   }
 
   return { ok: true, data: Number(data || 0) };
@@ -154,14 +167,11 @@ export async function adminMergeSharedTags(
   });
 
   if (error) {
-    if (isMissingTagSchemaError(error)) {
-      return {
-        ok: false,
-        schemaMissing: true,
-        error: 'Cần chạy migration 006_shared_tags.sql trên Supabase để gộp tag chung.',
-      };
-    }
-    return { ok: false, error: error.message || 'Không thể gộp tag chung.' };
+    return formatTagRpcError(
+      error,
+      'Cần chạy migration 006_shared_tags.sql và 007_fix_tag_management.sql trên Supabase để gộp tag chung.',
+      'Không thể gộp tag chung.',
+    );
   }
 
   return { ok: true, data: Number(data || 0) };
@@ -178,14 +188,11 @@ export async function adminDeleteSharedTag(label: string): Promise<TagAdminResul
   });
 
   if (error) {
-    if (isMissingTagSchemaError(error)) {
-      return {
-        ok: false,
-        schemaMissing: true,
-        error: 'Cần chạy migration 006_shared_tags.sql trên Supabase để xóa tag chung.',
-      };
-    }
-    return { ok: false, error: error.message || 'Không thể xóa tag chung.' };
+    return formatTagRpcError(
+      error,
+      'Cần chạy migration 006_shared_tags.sql và 007_fix_tag_management.sql trên Supabase để xóa tag chung.',
+      'Không thể xóa tag chung.',
+    );
   }
 
   return { ok: true, data: Number(data || 0) };
