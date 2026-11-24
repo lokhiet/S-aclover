@@ -4,8 +4,6 @@ import type {
   AuthErrorCode,
   AuthResult,
   AuthServiceError,
-  GoogleOAuthOptions,
-  GoogleOAuthResultData,
   SignInInput,
   SignInResultData,
   SignUpInput,
@@ -13,10 +11,15 @@ import type {
   UpdateProfileInput,
   UserProfile,
 } from '../types/auth';
+import {
+  checkSignupRateLimit,
+  evaluatePasswordStrength,
+  MIN_SIGNUP_PASSWORD_LENGTH,
+  normalizeEmail,
+  recordSignupAttempt,
+  validateEmailFormat,
+} from '../utils/authValidation';
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const MIN_PASSWORD_LENGTH = 6;
-const MAX_PASSWORD_LENGTH = 128;
 const MAX_DISPLAY_NAME_LENGTH = 80;
 const MAX_BIO_LENGTH = 500;
 const MAX_AVATAR_URL_LENGTH = 2048;
@@ -68,32 +71,8 @@ function getClientOrError<T>():
   return { client: supabase, error: null };
 }
 
-function normalizeEmail(email: string): string {
-  return email.trim().toLowerCase();
-}
-
 function validateEmail(email: string): string | null {
-  const normalized = normalizeEmail(email);
-  if (!normalized) {
-    return 'Vui lòng nhập địa chỉ email.';
-  }
-  if (!EMAIL_REGEX.test(normalized)) {
-    return 'Địa chỉ email không đúng định dạng.';
-  }
-  return null;
-}
-
-function validatePassword(password: string, fieldLabel = 'Mật khẩu'): string | null {
-  if (!password) {
-    return `Vui lòng nhập ${fieldLabel.toLowerCase()}.`;
-  }
-  if (password.length < MIN_PASSWORD_LENGTH) {
-    return `${fieldLabel} phải có ít nhất ${MIN_PASSWORD_LENGTH} ký tự.`;
-  }
-  if (password.length > MAX_PASSWORD_LENGTH) {
-    return `${fieldLabel} không được vượt quá ${MAX_PASSWORD_LENGTH} ký tự.`;
-  }
-  return null;
+  return validateEmailFormat(email);
 }
 
 export function isSafeHttpsUrl(value: string): boolean {
@@ -114,17 +93,6 @@ export function getDefaultAuthRedirectUrl(): string | undefined {
     return undefined;
   }
   return window.location.origin;
-}
-
-export function isRunningInIframe(): boolean {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-  try {
-    return window.self !== window.top;
-  } catch {
-    return true;
-  }
 }
 
 /**
@@ -168,7 +136,7 @@ export function normalizeAuthError(rawError: unknown): AuthServiceError {
     return {
       code: 'EMAIL_NOT_CONFIRMED',
       message:
-        'Email chưa được xác minh. Vui lòng kiểm tra hộp thư hoặc yêu cầu gửi lại email xác minh.',
+        'Tài khoản này đang chờ xác nhận email trên máy chủ xác thực. Hãy tắt Confirm email trong Supabase Dashboard hoặc dùng Quên mật khẩu để kích hoạt đăng nhập.',
       status,
     };
   }
@@ -194,7 +162,7 @@ export function normalizeAuthError(rawError: unknown): AuthServiceError {
   ) {
     return {
       code: 'WEAK_PASSWORD',
-      message: `Mật khẩu chưa đủ mạnh. Vui lòng sử dụng ít nhất ${MIN_PASSWORD_LENGTH} ký tự.`,
+      message: `Mật khẩu chưa đủ mạnh. Vui lòng sử dụng ít nhất ${MIN_SIGNUP_PASSWORD_LENGTH} ký tự gồm chữ cái và chữ số.`,
       status,
     };
   }
@@ -221,7 +189,7 @@ export function normalizeAuthError(rawError: unknown): AuthServiceError {
     return {
       code: 'RATE_LIMITED',
       message:
-        'Bạn thao tác quá nhanh hoặc đã chạm giới hạn gửi email. Vui lòng chờ một lát rồi thử lại.',
+        'Bạn thao tác quá nhanh hoặc đã chạm giới hạn gửi yêu cầu. Vui lòng chờ một lát rồi thử lại.',
       status: status ?? 429,
     };
   }
@@ -237,7 +205,7 @@ export function normalizeAuthError(rawError: unknown): AuthServiceError {
     return {
       code: 'TOKEN_EXPIRED',
       message:
-        'Liên kết xác minh hoặc đặt lại mật khẩu đã hết hạn hoặc không hợp lệ. Vui lòng yêu cầu gửi lại.',
+        'Liên kết đặt lại mật khẩu đã hết hạn hoặc đã được sử dụng. Vui lòng yêu cầu gửi lại liên kết mới.',
       status,
     };
   }
@@ -264,18 +232,6 @@ export function normalizeAuthError(rawError: unknown): AuthServiceError {
     return {
       code: 'SIGNUP_DISABLED',
       message: 'Chức năng đăng ký tài khoản mới hiện đang tạm khóa trên hệ thống.',
-      status,
-    };
-  }
-
-  if (
-    rawCode === 'provider_disabled' ||
-    rawMessage.includes('unsupported provider') ||
-    rawMessage.includes('provider is not enabled')
-  ) {
-    return {
-      code: 'PROVIDER_DISABLED',
-      message: 'Đăng nhập bằng Google chưa được kích hoạt trên Supabase Dashboard.',
       status,
     };
   }
@@ -326,7 +282,8 @@ export function normalizeAuthError(rawError: unknown): AuthServiceError {
 }
 
 /**
- * Đăng ký tài khoản công khai bằng Email + Mật khẩu.
+ * Đăng ký tài khoản nhanh bằng Email + Mật khẩu (không bắt buộc xác minh email).
+ * Tự động đăng nhập ngay sau khi tạo tài khoản nếu Confirm email đã được tắt trên Supabase.
  */
 export async function signUpWithEmail(
   input: SignUpInput,
@@ -339,9 +296,9 @@ export async function signUpWithEmail(
     return errorResult('VALIDATION_ERROR', emailError);
   }
 
-  const passwordError = validatePassword(input.password);
-  if (passwordError) {
-    return errorResult('VALIDATION_ERROR', passwordError);
+  const strength = evaluatePasswordStrength(input.password, input.email);
+  if (!strength.valid && strength.error) {
+    return errorResult('VALIDATION_ERROR', strength.error);
   }
 
   const trimmedDisplayName = input.displayName?.trim() ?? '';
@@ -352,46 +309,62 @@ export async function signUpWithEmail(
     );
   }
 
+  const rateCheck = checkSignupRateLimit();
+  if (!rateCheck.allowed) {
+    return errorResult(
+      'RATE_LIMITED',
+      rateCheck.message || 'Bạn thao tác đăng ký quá nhanh. Vui lòng thử lại sau.',
+      429,
+    );
+  }
+
   try {
     const normalizedEmail = normalizeEmail(input.email);
     const { data, error } = await client.auth.signUp({
       email: normalizedEmail,
       password: input.password,
-      options: {
-        emailRedirectTo: input.emailRedirectTo ?? getDefaultAuthRedirectUrl(),
-        data: trimmedDisplayName ? { display_name: trimmedDisplayName } : undefined,
-      },
+      options: trimmedDisplayName
+        ? { data: { display_name: trimmedDisplayName } }
+        : undefined,
     });
 
     if (error) {
+      recordSignupAttempt(false);
       const normalized = normalizeAuthError(error);
       return errorResult(normalized.code, normalized.message, normalized.status);
     }
 
-    // Trường hợp Supabase ẩn lỗi trùng email khi bật Confirm Email: identities trả về mảng rỗng.
     if (
       data.user &&
       Array.isArray(data.user.identities) &&
       data.user.identities.length === 0
     ) {
+      recordSignupAttempt(false);
       return errorResult(
         'USER_ALREADY_EXISTS',
         'Email này đã được đăng ký. Vui lòng đăng nhập hoặc sử dụng chức năng quên mật khẩu.',
       );
     }
 
-    const needsEmailVerification = !data.session;
+    recordSignupAttempt(true);
+
+    if (!data.session) {
+      return errorResult(
+        'EMAIL_NOT_CONFIRMED',
+        'Tài khoản đã được tạo nhưng Supabase vẫn đang bật Confirm email nên chưa tự động đăng nhập. Vui lòng tắt Confirm email trong Supabase Dashboard.',
+      );
+    }
+
     return okResult(
       {
         user: data.user,
         session: data.session,
-        needsEmailVerification,
+        autoSignedIn: true,
       },
-      needsEmailVerification
-        ? 'Đăng ký thành công! Vui lòng kiểm tra hộp thư để xác minh email trước khi đăng nhập.'
-        : 'Đăng ký và đăng nhập thành công!',
+      'Đăng ký và đăng nhập thành công!',
     );
   } catch (err) {
+    recordSignupAttempt(false);
     const normalized = normalizeAuthError(err);
     return errorResult(normalized.code, normalized.message, normalized.status);
   }
@@ -436,54 +409,6 @@ export async function signInWithEmail(
     return okResult(
       { user: data.user, session: data.session },
       'Đăng nhập thành công!',
-    );
-  } catch (err) {
-    const normalized = normalizeAuthError(err);
-    return errorResult(normalized.code, normalized.message, normalized.status);
-  }
-}
-
-/**
- * Đăng nhập bằng Google OAuth (PKCE).
- * - Dùng `prompt: 'select_account'` để dễ chọn/chuyển nhiều tài khoản Google trên cùng thiết bị.
- * - Tự nhận biết khi ứng dụng đang chạy trong iframe (ví dụ khung preview AI Studio) để tránh
- *   lỗi Google chặn hiển thị trong iframe; trả về URL OAuth để UI xử lý mở tab phù hợp.
- */
-export async function signInWithGoogle(
-  options?: GoogleOAuthOptions,
-): Promise<AuthResult<GoogleOAuthResultData>> {
-  const { client, error: clientError } = getClientOrError<GoogleOAuthResultData>();
-  if (clientError) return clientError;
-
-  const embedded = isRunningInIframe();
-  const shouldSkipRedirect = embedded && !options?.forceRedirect;
-
-  try {
-    const { data, error } = await client.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: options?.redirectTo ?? getDefaultAuthRedirectUrl(),
-        skipBrowserRedirect: shouldSkipRedirect,
-        queryParams: {
-          prompt: 'select_account',
-        },
-      },
-    });
-
-    if (error) {
-      const normalized = normalizeAuthError(error);
-      return errorResult(normalized.code, normalized.message, normalized.status);
-    }
-
-    return okResult(
-      {
-        url: data?.url ?? null,
-        redirected: !shouldSkipRedirect,
-        isEmbeddedIframe: embedded,
-      },
-      shouldSkipRedirect
-        ? 'Ứng dụng đang chạy trong khung nhúng (iframe). Vui lòng mở ứng dụng ở tab độc lập để tiếp tục đăng nhập Google.'
-        : 'Đang chuyển hướng sang trang đăng nhập Google...',
     );
   } catch (err) {
     const normalized = normalizeAuthError(err);
@@ -564,9 +489,9 @@ export async function updatePassword(newPassword: string): Promise<AuthResult<Us
   const { client, error: clientError } = getClientOrError<User>();
   if (clientError) return clientError;
 
-  const passwordError = validatePassword(newPassword, 'Mật khẩu mới');
-  if (passwordError) {
-    return errorResult('VALIDATION_ERROR', passwordError);
+  const strength = evaluatePasswordStrength(newPassword);
+  if (!strength.valid && strength.error) {
+    return errorResult('VALIDATION_ERROR', strength.error);
   }
 
   try {
@@ -587,45 +512,6 @@ export async function updatePassword(newPassword: string): Promise<AuthResult<Us
     }
 
     return okResult(data.user, 'Cập nhật mật khẩu thành công!');
-  } catch (err) {
-    const normalized = normalizeAuthError(err);
-    return errorResult(normalized.code, normalized.message, normalized.status);
-  }
-}
-
-/**
- * Gửi lại email xác minh tài khoản sau khi đăng ký.
- */
-export async function resendVerificationEmail(
-  email: string,
-  emailRedirectTo?: string,
-): Promise<AuthResult<void>> {
-  const { client, error: clientError } = getClientOrError<void>();
-  if (clientError) return clientError;
-
-  const emailError = validateEmail(email);
-  if (emailError) {
-    return errorResult('VALIDATION_ERROR', emailError);
-  }
-
-  try {
-    const { error } = await client.auth.resend({
-      type: 'signup',
-      email: normalizeEmail(email),
-      options: {
-        emailRedirectTo: emailRedirectTo ?? getDefaultAuthRedirectUrl(),
-      },
-    });
-
-    if (error) {
-      const normalized = normalizeAuthError(error);
-      return errorResult(normalized.code, normalized.message, normalized.status);
-    }
-
-    return okResult(
-      undefined,
-      'Đã gửi lại email xác minh. Vui lòng kiểm tra hộp thư đến và thư rác.',
-    );
   } catch (err) {
     const normalized = normalizeAuthError(err);
     return errorResult(normalized.code, normalized.message, normalized.status);
@@ -680,7 +566,7 @@ export async function getCurrentUser(): Promise<AuthResult<User | null>> {
 }
 
 /**
- * Trao đổi mã PKCE (`?code=...`) lấy phiên đăng nhập khi quay về từ OAuth hoặc liên kết email.
+ * Trao đổi mã PKCE (`?code=...`) lấy phiên xác thực khi quay về từ liên kết khôi phục mật khẩu qua email.
  */
 export async function exchangeAuthCodeForSession(
   authCode: string,

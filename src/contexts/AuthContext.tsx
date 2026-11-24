@@ -13,10 +13,8 @@ import {
   ensureUserProfile,
   getCurrentSession,
   normalizeAuthError,
-  resendVerificationEmail,
   sendPasswordResetEmail,
   signInWithEmail,
-  signInWithGoogle as signInWithGoogleService,
   signOut as signOutService,
   signUpWithEmail,
   updatePassword as updatePasswordService,
@@ -25,8 +23,6 @@ import {
 import type {
   AuthResult,
   AuthStateSnapshot,
-  GoogleOAuthOptions,
-  GoogleOAuthResultData,
   SignInInput,
   SignInResultData,
   SignUpInput,
@@ -42,19 +38,12 @@ export interface AuthContextValue extends AuthStateSnapshot {
   authError: string | null;
   signUp: (input: SignUpInput) => Promise<AuthResult<SignUpResultData>>;
   signIn: (input: SignInInput) => Promise<AuthResult<SignInResultData>>;
-  signInWithGoogle: (
-    options?: GoogleOAuthOptions,
-  ) => Promise<AuthResult<GoogleOAuthResultData>>;
   signOut: () => Promise<AuthResult<void>>;
   sendPasswordReset: (
     email: string,
     redirectTo?: string,
   ) => Promise<AuthResult<void>>;
   updatePassword: (newPassword: string) => Promise<AuthResult<User>>;
-  resendVerification: (
-    email: string,
-    emailRedirectTo?: string,
-  ) => Promise<AuthResult<void>>;
   refreshProfile: () => Promise<AuthResult<UserProfile> | null>;
   updateProfile: (input: UpdateProfileInput) => Promise<AuthResult<UserProfile>>;
   clearRecoveryMode: () => void;
@@ -69,32 +58,24 @@ interface UrlAuthState {
   urlErrorMessage: string | null;
 }
 
-function mapOAuthCallbackError(
+function mapAuthCallbackError(
   errorCode: string | null,
   errorDescription: string | null,
 ): string {
   const codeLower = (errorCode ?? '').toLowerCase();
   const descLower = (errorDescription ?? '').toLowerCase();
 
-  if (codeLower === 'access_denied' || descLower.includes('access_denied')) {
-    return 'Bạn đã hủy đăng nhập bằng Google.';
-  }
-
   if (
-    codeLower === 'bad_oauth_state' ||
+    codeLower === 'access_denied' ||
+    codeLower === 'otp_expired' ||
+    codeLower === 'flow_state_expired' ||
+    codeLower === 'flow_state_not_found' ||
     codeLower === 'bad_code_verifier' ||
     descLower.includes('code verifier') ||
-    descLower.includes('oauth state')
+    descLower.includes('expired') ||
+    descLower.includes('invalid')
   ) {
-    return 'Phiên xác thực Google đã hết hạn hoặc không cùng tab khởi tạo. Vui lòng thử đăng nhập lại trên tab này.';
-  }
-
-  if (
-    descLower.includes('unable to exchange external code') ||
-    descLower.includes('invalid_client') ||
-    descLower.includes('redirect_uri_mismatch')
-  ) {
-    return 'Cấu hình Google OAuth chưa khớp (Client Secret hoặc Redirect URI). Vui lòng kiểm tra lại Google Cloud Console và Supabase Dashboard.';
+    return 'Liên kết đặt lại mật khẩu đã hết hạn, đã được sử dụng hoặc không cùng trình duyệt khởi tạo. Vui lòng yêu cầu liên kết mới.';
   }
 
   return normalizeAuthError({
@@ -168,8 +149,8 @@ function detectUrlAuthState(): UrlAuthState {
 
     let urlErrorMessage: string | null = null;
     if (errorCode || errorDescription) {
-      urlErrorMessage = mapOAuthCallbackError(errorCode, errorDescription);
-      cleanAuthParamsFromUrl();
+      urlErrorMessage = mapAuthCallbackError(errorCode, errorDescription);
+      cleanAuthParamsFromUrl({ removeCode: true });
     }
 
     return {
@@ -213,7 +194,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let hasReceivedAuthEvent = false;
     const { isRecoveryUrl, hasPkceCode, urlErrorMessage } = detectUrlAuthState();
 
-    if (isRecoveryUrl) {
+    if (isRecoveryUrl && !urlErrorMessage) {
       setIsRecoveryMode(true);
     }
     if (urlErrorMessage) {
@@ -255,6 +236,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (event === 'PASSWORD_RECOVERY') {
         setIsRecoveryMode(true);
         setAuthError(null);
+        cleanAuthParamsFromUrl({ removeCode: true });
       } else if (event === 'SIGNED_IN') {
         hadAuthenticatedUserRef.current = true;
         isManualSignOutRef.current = false;
@@ -288,7 +270,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } else if (hasPkceCode && !urlErrorMessage) {
           // Có ?code=... PKCE trên URL nhưng sau khi khởi tạo vẫn không nhận được phiên
           setAuthError(
-            'Không thể hoàn tất đăng nhập từ liên kết xác thực (mã PKCE đã hết hạn hoặc không cùng tab khởi tạo). Vui lòng thử lại.',
+            'Liên kết đặt lại mật khẩu đã hết hạn, đã được sử dụng hoặc không cùng trình duyệt khởi tạo. Vui lòng yêu cầu gửi lại.',
           );
           cleanAuthParamsFromUrl({ removeCode: true });
         }
@@ -317,7 +299,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               }
             } else if (hasPkceCode && !urlErrorMessage) {
               setAuthError(
-                'Không thể hoàn tất đăng nhập từ liên kết xác thực (mã PKCE đã hết hạn hoặc không cùng tab khởi tạo). Vui lòng thử lại.',
+                'Liên kết đặt lại mật khẩu đã hết hạn, đã được sử dụng hoặc không cùng trình duyệt khởi tạo. Vui lòng yêu cầu gửi lại.',
               );
               cleanAuthParamsFromUrl({ removeCode: true });
             }
@@ -388,11 +370,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return signInWithEmail(input);
   }, []);
 
-  const signInWithGoogle = useCallback(async (options?: GoogleOAuthOptions) => {
-    setAuthError(null);
-    return signInWithGoogleService(options);
-  }, []);
-
   const signOut = useCallback(async () => {
     isManualSignOutRef.current = true;
     setAuthError(null);
@@ -427,14 +404,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     return result;
   }, []);
-
-  const resendVerification = useCallback(
-    async (email: string, emailRedirectTo?: string) => {
-      setAuthError(null);
-      return resendVerificationEmail(email, emailRedirectTo);
-    },
-    [],
-  );
 
   const refreshProfile = useCallback(async () => {
     if (!user) {
@@ -504,11 +473,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       authError,
       signUp,
       signIn,
-      signInWithGoogle,
       signOut,
       sendPasswordReset,
       updatePassword,
-      resendVerification,
       refreshProfile,
       updateProfile,
       clearRecoveryMode,
@@ -525,11 +492,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       authError,
       signUp,
       signIn,
-      signInWithGoogle,
       signOut,
       sendPasswordReset,
       updatePassword,
-      resendVerification,
       refreshProfile,
       updateProfile,
       clearRecoveryMode,

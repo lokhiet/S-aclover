@@ -1,31 +1,29 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowLeft,
   CheckCircle2,
-  Copy,
-  ExternalLink,
   Eye,
   EyeOff,
+  Info,
   KeyRound,
   Loader2,
   Lock,
   Mail,
-  MailCheck,
-  RefreshCw,
-  User,
   X,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import {
-  checkGoogleOAuthStatus,
-  type GoogleOAuthStatus,
-} from '../../lib/supabase';
-import {
-  getDefaultAuthRedirectUrl,
-  isRunningInIframe,
-} from '../../services/authService';
+import { getDefaultAuthRedirectUrl } from '../../services/authService';
 import type { AuthModalMode } from '../../types/auth';
+import {
+  checkSignupRateLimit,
+  evaluatePasswordStrength,
+  getRemainingCooldownSeconds,
+  RESET_COOLDOWN_KEY,
+  RESET_COOLDOWN_SECONDS,
+  setCooldownSeconds,
+  validateEmailFormat,
+} from '../../utils/authValidation';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -34,38 +32,6 @@ interface AuthModalProps {
   onClose: () => void;
   onToast: (message: string, type?: 'success' | 'info' | 'error') => void;
 }
-
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const MIN_PASSWORD_LENGTH = 6;
-const MAX_DISPLAY_NAME_LENGTH = 80;
-const RESEND_COOLDOWN_SECONDS = 60;
-
-const GoogleBrandIcon = ({ className = 'w-4 h-4' }: { className?: string }) => (
-  <svg
-    className={className}
-    viewBox="0 0 24 24"
-    fill="none"
-    xmlns="http://www.w3.org/2000/svg"
-    aria-hidden="true"
-  >
-    <path
-      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-      fill="#4285F4"
-    />
-    <path
-      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-      fill="#34A853"
-    />
-    <path
-      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-      fill="#FBBC05"
-    />
-    <path
-      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-      fill="#EA4335"
-    />
-  </svg>
-);
 
 export default function AuthModal({
   isOpen,
@@ -79,84 +45,56 @@ export default function AuthModal({
     isRecoveryMode,
     signIn,
     signUp,
-    signInWithGoogle,
+    signOut,
     sendPasswordReset,
     updatePassword,
-    resendVerification,
     clearRecoveryMode,
   } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [displayName, setDisplayName] = useState('');
-  const [pendingVerifyEmail, setPendingVerifyEmail] = useState('');
 
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
-  const [isResending, setIsResending] = useState(false);
-  const [resendCooldown, setResendCooldown] = useState(0);
+  const [signupCooldown, setSignupCooldown] = useState(0);
   const [resetCooldown, setResetCooldown] = useState(0);
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
-  const [showResendPrompt, setShowResendPrompt] = useState(false);
 
-  const [googleStatus, setGoogleStatus] = useState<GoogleOAuthStatus>({
-    ready: false,
-    checked: false,
-    reason: isConfigured ? 'network_error' : 'not_configured',
-    message: isConfigured
-      ? 'Đang kiểm tra trạng thái đăng nhập Google...'
-      : 'Chưa cấu hình biến môi trường Supabase.',
-  });
-  const [showIframeGoogleGuide, setShowIframeGoogleGuide] = useState(false);
+  const pendingPostResetNoticeRef = useRef<string | null>(null);
 
-  const isEmbeddedIframe = isRunningInIframe();
-  const currentAppUrl = getDefaultAuthRedirectUrl() ?? '';
-
-  // Xóa thông báo lỗi/tạm khi chuyển chế độ hoặc mở/đóng modal
+  // Làm mới trạng thái form khi mở hoặc đổi chế độ (giữ lại thông báo vừa đặt lại mật khẩu nếu có)
   useEffect(() => {
     if (!isOpen) return;
     setErrorMessage(null);
-    setInfoMessage(null);
-    setShowResendPrompt(false);
-    setShowIframeGoogleGuide(false);
+    if (pendingPostResetNoticeRef.current) {
+      setInfoMessage(pendingPostResetNoticeRef.current);
+      pendingPostResetNoticeRef.current = null;
+    } else {
+      setInfoMessage(null);
+    }
     setPassword('');
     setConfirmPassword('');
     setShowPassword(false);
     setShowConfirmPassword(false);
+
+    const signupWait = checkSignupRateLimit().waitSeconds;
+    setSignupCooldown(signupWait);
+    setResetCooldown(getRemainingCooldownSeconds(RESET_COOLDOWN_KEY));
   }, [isOpen, mode]);
 
-  // Kiểm tra trạng thái sẵn sàng của Google OAuth trên Supabase khi mở modal đăng nhập/đăng ký
+  // Đếm ngược cooldown đăng ký chống spam
   useEffect(() => {
-    if (!isOpen || (mode !== 'login' && mode !== 'register')) return;
-
-    let isMounted = true;
-    setGoogleStatus((prev) => ({ ...prev, checked: false }));
-
-    void (async () => {
-      const status = await checkGoogleOAuthStatus();
-      if (!isMounted) return;
-      setGoogleStatus(status);
-    })();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [isOpen, mode, isConfigured]);
-
-  // Đếm ngược cooldown gửi lại email xác minh
-  useEffect(() => {
-    if (resendCooldown <= 0) return;
+    if (signupCooldown <= 0) return;
     const timer = window.setInterval(() => {
-      setResendCooldown((prev) => (prev <= 1 ? 0 : prev - 1));
+      setSignupCooldown((prev) => (prev <= 1 ? 0 : prev - 1));
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [resendCooldown]);
+  }, [signupCooldown]);
 
   // Đếm ngược cooldown gửi email quên mật khẩu
   useEffect(() => {
@@ -167,11 +105,11 @@ export default function AuthModal({
     return () => window.clearInterval(timer);
   }, [resetCooldown]);
 
-  // Đóng bằng phím Escape khi không đang gửi yêu cầu
+  // Đóng bằng phím Escape khi không đang xử lý
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !isSubmitting && !isGoogleLoading) {
+      if (event.key === 'Escape' && !isSubmitting) {
         if (isRecoveryMode) {
           clearRecoveryMode();
         }
@@ -180,125 +118,30 @@ export default function AuthModal({
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [
-    isOpen,
-    isSubmitting,
-    isGoogleLoading,
-    isRecoveryMode,
-    clearRecoveryMode,
-    onClose,
-  ]);
+  }, [isOpen, isSubmitting, isRecoveryMode, clearRecoveryMode, onClose]);
 
   if (!isOpen) return null;
 
-  const isBusy = isSubmitting || isGoogleLoading;
-
   const handleClose = () => {
-    if (isBusy) return;
+    if (isSubmitting) return;
     if (isRecoveryMode) {
       clearRecoveryMode();
     }
     onClose();
   };
 
-  const handleCopyAppUrl = async () => {
-    if (!currentAppUrl) return;
-    try {
-      await navigator.clipboard.writeText(currentAppUrl);
-      onToast('Đã sao chép liên kết ứng dụng! Hãy mở ở tab mới.', 'success');
-    } catch {
-      onToast('Không thể sao chép tự động trên trình duyệt này.', 'error');
-    }
-  };
-
-  const handleGoogleSignIn = async () => {
-    if (isBusy || !isConfigured) return;
-
-    setErrorMessage(null);
-    setInfoMessage(null);
-    setShowResendPrompt(false);
-
-    // Xác minh lại trạng thái sẵn sàng của Google OAuth (không giả lập thành công nếu chưa cấu hình)
-    let currentStatus = googleStatus;
-    if (!currentStatus.checked) {
-      setIsGoogleLoading(true);
-      currentStatus = await checkGoogleOAuthStatus();
-      setGoogleStatus(currentStatus);
-      setIsGoogleLoading(false);
-    }
-
-    if (!currentStatus.ready) {
-      setErrorMessage(currentStatus.message);
-      return;
-    }
-
-    // Trong môi trường AI Studio Preview (iframe), Google chặn tải accounts.google.com trong iframe
-    // và trình duyệt cô lập bộ nhớ PKCE giữa iframe với tab độc lập -> không ép OAuth trong iframe.
-    if (isEmbeddedIframe) {
-      setShowIframeGoogleGuide(true);
-      return;
-    }
-
-    setIsGoogleLoading(true);
-    try {
-      const redirectTo = getDefaultAuthRedirectUrl();
-      const result = await signInWithGoogle({ redirectTo });
-
-      if (!result.ok) {
-        setErrorMessage(
-          result.error?.message ||
-            'Không thể khởi tạo đăng nhập Google. Vui lòng thử lại.',
-        );
-        return;
-      }
-
-      if (result.data?.isEmbeddedIframe && !result.data.redirected) {
-        setShowIframeGoogleGuide(true);
-        return;
-      }
-
-      setInfoMessage('Đang chuyển hướng sang trang đăng nhập Google...');
-    } finally {
-      setIsGoogleLoading(false);
-    }
-  };
-
-  const handleResendVerification = async (targetEmail: string) => {
-    if (isResending || resendCooldown > 0) return;
-    const normalized = targetEmail.trim().toLowerCase();
-    if (!EMAIL_PATTERN.test(normalized)) {
-      setErrorMessage('Vui lòng nhập đúng địa chỉ email để gửi lại thư xác minh.');
-      return;
-    }
-
-    setIsResending(true);
-    setErrorMessage(null);
-    try {
-      const result = await resendVerification(normalized);
-      if (result.ok) {
-        setResendCooldown(RESEND_COOLDOWN_SECONDS);
-        const msg =
-          result.message ||
-          'Đã gửi lại email xác minh. Vui lòng kiểm tra hộp thư đến và mục Spam.';
-        setInfoMessage(msg);
-        onToast(msg, 'success');
-      } else {
-        setErrorMessage(
-          result.error?.message || 'Không thể gửi lại email xác minh lúc này.',
-        );
-      }
-    } finally {
-      setIsResending(false);
-    }
-  };
+  const passwordStrength = evaluatePasswordStrength(
+    password,
+    mode === 'register' ? email : undefined,
+  );
 
   const handleLoginSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (isBusy || !isConfigured) return;
+    if (isSubmitting || !isConfigured) return;
 
-    const trimmedEmail = email.trim().toLowerCase();
-    if (!trimmedEmail || !EMAIL_PATTERN.test(trimmedEmail)) {
-      setErrorMessage('Vui lòng nhập địa chỉ email hợp lệ.');
+    const emailError = validateEmailFormat(email);
+    if (emailError) {
+      setErrorMessage(emailError);
       return;
     }
     if (!password) {
@@ -309,10 +152,12 @@ export default function AuthModal({
     setIsSubmitting(true);
     setErrorMessage(null);
     setInfoMessage(null);
-    setShowResendPrompt(false);
 
     try {
-      const result = await signIn({ email: trimmedEmail, password });
+      const result = await signIn({
+        email: email.trim().toLowerCase(),
+        password,
+      });
       if (result.ok) {
         onToast('Đăng nhập thành công! 🍀', 'success');
         onClose();
@@ -320,10 +165,6 @@ export default function AuthModal({
         setErrorMessage(
           result.error?.message || 'Đăng nhập thất bại. Vui lòng thử lại.',
         );
-        if (result.error?.code === 'EMAIL_NOT_CONFIRMED') {
-          setPendingVerifyEmail(trimmedEmail);
-          setShowResendPrompt(true);
-        }
       }
     } finally {
       setIsSubmitting(false);
@@ -332,29 +173,32 @@ export default function AuthModal({
 
   const handleRegisterSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (isBusy || !isConfigured) return;
+    if (isSubmitting || !isConfigured) return;
 
-    const trimmedEmail = email.trim().toLowerCase();
-    const trimmedName = displayName.trim();
-
-    if (trimmedName.length > MAX_DISPLAY_NAME_LENGTH) {
+    const rateCheck = checkSignupRateLimit();
+    if (!rateCheck.allowed) {
+      setSignupCooldown(rateCheck.waitSeconds);
       setErrorMessage(
-        `Tên hiển thị không được vượt quá ${MAX_DISPLAY_NAME_LENGTH} ký tự.`,
+        rateCheck.message ||
+          `Vui lòng chờ ${rateCheck.waitSeconds} giây trước khi đăng ký tiếp.`,
       );
       return;
     }
-    if (!trimmedEmail || !EMAIL_PATTERN.test(trimmedEmail)) {
-      setErrorMessage('Vui lòng nhập địa chỉ email hợp lệ.');
+
+    const emailError = validateEmailFormat(email);
+    if (emailError) {
+      setErrorMessage(emailError);
       return;
     }
-    if (password.length < MIN_PASSWORD_LENGTH) {
-      setErrorMessage(
-        `Mật khẩu phải có ít nhất ${MIN_PASSWORD_LENGTH} ký tự.`,
-      );
+
+    const strength = evaluatePasswordStrength(password, email);
+    if (!strength.valid && strength.error) {
+      setErrorMessage(strength.error);
       return;
     }
+
     if (password !== confirmPassword) {
-      setErrorMessage('Mật khẩu xác nhận không khớp.');
+      setErrorMessage('Mật khẩu nhập lại không khớp.');
       return;
     }
 
@@ -364,21 +208,18 @@ export default function AuthModal({
 
     try {
       const result = await signUp({
-        email: trimmedEmail,
+        email: email.trim().toLowerCase(),
         password,
-        displayName: trimmedName || undefined,
       });
 
-      if (result.ok && result.data) {
-        if (result.data.needsEmailVerification) {
-          setPendingVerifyEmail(trimmedEmail);
-          setResendCooldown(RESEND_COOLDOWN_SECONDS);
-          onToast('Đã gửi email xác minh tài khoản! 🍀', 'success');
-          onModeChange('verify-email');
-        } else {
-          onToast('Đăng ký và đăng nhập thành công! 🍀', 'success');
-          onClose();
-        }
+      const nextWait = checkSignupRateLimit().waitSeconds;
+      if (nextWait > 0) {
+        setSignupCooldown(nextWait);
+      }
+
+      if (result.ok && result.data?.autoSignedIn) {
+        onToast('Đăng ký và đăng nhập thành công! 🍀', 'success');
+        onClose();
       } else {
         setErrorMessage(
           result.error?.message || 'Đăng ký thất bại. Vui lòng thử lại.',
@@ -391,11 +232,11 @@ export default function AuthModal({
 
   const handleForgotPasswordSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (isBusy || !isConfigured || resetCooldown > 0) return;
+    if (isSubmitting || !isConfigured || resetCooldown > 0) return;
 
-    const trimmedEmail = email.trim().toLowerCase();
-    if (!trimmedEmail || !EMAIL_PATTERN.test(trimmedEmail)) {
-      setErrorMessage('Vui lòng nhập địa chỉ email hợp lệ.');
+    const emailError = validateEmailFormat(email);
+    if (emailError) {
+      setErrorMessage(emailError);
       return;
     }
 
@@ -404,12 +245,17 @@ export default function AuthModal({
     setInfoMessage(null);
 
     try {
-      const result = await sendPasswordReset(trimmedEmail);
+      const redirectTo = getDefaultAuthRedirectUrl();
+      const result = await sendPasswordReset(
+        email.trim().toLowerCase(),
+        redirectTo,
+      );
       if (result.ok) {
-        setResetCooldown(RESEND_COOLDOWN_SECONDS);
+        setCooldownSeconds(RESET_COOLDOWN_KEY, RESET_COOLDOWN_SECONDS);
+        setResetCooldown(RESET_COOLDOWN_SECONDS);
         const msg =
           result.message ||
-          'Nếu email tồn tại trong hệ thống, liên kết đặt lại mật khẩu đã được gửi.';
+          'Nếu email tồn tại trong hệ thống, liên kết đặt lại mật khẩu đã được gửi. Vui lòng kiểm tra hộp thư (kể cả mục Spam).';
         setInfoMessage(msg);
         onToast('Đã gửi yêu cầu khôi phục mật khẩu.', 'info');
       } else {
@@ -425,18 +271,19 @@ export default function AuthModal({
 
   const handleResetPasswordSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (isBusy || !isConfigured) return;
+    if (isSubmitting || !isConfigured) return;
 
-    if (password.length < MIN_PASSWORD_LENGTH) {
-      setErrorMessage(
-        `Mật khẩu mới phải có ít nhất ${MIN_PASSWORD_LENGTH} ký tự.`,
-      );
+    const strength = evaluatePasswordStrength(password);
+    if (!strength.valid && strength.error) {
+      setErrorMessage(strength.error);
       return;
     }
     if (password !== confirmPassword) {
-      setErrorMessage('Mật khẩu xác nhận không khớp.');
+      setErrorMessage('Mật khẩu nhập lại không khớp.');
       return;
     }
+
+    const wasRecovery = isRecoveryMode;
 
     setIsSubmitting(true);
     setErrorMessage(null);
@@ -445,8 +292,20 @@ export default function AuthModal({
     try {
       const result = await updatePassword(password);
       if (result.ok) {
-        onToast('Cập nhật mật khẩu thành công! 🍀', 'success');
-        onClose();
+        if (wasRecovery) {
+          const recoveredEmail = result.data?.email ?? '';
+          await signOut();
+          if (recoveredEmail) {
+            setEmail(recoveredEmail);
+          }
+          pendingPostResetNoticeRef.current =
+            'Đặt lại mật khẩu thành công! Vui lòng đăng nhập bằng mật khẩu mới.';
+          onToast('Đặt lại mật khẩu thành công! 🍀', 'success');
+          onModeChange('login');
+        } else {
+          onToast('Cập nhật mật khẩu thành công! 🍀', 'success');
+          onClose();
+        }
       } else {
         setErrorMessage(
           result.error?.message ||
@@ -462,8 +321,8 @@ export default function AuthModal({
     switch (mode) {
       case 'register':
         return {
-          title: 'Tạo tài khoản SéaClover',
-          subtitle: 'Đăng ký miễn phí bằng email hoặc Google',
+          title: 'Đăng ký tài khoản SéaClover',
+          subtitle: 'Tạo tài khoản nhanh bằng email và mật khẩu',
         };
       case 'forgot-password':
         return {
@@ -473,110 +332,53 @@ export default function AuthModal({
       case 'reset-password':
         return {
           title: isRecoveryMode ? 'Đặt lại mật khẩu mới' : 'Đổi mật khẩu',
-          subtitle: 'Nhập mật khẩu mới tối thiểu 6 ký tự',
-        };
-      case 'verify-email':
-        return {
-          title: 'Xác minh địa chỉ email',
-          subtitle: 'Hoàn tất kích hoạt tài khoản của bạn',
+          subtitle: 'Tối thiểu 8 ký tự, gồm cả chữ cái và chữ số',
         };
       case 'login':
       default:
         return {
           title: 'Đăng nhập SéaClover',
-          subtitle: 'Sử dụng tài khoản email hoặc Google',
+          subtitle: 'Sử dụng email và mật khẩu của bạn',
         };
     }
   };
 
   const headerMeta = getHeaderMeta();
 
-  const renderGoogleOAuthSection = () => {
-    const isGoogleDisabled =
-      isBusy ||
-      !isConfigured ||
-      (googleStatus.checked && !googleStatus.ready);
+  const renderStrengthIndicator = () => {
+    if (!password) return null;
+    const barColor =
+      passwordStrength.level === 'strong'
+        ? 'bg-[#39755D] dark:bg-[#A3BDA8]'
+        : passwordStrength.level === 'medium'
+          ? 'bg-[#B58C36] dark:bg-[#D5B97A]'
+          : 'bg-[#C85A72] dark:bg-[#E4A6AA]';
+    const widthClass =
+      passwordStrength.level === 'strong'
+        ? 'w-full'
+        : passwordStrength.level === 'medium'
+          ? 'w-2/3'
+          : 'w-1/3';
+    const textColor =
+      passwordStrength.level === 'strong'
+        ? 'text-[#2B5A47] dark:text-[#A3BDA8]'
+        : passwordStrength.level === 'medium'
+          ? 'text-[#8A6D2F] dark:text-[#D5B97A]'
+          : 'text-[#9B485A] dark:text-[#E4A6AA]';
 
     return (
-      <div className="space-y-3 pt-1">
-        <div className="relative flex items-center">
-          <div className="flex-1 border-t border-[#CBE0D3] dark:border-[#49554D]" />
-          <span className="px-3 text-[11px] font-mono text-[#5B7A6C] dark:text-[#B8BDB5]">
-            hoặc
-          </span>
-          <div className="flex-1 border-t border-[#CBE0D3] dark:border-[#49554D]" />
+      <div className="space-y-1 pt-0.5">
+        <div className="h-1.5 w-full rounded-full bg-[#DCECE2] dark:bg-[#1E2220] overflow-hidden">
+          <div className={`h-full transition-all duration-200 ${barColor} ${widthClass}`} />
         </div>
-
-        <button
-          type="button"
-          disabled={isGoogleDisabled}
-          onClick={handleGoogleSignIn}
-          className="retro-btn w-full py-2.5 px-4 text-xs font-bold flex items-center justify-center gap-2.5 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
-        >
-          {isGoogleLoading ? (
-            <Loader2 className="w-4 h-4 animate-spin text-[#39755D] dark:text-[#A3BDA8]" />
-          ) : (
-            <GoogleBrandIcon className="w-4 h-4 flex-shrink-0" />
-          )}
-          <span>
-            {isGoogleLoading
-              ? 'Đang kết nối Google...'
-              : 'Tiếp tục với Google'}
+        <div className="flex items-center justify-between text-[10px]">
+          <span className="text-[#5B7A6C] dark:text-[#B8BDB5]">
+            {passwordStrength.error || 'Độ dài tối thiểu 8 ký tự, có chữ và số'}
           </span>
-          {googleStatus.checked && !googleStatus.ready && (
-            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-800 dark:text-[#D5B97A] border border-amber-500/25">
-              Chưa sẵn sàng
-            </span>
-          )}
-        </button>
-
-        {/* Thông báo rõ ràng khi Google OAuth chưa được kích hoạt trên Supabase / Google Cloud */}
-        {isConfigured && googleStatus.checked && !googleStatus.ready && (
-          <div className="retro-callout-warm p-2.5 text-[11px] text-[#6E5120] dark:text-[#D5B97A] flex items-start gap-2 leading-relaxed">
-            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-            <span>{googleStatus.message}</span>
-          </div>
-        )}
-
-        {/* Hướng dẫn mở tab độc lập khi chạy trong khung Preview iframe của AI Studio */}
-        {showIframeGoogleGuide && (
-          <div className="retro-callout-mint p-3 text-xs text-[#2B463A] dark:text-[#E4E1D8] space-y-2.5">
-            <div className="flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 text-[#39755D] dark:text-[#A3BDA8] flex-shrink-0 mt-0.5" />
-              <p className="text-[11px] leading-relaxed">
-                Ứng dụng đang chạy trong khung xem trước (iframe). Google chặn
-                đăng nhập OAuth bên trong iframe — hãy mở ứng dụng ở{' '}
-                <strong className="text-[#23503E] dark:text-[#A3BDA8]">
-                  tab trình duyệt riêng
-                </strong>{' '}
-                rồi chọn <strong>Tiếp tục với Google</strong> để xác thực PKCE
-                an toàn.
-              </p>
-            </div>
-
-            {currentAppUrl && (
-              <div className="flex flex-wrap gap-2">
-                <a
-                  href={currentAppUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="retro-btn-primary flex-1 min-w-[150px] py-2 px-3 text-[11px] font-bold flex items-center justify-center gap-1.5"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  Mở ứng dụng ở tab mới
-                </a>
-                <button
-                  type="button"
-                  onClick={handleCopyAppUrl}
-                  className="retro-btn py-2 px-3 text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <Copy className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
-                  Sao chép URL
-                </button>
-              </div>
-            )}
-          </div>
-        )}
+          <span className={`font-bold shrink-0 ml-2 ${textColor}`}>
+            {passwordStrength.label}
+          </span>
+        </div>
       </div>
     );
   };
@@ -622,7 +424,7 @@ export default function AuthModal({
           <button
             type="button"
             onClick={handleClose}
-            disabled={isBusy}
+            disabled={isSubmitting}
             aria-label="Đóng hộp thoại tài khoản"
             className="retro-btn p-1.5 text-[#39755D] dark:text-[#A3BDA8] disabled:opacity-50 flex-shrink-0 cursor-pointer"
           >
@@ -636,7 +438,7 @@ export default function AuthModal({
             <div className="grid grid-cols-2 gap-1.5 p-1 rounded-md bg-[#E2F3E8]/70 dark:bg-[#202423] border border-[#B8D7C5] dark:border-[#49554D]">
               <button
                 type="button"
-                disabled={isBusy}
+                disabled={isSubmitting}
                 onClick={() => onModeChange('login')}
                 className={`py-1.5 px-3 rounded text-xs font-bold transition cursor-pointer ${
                   mode === 'login'
@@ -648,7 +450,7 @@ export default function AuthModal({
               </button>
               <button
                 type="button"
-                disabled={isBusy}
+                disabled={isSubmitting}
                 onClick={() => onModeChange('register')}
                 className={`py-1.5 px-3 rounded text-xs font-bold transition cursor-pointer ${
                   mode === 'register'
@@ -671,38 +473,16 @@ export default function AuthModal({
                 <p className="font-bold">Chưa cấu hình kết nối Supabase</p>
                 <p className="mt-0.5 opacity-90">
                   Vui lòng cấu hình biến môi trường Supabase để sử dụng tài khoản.
-                  Bạn vẫn có thể dùng toàn bộ ứng dụng bình thường ở chế độ khách.
+                  Bạn vẫn có thể xem nội dung công khai và bình luận ẩn danh ở chế độ khách.
                 </p>
               </div>
             </div>
           )}
 
           {errorMessage && (
-            <div className="p-3 rounded-md bg-[#FBECEE] dark:bg-[#292E2B] border border-[#E5B8BF] dark:border-[#6B4A4D] text-[#8E3240] dark:text-[#E4A6AA] text-xs space-y-2">
-              <div className="flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                <span className="leading-relaxed">{errorMessage}</span>
-              </div>
-
-              {showResendPrompt && (
-                <button
-                  type="button"
-                  disabled={isResending || resendCooldown > 0}
-                  onClick={() =>
-                    handleResendVerification(pendingVerifyEmail || email)
-                  }
-                  className="retro-btn-danger w-full py-2 px-3 text-xs font-bold flex items-center justify-center gap-1.5 disabled:opacity-60 cursor-pointer"
-                >
-                  {isResending ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <RefreshCw className="w-3.5 h-3.5" />
-                  )}
-                  {resendCooldown > 0
-                    ? `Gửi lại email xác minh (${resendCooldown}s)`
-                    : 'Gửi lại email xác minh'}
-                </button>
-              )}
+            <div className="p-3 rounded-md bg-[#FBECEE] dark:bg-[#292E2B] border border-[#E5B8BF] dark:border-[#6B4A4D] text-[#8E3240] dark:text-[#E4A6AA] text-xs flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <span className="leading-relaxed">{errorMessage}</span>
             </div>
           )}
 
@@ -729,7 +509,7 @@ export default function AuthModal({
                     id="auth-login-email"
                     type="email"
                     autoComplete="email"
-                    disabled={isBusy || !isConfigured}
+                    disabled={isSubmitting || !isConfigured}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="ban@example.com"
@@ -748,7 +528,7 @@ export default function AuthModal({
                   </label>
                   <button
                     type="button"
-                    disabled={isBusy}
+                    disabled={isSubmitting}
                     onClick={() => onModeChange('forgot-password')}
                     className="text-[11px] font-semibold text-[#39755D] dark:text-[#A3BDA8] hover:underline cursor-pointer"
                   >
@@ -761,7 +541,7 @@ export default function AuthModal({
                     id="auth-login-password"
                     type={showPassword ? 'text' : 'password'}
                     autoComplete="current-password"
-                    disabled={isBusy || !isConfigured}
+                    disabled={isSubmitting || !isConfigured}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Nhập mật khẩu"
@@ -784,18 +564,36 @@ export default function AuthModal({
 
               <button
                 type="submit"
-                disabled={isBusy || !isConfigured}
+                disabled={isSubmitting || !isConfigured}
                 className="retro-btn-primary w-full py-2.5 px-4 text-xs font-bold flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
               >
                 {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
                 {isSubmitting ? 'Đang đăng nhập...' : 'Đăng nhập'}
               </button>
 
-              {renderGoogleOAuthSection()}
+              <div className="pt-1 text-center text-xs text-[#4C6A5C] dark:text-[#B8BDB5]">
+                Chưa có tài khoản?{' '}
+                <button
+                  type="button"
+                  disabled={isSubmitting}
+                  onClick={() => onModeChange('register')}
+                  className="font-bold text-[#2B5A47] dark:text-[#A3BDA8] hover:underline cursor-pointer"
+                >
+                  Đăng ký tài khoản
+                </button>
+              </div>
 
-              <p className="text-[11px] text-center text-[#5B7A6C] dark:text-[#B8BDB5] pt-1">
-                Dữ liệu cục bộ trên trình duyệt của bạn không bị thay đổi khi đăng
-                nhập hay đăng xuất.
+              <p className="text-[11px] text-center text-[#5B7A6C] dark:text-[#B8BDB5] leading-relaxed">
+                Từng dùng Google ở phiên bản trước? Chọn{' '}
+                <button
+                  type="button"
+                  disabled={isSubmitting}
+                  onClick={() => onModeChange('forgot-password')}
+                  className="font-semibold text-[#39755D] dark:text-[#A3BDA8] hover:underline cursor-pointer"
+                >
+                  Quên mật khẩu?
+                </button>{' '}
+                để đặt mật khẩu cho email cũ và giữ nguyên dữ liệu.
               </p>
             </form>
           )}
@@ -809,32 +607,6 @@ export default function AuthModal({
             >
               <div className="space-y-1.5">
                 <label
-                  htmlFor="auth-register-name"
-                  className="block text-xs font-semibold text-[#294B3D] dark:text-[#E4E1D8]"
-                >
-                  Tên hiển thị{' '}
-                  <span className="text-[#668476] dark:text-[#B8BDB5] font-normal">
-                    (không bắt buộc)
-                  </span>
-                </label>
-                <div className="relative">
-                  <User className="w-4 h-4 text-[#5B7A6C] dark:text-[#B8BDB5] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  <input
-                    id="auth-register-name"
-                    type="text"
-                    maxLength={MAX_DISPLAY_NAME_LENGTH}
-                    autoComplete="name"
-                    disabled={isBusy || !isConfigured}
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
-                    placeholder="Ví dụ: Nhi Séa"
-                    className="retro-input w-full pl-9 pr-3.5 py-2 text-xs disabled:opacity-60"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label
                   htmlFor="auth-register-email"
                   className="block text-xs font-semibold text-[#294B3D] dark:text-[#E4E1D8]"
                 >
@@ -846,7 +618,7 @@ export default function AuthModal({
                     id="auth-register-email"
                     type="email"
                     autoComplete="email"
-                    disabled={isBusy || !isConfigured}
+                    disabled={isSubmitting || !isConfigured}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="ban@example.com"
@@ -868,10 +640,10 @@ export default function AuthModal({
                     id="auth-register-password"
                     type={showPassword ? 'text' : 'password'}
                     autoComplete="new-password"
-                    disabled={isBusy || !isConfigured}
+                    disabled={isSubmitting || !isConfigured}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Tối thiểu 6 ký tự"
+                    placeholder="Tối thiểu 8 ký tự, gồm chữ và số"
                     className="retro-input w-full pl-9 pr-10 py-2 text-xs disabled:opacity-60"
                   />
                   <button
@@ -887,6 +659,7 @@ export default function AuthModal({
                     )}
                   </button>
                 </div>
+                {renderStrengthIndicator()}
               </div>
 
               <div className="space-y-1.5">
@@ -894,7 +667,7 @@ export default function AuthModal({
                   htmlFor="auth-register-confirm"
                   className="block text-xs font-semibold text-[#294B3D] dark:text-[#E4E1D8]"
                 >
-                  Xác nhận mật khẩu
+                  Nhập lại mật khẩu
                 </label>
                 <div className="relative">
                   <Lock className="w-4 h-4 text-[#5B7A6C] dark:text-[#B8BDB5] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -902,7 +675,7 @@ export default function AuthModal({
                     id="auth-register-confirm"
                     type={showConfirmPassword ? 'text' : 'password'}
                     autoComplete="new-password"
-                    disabled={isBusy || !isConfigured}
+                    disabled={isSubmitting || !isConfigured}
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="Nhập lại mật khẩu"
@@ -913,8 +686,8 @@ export default function AuthModal({
                     onClick={() => setShowConfirmPassword((prev) => !prev)}
                     aria-label={
                       showConfirmPassword
-                        ? 'Ẩn mật khẩu xác nhận'
-                        : 'Hiện mật khẩu xác nhận'
+                        ? 'Ẩn mật khẩu nhập lại'
+                        : 'Hiện mật khẩu nhập lại'
                     }
                     className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-[#5B7A6C] hover:text-[#224C3B] dark:text-[#B8BDB5] dark:hover:text-[#E4E1D8] transition cursor-pointer"
                   >
@@ -927,69 +700,38 @@ export default function AuthModal({
                 </div>
               </div>
 
+              <div className="retro-callout-warm px-3 py-2 text-[11px] text-[#594B2B] dark:text-[#D5B97A] flex items-start gap-2 leading-relaxed">
+                <Info className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[#8A6D2F] dark:text-[#D5B97A]" />
+                <span>
+                  Vui lòng sử dụng email chính xác để có thể khôi phục mật khẩu khi cần.
+                </span>
+              </div>
+
               <button
                 type="submit"
-                disabled={isBusy || !isConfigured}
+                disabled={isSubmitting || !isConfigured || signupCooldown > 0}
                 className="retro-btn-primary w-full py-2.5 px-4 text-xs font-bold flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
               >
                 {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
-                {isSubmitting ? 'Đang tạo tài khoản...' : 'Đăng ký tài khoản'}
+                {isSubmitting
+                  ? 'Đang tạo tài khoản...'
+                  : signupCooldown > 0
+                    ? `Vui lòng chờ (${signupCooldown}s)`
+                    : 'Đăng ký'}
               </button>
 
-              {renderGoogleOAuthSection()}
-            </form>
-          )}
-
-          {/* VERIFY EMAIL VIEW */}
-          {mode === 'verify-email' && (
-            <div className="space-y-4 text-center py-2">
-              <div className="w-12 h-12 rounded-lg bg-[#E2F3E8] dark:bg-[#343D37] border border-[#9FC4AF] dark:border-[#49554D] text-[#39755D] dark:text-[#A3BDA8] flex items-center justify-center mx-auto">
-                <MailCheck className="w-6 h-6" />
-              </div>
-
-              <div className="space-y-1.5">
-                <h4 className="text-sm font-bold text-[#224C3B] dark:text-[#E4E1D8]">
-                  Kiểm tra hộp thư của bạn
-                </h4>
-                <p className="text-xs text-[#4C6A5C] dark:text-[#B8BDB5] leading-relaxed">
-                  Chúng tôi đã gửi liên kết xác minh tới{' '}
-                  <span className="font-bold text-[#2B5A47] dark:text-[#A3BDA8] break-all">
-                    {pendingVerifyEmail || email}
-                  </span>
-                  . Hãy nhấn vào liên kết trong email (kiểm tra cả mục Thư rác /
-                  Spam) để kích hoạt tài khoản.
-                </p>
-              </div>
-
-              <div className="space-y-2 pt-1">
+              <div className="pt-1 text-center text-xs text-[#4C6A5C] dark:text-[#B8BDB5]">
+                Đã có tài khoản?{' '}
                 <button
                   type="button"
-                  disabled={isResending || resendCooldown > 0 || !isConfigured}
-                  onClick={() =>
-                    handleResendVerification(pendingVerifyEmail || email)
-                  }
-                  className="retro-btn retro-btn-active w-full py-2.5 px-4 text-xs font-bold flex items-center justify-center gap-2 disabled:opacity-60 cursor-pointer"
-                >
-                  {isResending ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <RefreshCw className="w-4 h-4" />
-                  )}
-                  {resendCooldown > 0
-                    ? `Gửi lại email xác minh (${resendCooldown}s)`
-                    : 'Gửi lại email xác minh'}
-                </button>
-
-                <button
-                  type="button"
+                  disabled={isSubmitting}
                   onClick={() => onModeChange('login')}
-                  className="retro-btn w-full py-2 px-4 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="font-bold text-[#2B5A47] dark:text-[#A3BDA8] hover:underline cursor-pointer"
                 >
-                  <ArrowLeft className="w-3.5 h-3.5" />
-                  Quay lại đăng nhập
+                  Đăng nhập
                 </button>
               </div>
-            </div>
+            </form>
           )}
 
           {/* FORGOT PASSWORD FORM */}
@@ -1017,7 +759,7 @@ export default function AuthModal({
                     id="auth-forgot-email"
                     type="email"
                     autoComplete="email"
-                    disabled={isBusy || !isConfigured}
+                    disabled={isSubmitting || !isConfigured}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="ban@example.com"
@@ -1026,9 +768,13 @@ export default function AuthModal({
                 </div>
               </div>
 
+              <div className="retro-callout-mint px-3 py-2 text-[11px] text-[#2B463A] dark:text-[#B8BDB5] leading-relaxed">
+                Tài khoản từng đăng nhập bằng Google trước đây vẫn được bảo toàn ID và dữ liệu — chỉ cần nhập đúng email đó tại đây để tạo mật khẩu mới.
+              </div>
+
               <button
                 type="submit"
-                disabled={isBusy || !isConfigured || resetCooldown > 0}
+                disabled={isSubmitting || !isConfigured || resetCooldown > 0}
                 className="retro-btn-primary w-full py-2.5 px-4 text-xs font-bold flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
               >
                 {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
@@ -1041,7 +787,7 @@ export default function AuthModal({
 
               <button
                 type="button"
-                disabled={isBusy}
+                disabled={isSubmitting}
                 onClick={() => onModeChange('login')}
                 className="retro-btn w-full py-2 px-4 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
               >
@@ -1080,10 +826,10 @@ export default function AuthModal({
                     id="auth-reset-password"
                     type={showPassword ? 'text' : 'password'}
                     autoComplete="new-password"
-                    disabled={isBusy || !isConfigured}
+                    disabled={isSubmitting || !isConfigured}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Tối thiểu 6 ký tự"
+                    placeholder="Tối thiểu 8 ký tự, gồm chữ và số"
                     className="retro-input w-full pl-9 pr-10 py-2 text-xs disabled:opacity-60"
                   />
                   <button
@@ -1099,6 +845,7 @@ export default function AuthModal({
                     )}
                   </button>
                 </div>
+                {renderStrengthIndicator()}
               </div>
 
               <div className="space-y-1.5">
@@ -1114,7 +861,7 @@ export default function AuthModal({
                     id="auth-reset-confirm"
                     type={showConfirmPassword ? 'text' : 'password'}
                     autoComplete="new-password"
-                    disabled={isBusy || !isConfigured}
+                    disabled={isSubmitting || !isConfigured}
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="Nhập lại mật khẩu mới"
@@ -1141,7 +888,7 @@ export default function AuthModal({
 
               <button
                 type="submit"
-                disabled={isBusy || !isConfigured}
+                disabled={isSubmitting || !isConfigured}
                 className="retro-btn-primary w-full py-2.5 px-4 text-xs font-bold flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
               >
                 {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}

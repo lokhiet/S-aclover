@@ -6,8 +6,7 @@ export type AuthModalMode =
   | 'login'
   | 'register'
   | 'forgot-password'
-  | 'reset-password'
-  | 'verify-email';
+  | 'reset-password';
 
 export type AuthErrorCode =
   | 'NOT_CONFIGURED'
@@ -21,7 +20,6 @@ export type AuthErrorCode =
   | 'TOKEN_EXPIRED'
   | 'SESSION_EXPIRED'
   | 'SIGNUP_DISABLED'
-  | 'PROVIDER_DISABLED'
   | 'FORBIDDEN'
   | 'NETWORK_ERROR'
   | 'PROFILE_NOT_FOUND'
@@ -69,7 +67,6 @@ export interface SignUpInput {
   email: string;
   password: string;
   displayName?: string;
-  emailRedirectTo?: string;
 }
 
 export interface SignInInput {
@@ -80,23 +77,12 @@ export interface SignInInput {
 export interface SignUpResultData {
   user: User | null;
   session: Session | null;
-  needsEmailVerification: boolean;
+  autoSignedIn: boolean;
 }
 
 export interface SignInResultData {
   user: User;
   session: Session;
-}
-
-export interface GoogleOAuthOptions {
-  redirectTo?: string;
-  forceRedirect?: boolean;
-}
-
-export interface GoogleOAuthResultData {
-  url: string | null;
-  redirected: boolean;
-  isEmbeddedIframe: boolean;
 }
 
 /**

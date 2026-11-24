@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  CheckCircle2,
   ChevronDown,
   CloudUpload,
   FolderOpen,
@@ -8,7 +7,6 @@ import {
   Loader2,
   LogIn,
   LogOut,
-  MailWarning,
   RefreshCw,
   ShieldCheck,
   UserCog,
@@ -152,7 +150,6 @@ export default function AccountButton({
     profile?.display_name?.trim() ||
     (user.email ? user.email.split('@')[0] : 'Tài khoản');
   const initial = displayName.charAt(0).toUpperCase() || 'S';
-  const isEmailVerified = Boolean(user.email_confirmed_at);
 
   return (
     <div ref={containerRef} className="relative">
@@ -222,25 +219,14 @@ export default function AccountButton({
               </div>
             </div>
 
-            <div className="mt-2.5 flex items-center flex-wrap gap-1.5 text-[10px] font-semibold">
-              {isAdmin && (
+            {isAdmin && (
+              <div className="mt-2.5 flex items-center flex-wrap gap-1.5 text-[10px] font-semibold">
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#E2F3E8] dark:bg-[#343D37] text-[#1F533E] dark:text-[#A3BDA8] border border-[#8FC3A9] dark:border-[#63806E] font-bold">
                   <ShieldCheck className="w-3 h-3" />
                   Admin
                 </span>
-              )}
-              {isEmailVerified ? (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#FFF9EA] dark:bg-[#292E2B] text-[#39755D] dark:text-[#A3BDA8] border border-[#9FC4AF] dark:border-[#49554D]">
-                  <CheckCircle2 className="w-3 h-3" />
-                  Email đã xác minh
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 dark:bg-[#292E2B] text-amber-800 dark:text-[#D5B97A] border border-amber-300/70 dark:border-[#49554D]">
-                  <MailWarning className="w-3 h-3" />
-                  Chưa xác minh email
-                </span>
-              )}
-            </div>
+              </div>
+            )}
           </div>
 
           {/* Menu actions */}
