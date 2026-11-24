@@ -21,6 +21,7 @@ import {
   deleteSystemAnnouncement,
   updateSystemAnnouncement,
 } from '../../services/communityService';
+import { AuthorAvatar } from '../common/AuthorAvatar';
 
 function formatDateTime(iso: string): string {
   const date = new Date(iso);
@@ -123,6 +124,11 @@ export function SystemAnnouncementsBanner({
             </p>
             <div className="flex items-center gap-2 text-[10px] text-[#5B776A] dark:text-[#B8BDB5] pt-0.5 flex-wrap">
               <span className="inline-flex items-center gap-1 font-semibold">
+                <AuthorAvatar
+                  name={latest.authorDisplayName}
+                  avatarUrl={latest.authorAvatarUrl}
+                  size="xs"
+                />
                 <ShieldCheck className="w-3 h-3 text-[#39755D] dark:text-[#A3BDA8]" />
                 {latest.authorDisplayName}
               </span>
@@ -495,7 +501,12 @@ export function SystemAnnouncementsModal({
                   </p>
 
                   <div className="flex items-center gap-2 text-[11px] text-[#5B776A] dark:text-[#B8BDB5] pt-1 border-t border-[#D2E4D9]/70 dark:border-[#49554D]/70 flex-wrap">
-                    <span className="inline-flex items-center gap-1 font-semibold">
+                    <span className="inline-flex items-center gap-1.5 font-semibold">
+                      <AuthorAvatar
+                        name={item.authorDisplayName}
+                        avatarUrl={item.authorAvatarUrl}
+                        size="xs"
+                      />
                       <ShieldCheck className="w-3 h-3 text-[#39755D] dark:text-[#A3BDA8]" />
                       {item.authorDisplayName}
                     </span>

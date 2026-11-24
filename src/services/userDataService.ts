@@ -255,6 +255,7 @@ function attachAuthorMeta(
     isSystem: Boolean(row.is_system),
     publishedAt: nullToUndefined(row.published_at),
     authorDisplayName: profile?.display_name || undefined,
+    authorAvatarUrl: profile?.avatar_url ?? null,
     authorRole: profile?.role || (row.is_system ? ('admin' as const) : undefined),
     cloudKey: buildCloudKey(row.user_id, row.item_id),
   };

@@ -21,6 +21,7 @@ import {
   moderateCharacterComment,
   updateCharacterComment,
 } from '../../services/communityService';
+import { AuthorAvatar } from '../common/AuthorAvatar';
 
 interface CharacterCommentsSectionProps {
   character: Character;
@@ -29,6 +30,7 @@ interface CharacterCommentsSectionProps {
   isAdmin: boolean;
   onRequireAuth: () => void;
   onToast: (message: string) => void;
+  profileRevision?: string;
 }
 
 function formatCommentTime(iso: string): string {
@@ -50,6 +52,7 @@ export function CharacterCommentsSection({
   isAdmin,
   onRequireAuth,
   onToast,
+  profileRevision,
 }: CharacterCommentsSectionProps) {
   const [comments, setComments] = useState<CharacterComment[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -86,7 +89,7 @@ export function CharacterCommentsSection({
     setModeratingId(null);
     setNewContent('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [character.ownerId, character.id, character.isPublic, character.isSystem]);
+  }, [character.ownerId, character.id, character.isPublic, character.isSystem, profileRevision]);
 
   const handlePostComment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -259,6 +262,11 @@ export function CharacterCommentsSection({
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                          <AuthorAvatar
+                            name={comment.authorDisplayName}
+                            avatarUrl={comment.authorAvatarUrl}
+                            size="sm"
+                          />
                           <span className="text-xs font-bold text-[#1E3B2E] dark:text-[#E4E1D8] truncate">
                             {comment.authorDisplayName}
                           </span>

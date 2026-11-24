@@ -208,6 +208,7 @@ export async function fetchSystemAnnouncements(
       isActive: row.is_active,
       authorId: row.author_id,
       authorDisplayName: profilesMap[row.author_id]?.display_name || 'Admin SéaClover',
+      authorAvatarUrl: profilesMap[row.author_id]?.avatar_url ?? null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }));
@@ -286,6 +287,7 @@ export async function createSystemAnnouncement(
         isActive: row.is_active,
         authorId: row.author_id,
         authorDisplayName: profilesMap[row.author_id]?.display_name || 'Admin SéaClover',
+        authorAvatarUrl: profilesMap[row.author_id]?.avatar_url ?? null,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       },
@@ -355,6 +357,7 @@ export async function updateSystemAnnouncement(
         isActive: row.is_active,
         authorId: row.author_id,
         authorDisplayName: profilesMap[row.author_id]?.display_name || 'Admin SéaClover',
+        authorAvatarUrl: profilesMap[row.author_id]?.avatar_url ?? null,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       },
@@ -442,6 +445,7 @@ export async function fetchCharacterComments(
       characterItemId: row.character_item_id,
       userId: row.user_id,
       authorDisplayName: profilesMap[row.user_id]?.display_name || 'Thành viên SéaClover',
+      authorAvatarUrl: profilesMap[row.user_id]?.avatar_url ?? null,
       authorRole: profilesMap[row.user_id]?.role || 'user',
       content: row.content,
       isHidden: row.is_hidden,
@@ -512,6 +516,7 @@ export async function createCharacterComment(
         characterItemId: row.character_item_id,
         userId: row.user_id,
         authorDisplayName: profilesMap[row.user_id]?.display_name || 'Thành viên SéaClover',
+        authorAvatarUrl: profilesMap[row.user_id]?.avatar_url ?? null,
         authorRole: profilesMap[row.user_id]?.role || 'user',
         content: row.content,
         isHidden: row.is_hidden,
@@ -571,6 +576,7 @@ export async function updateCharacterComment(
         characterItemId: row.character_item_id,
         userId: row.user_id,
         authorDisplayName: profilesMap[row.user_id]?.display_name || 'Thành viên SéaClover',
+        authorAvatarUrl: profilesMap[row.user_id]?.avatar_url ?? null,
         authorRole: profilesMap[row.user_id]?.role || 'user',
         content: row.content,
         isHidden: row.is_hidden,
@@ -628,6 +634,7 @@ export async function moderateCharacterComment(
         characterItemId: row.character_item_id,
         userId: row.user_id,
         authorDisplayName: profilesMap[row.user_id]?.display_name || 'Thành viên SéaClover',
+        authorAvatarUrl: profilesMap[row.user_id]?.avatar_url ?? null,
         authorRole: profilesMap[row.user_id]?.role || 'user',
         content: row.content,
         isHidden: row.is_hidden,
@@ -737,6 +744,7 @@ export async function fetchPromptRatings(
       targetItemId: row.target_item_id,
       userId: row.user_id,
       authorDisplayName: profilesMap[row.user_id]?.display_name || 'Thành viên SéaClover',
+      authorAvatarUrl: profilesMap[row.user_id]?.avatar_url ?? null,
       authorRole: profilesMap[row.user_id]?.role || 'user',
       score: row.score,
       review: row.review,
@@ -868,6 +876,7 @@ export async function savePromptRating(params: {
         targetItemId: row.target_item_id,
         userId: row.user_id,
         authorDisplayName: profilesMap[row.user_id]?.display_name || 'Thành viên SéaClover',
+        authorAvatarUrl: profilesMap[row.user_id]?.avatar_url ?? null,
         authorRole: profilesMap[row.user_id]?.role || 'user',
         score: row.score,
         review: row.review,
@@ -1012,3 +1021,154 @@ export async function toggleContentLike(params: {
     };
   }
 }
+
+// ----------------------------------------------------------------------------
+// Batch Community Stats cho Kho Nội Dung Của Tôi
+// ----------------------------------------------------------------------------
+
+export interface VaultItemCommunityStats {
+  likes: number;
+  comments: number;
+  ratingCount: number;
+  ratingAverage: number;
+}
+
+export function buildVaultStatsKey(
+  targetType: ContentTargetType,
+  ownerId: string | null | undefined,
+  itemId: string,
+): string {
+  return `${targetType}:${buildTargetScope(ownerId)}:${itemId}`;
+}
+
+export async function fetchVaultCommunityStats(
+  items: Array<{ targetType: ContentTargetType; ownerId?: string | null; itemId: string }>,
+): Promise<CommunityResult<Record<string, VaultItemCommunityStats>>> {
+  if (!supabase || items.length === 0) {
+    return { ok: true, data: {}, schemaReady: Boolean(supabase) };
+  }
+
+  const allItemIds = Array.from(new Set(items.map((i) => i.itemId).filter(Boolean)));
+  const charItemIds = Array.from(
+    new Set(items.filter((i) => i.targetType === 'character').map((i) => i.itemId).filter(Boolean)),
+  );
+  const promptItemIds = Array.from(
+    new Set(
+      items
+        .filter((i) => i.targetType === 'note' || i.targetType === 'library_prompt')
+        .map((i) => i.itemId)
+        .filter(Boolean),
+    ),
+  );
+
+  const statsMap: Record<string, VaultItemCommunityStats> = {};
+  const ensureEntry = (key: string): VaultItemCommunityStats => {
+    if (!statsMap[key]) {
+      statsMap[key] = { likes: 0, comments: 0, ratingCount: 0, ratingAverage: 0 };
+    }
+    return statsMap[key];
+  };
+
+  try {
+    const chunkIds = (arr: string[], size = 80): string[][] => {
+      const out: string[][] = [];
+      for (let i = 0; i < arr.length; i += size) {
+        out.push(arr.slice(i, i + size));
+      }
+      return out;
+    };
+
+    const likeQueries = chunkIds(allItemIds).map((ids) =>
+      supabase!
+        .from('content_likes')
+        .select('target_type, target_scope, target_item_id')
+        .in('target_item_id', ids),
+    );
+    const commentQueries = chunkIds(charItemIds).map((ids) =>
+      supabase!
+        .from('character_comments')
+        .select('character_owner_id, character_item_id, is_hidden')
+        .in('character_item_id', ids)
+        .eq('is_hidden', false),
+    );
+    const ratingQueries = chunkIds(promptItemIds).map((ids) =>
+      supabase!
+        .from('prompt_ratings')
+        .select('target_type, target_scope, target_item_id, score')
+        .in('target_item_id', ids),
+    );
+
+    const [likeResults, commentResults, ratingResults] = await Promise.all([
+      Promise.all(likeQueries),
+      Promise.all(commentQueries),
+      Promise.all(ratingQueries),
+    ]);
+
+    const firstError =
+      likeResults.find((r) => r.error)?.error ||
+      commentResults.find((r) => r.error)?.error ||
+      ratingResults.find((r) => r.error)?.error;
+
+    if (firstError) {
+      if (isMissingCommunitySchemaError(firstError)) {
+        return { ok: true, data: {}, schemaReady: false };
+      }
+      return {
+        ok: false,
+        error: normalizeCommunityError(firstError, 'Không thể tải thống kê tương tác.'),
+      };
+    }
+
+    for (const res of likeResults) {
+      for (const row of (res.data ?? []) as Array<{
+        target_type: ContentTargetType;
+        target_scope: string;
+        target_item_id: string;
+      }>) {
+        const key = `${row.target_type}:${row.target_scope}:${row.target_item_id}`;
+        ensureEntry(key).likes += 1;
+      }
+    }
+
+    for (const res of commentResults) {
+      for (const row of (res.data ?? []) as Array<{
+        character_owner_id: string;
+        character_item_id: string;
+      }>) {
+        const key = `character:${row.character_owner_id}:${row.character_item_id}`;
+        ensureEntry(key).comments += 1;
+      }
+    }
+
+    const ratingSums: Record<string, { sum: number; count: number }> = {};
+    for (const res of ratingResults) {
+      for (const row of (res.data ?? []) as Array<{
+        target_type: 'library_prompt' | 'note';
+        target_scope: string;
+        target_item_id: string;
+        score: number;
+      }>) {
+        const key = `${row.target_type}:${row.target_scope}:${row.target_item_id}`;
+        if (!ratingSums[key]) {
+          ratingSums[key] = { sum: 0, count: 0 };
+        }
+        ratingSums[key].sum += Number(row.score || 0);
+        ratingSums[key].count += 1;
+      }
+    }
+
+    for (const [key, agg] of Object.entries(ratingSums)) {
+      const entry = ensureEntry(key);
+      entry.ratingCount = agg.count;
+      entry.ratingAverage = agg.count > 0 ? Math.round((agg.sum / agg.count) * 10) / 10 : 0;
+    }
+
+    return { ok: true, data: statsMap, schemaReady: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: normalizeCommunityError(err, 'Không thể tải thống kê tương tác.'),
+    };
+  }
+}
+

@@ -20,6 +20,15 @@ const MAX_PASSWORD_LENGTH = 128;
 const MAX_DISPLAY_NAME_LENGTH = 80;
 const MAX_BIO_LENGTH = 500;
 const MAX_AVATAR_URL_LENGTH = 2048;
+const MAX_AVATAR_FILE_BYTES = 2 * 1024 * 1024; // 2 MB khớp với migration 004
+const MAX_AVATAR_INPUT_BYTES = 12 * 1024 * 1024; // Cho phép ảnh gốc tối đa 12 MB trước khi nén/resize
+const AVATAR_BUCKET = 'avatars';
+const ALLOWED_AVATAR_MIME_TO_EXT: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+};
 
 const PROFILE_COLUMNS =
   'id, email, display_name, avatar_url, bio, role, created_at, updated_at';
@@ -838,6 +847,12 @@ export async function updateUserProfile(
 
   if (input.display_name !== undefined) {
     const trimmedName = input.display_name.trim();
+    if (!trimmedName) {
+      return errorResult(
+        'VALIDATION_ERROR',
+        'Tên hiển thị không được để trống.',
+      );
+    }
     if (trimmedName.length > MAX_DISPLAY_NAME_LENGTH) {
       return errorResult(
         'VALIDATION_ERROR',
@@ -897,9 +912,281 @@ export async function updateUserProfile(
       return errorResult('PROFILE_NOT_FOUND', 'Không tìm thấy hồ sơ người dùng.');
     }
 
-    return okResult(data as UserProfile, 'Đã cập nhật hồ sơ thành công!');
+    // Đồng bộ best-effort sang auth user_metadata (không làm gián đoạn nếu chậm mạng)
+    const updatedProfile = data as UserProfile;
+    void client.auth
+      .updateUser({
+        data: {
+          display_name: updatedProfile.display_name,
+          full_name: updatedProfile.display_name,
+          avatar_url: updatedProfile.avatar_url ?? '',
+        },
+      })
+      .catch(() => undefined);
+
+    return okResult(updatedProfile, 'Đã cập nhật hồ sơ thành công!');
   } catch (err) {
     const normalized = normalizeAuthError(err);
     return errorResult(normalized.code, normalized.message, normalized.status);
   }
 }
+
+async function detectRasterImageMime(file: File): Promise<string | null> {
+  try {
+    const header = new Uint8Array(await file.slice(0, 16).arrayBuffer());
+    // PNG: 89 50 4E 47 0D 0A 1A 0A
+    if (
+      header.length >= 8 &&
+      header[0] === 0x89 &&
+      header[1] === 0x50 &&
+      header[2] === 0x4e &&
+      header[3] === 0x47
+    ) {
+      return 'image/png';
+    }
+    // JPEG: FF D8 FF
+    if (header.length >= 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) {
+      return 'image/jpeg';
+    }
+    // GIF: GIF87a / GIF89a
+    if (
+      header.length >= 6 &&
+      header[0] === 0x47 &&
+      header[1] === 0x49 &&
+      header[2] === 0x46 &&
+      header[3] === 0x38
+    ) {
+      return 'image/gif';
+    }
+    // WebP: RIFF....WEBP
+    if (
+      header.length >= 12 &&
+      header[0] === 0x52 &&
+      header[1] === 0x49 &&
+      header[2] === 0x46 &&
+      header[3] === 0x46 &&
+      header[8] === 0x57 &&
+      header[9] === 0x45 &&
+      header[10] === 0x42 &&
+      header[11] === 0x50
+    ) {
+      return 'image/webp';
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+async function optimizeAvatarImageIfNeeded(
+  file: File,
+  detectedMime: string,
+): Promise<{ blob: Blob; mime: string }> {
+  // Giữ nguyên GIF (tránh mất ảnh động) hoặc ảnh nhỏ gọn đã hợp lệ
+  if (detectedMime === 'image/gif' || (file.size <= 700 * 1024 && detectedMime !== 'image/png')) {
+    return { blob: file, mime: detectedMime };
+  }
+
+  if (typeof document === 'undefined' || typeof createImageBitmap === 'undefined') {
+    return { blob: file, mime: detectedMime };
+  }
+
+  let bitmap: ImageBitmap | null = null;
+  try {
+    bitmap = await createImageBitmap(file);
+    const maxDimension = 512;
+    const scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height));
+
+    if (scale === 1 && file.size <= MAX_AVATAR_FILE_BYTES) {
+      return { blob: file, mime: detectedMime };
+    }
+
+    const targetWidth = Math.max(1, Math.round(bitmap.width * scale));
+    const targetHeight = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      return { blob: file, mime: detectedMime };
+    }
+
+    ctx.drawImage(bitmap, 0, 0, targetWidth, targetHeight);
+
+    const outputMime = detectedMime === 'image/png' ? 'image/webp' : detectedMime;
+    const encoded = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob((blob) => resolve(blob), outputMime, 0.88);
+    });
+
+    if (encoded && encoded.size > 0 && encoded.size <= file.size) {
+      return { blob: encoded, mime: outputMime };
+    }
+    if (encoded && encoded.size > 0 && file.size > MAX_AVATAR_FILE_BYTES) {
+      return { blob: encoded, mime: outputMime };
+    }
+  } catch {
+    // Dự phòng trả về tệp gốc để tầng kiểm tra kích thước xử lý tiếp
+  } finally {
+    bitmap?.close();
+  }
+
+  return { blob: file, mime: detectedMime };
+}
+
+export function extractOwnAvatarStoragePath(
+  avatarUrl: string | null | undefined,
+  userId: string,
+): string | null {
+  if (!avatarUrl || !userId || !isSafeHttpsUrl(avatarUrl)) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(avatarUrl.trim());
+    const marker = `/storage/v1/object/public/${AVATAR_BUCKET}/`;
+    const idx = parsed.pathname.indexOf(marker);
+    if (idx === -1) return null;
+
+    const rawPath = decodeURIComponent(parsed.pathname.slice(idx + marker.length));
+    if (!rawPath.startsWith(`${userId}/`) || rawPath.includes('..')) {
+      return null;
+    }
+    return rawPath;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Tải ảnh đại diện từ thiết bị lên Supabase Storage (bucket `avatars`).
+ * - Kiểm tra chữ ký byte thực tế của tệp (PNG/JPEG/WebP/GIF), chặn SVG/HTML.
+ * - Tự động thu gọn kích thước ảnh lớn trước khi tải lên, bảo đảm <= 2 MB.
+ * - Lưu trong thư mục riêng `<userId>/avatar-...` khớp chính xác RLS migration 004.
+ */
+export async function uploadUserAvatar(
+  userId: string,
+  file: File,
+): Promise<AuthResult<{ publicUrl: string; storagePath: string }>> {
+  const { client, error: clientError } = getClientOrError<{
+    publicUrl: string;
+    storagePath: string;
+  }>();
+  if (clientError) return clientError;
+
+  if (!file) {
+    return errorResult('VALIDATION_ERROR', 'Vui lòng chọn một tệp ảnh hợp lệ.');
+  }
+
+  if (file.size > MAX_AVATAR_INPUT_BYTES) {
+    return errorResult(
+      'VALIDATION_ERROR',
+      'Ảnh chọn từ thiết bị quá lớn (tối đa 12 MB). Vui lòng chọn ảnh nhẹ hơn.',
+    );
+  }
+
+  const { data: sessionData, error: sessionError } = await client.auth.getSession();
+  if (sessionError || !sessionData.session?.user) {
+    return errorResult(
+      'SESSION_EXPIRED',
+      'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại trước khi tải ảnh đại diện.',
+    );
+  }
+
+  if (sessionData.session.user.id !== userId) {
+    return errorResult(
+      'FORBIDDEN',
+      'Bạn chỉ được phép tải ảnh đại diện cho chính tài khoản của mình.',
+    );
+  }
+
+  const detectedMime = await detectRasterImageMime(file);
+  if (!detectedMime || !ALLOWED_AVATAR_MIME_TO_EXT[detectedMime]) {
+    return errorResult(
+      'VALIDATION_ERROR',
+      'Định dạng tệp không được hỗ trợ. Chỉ chấp nhận ảnh PNG, JPG, WebP hoặc GIF.',
+    );
+  }
+
+  const optimized = await optimizeAvatarImageIfNeeded(file, detectedMime);
+  const ext = ALLOWED_AVATAR_MIME_TO_EXT[optimized.mime];
+  if (!ext) {
+    return errorResult(
+      'VALIDATION_ERROR',
+      'Không thể xác định định dạng ảnh hợp lệ để tải lên.',
+    );
+  }
+
+  if (optimized.blob.size > MAX_AVATAR_FILE_BYTES) {
+    return errorResult(
+      'VALIDATION_ERROR',
+      'Ảnh đại diện sau tối ưu vẫn vượt quá giới hạn 2 MB. Vui lòng chọn ảnh khác nhỏ hơn.',
+    );
+  }
+
+  const randomSuffix = Math.random().toString(36).slice(2, 10);
+  const storagePath = `${userId}/avatar-${Date.now()}-${randomSuffix}.${ext}`;
+
+  try {
+    const { error: uploadError } = await client.storage
+      .from(AVATAR_BUCKET)
+      .upload(storagePath, optimized.blob, {
+        contentType: optimized.mime,
+        cacheControl: '3600',
+        upsert: false,
+      });
+
+    if (uploadError) {
+      const msgLower = String(uploadError.message || '').toLowerCase();
+      if (msgLower.includes('bucket') && msgLower.includes('not found')) {
+        return errorResult(
+          'UNKNOWN_ERROR',
+          'Kho lưu trữ ảnh đại diện chưa được khởi tạo. Vui lòng chạy migration 004_profile_avatars_storage.sql trên Supabase.',
+        );
+      }
+      if (msgLower.includes('row-level security') || msgLower.includes('permission')) {
+        return errorResult(
+          'FORBIDDEN',
+          'Chưa có quyền tải ảnh lên bucket avatars. Vui lòng kiểm tra migration 004 trên Supabase.',
+          403,
+        );
+      }
+      const normalized = normalizeAuthError(uploadError);
+      return errorResult(normalized.code, normalized.message, normalized.status);
+    }
+
+    const { data: urlData } = client.storage.from(AVATAR_BUCKET).getPublicUrl(storagePath);
+    const publicUrl = urlData?.publicUrl?.trim() ?? '';
+
+    if (!isSafeHttpsUrl(publicUrl)) {
+      return errorResult(
+        'UNKNOWN_ERROR',
+        'Không thể tạo liên kết HTTPS hợp lệ cho ảnh đại diện vừa tải lên.',
+      );
+    }
+
+    return okResult({ publicUrl, storagePath }, 'Đã tải ảnh đại diện lên thành công!');
+  } catch (err) {
+    const normalized = normalizeAuthError(err);
+    return errorResult(normalized.code, normalized.message, normalized.status);
+  }
+}
+
+/**
+ * Xóa tệp ảnh đại diện cũ thuộc chính user trong Supabase Storage (best-effort).
+ */
+export async function deleteUserAvatarObject(
+  userId: string,
+  avatarUrl: string | null | undefined,
+): Promise<void> {
+  if (!supabase) return;
+  const storagePath = extractOwnAvatarStoragePath(avatarUrl, userId);
+  if (!storagePath) return;
+
+  try {
+    await supabase.storage.from(AVATAR_BUCKET).remove([storagePath]);
+  } catch {
+    // Bỏ qua an toàn nếu tệp không còn tồn tại hoặc chưa cấp bucket
+  }
+}
+

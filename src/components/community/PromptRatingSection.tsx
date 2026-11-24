@@ -14,6 +14,7 @@ import {
   fetchPromptRatings,
   savePromptRating,
 } from '../../services/communityService';
+import { AuthorAvatar } from '../common/AuthorAvatar';
 
 interface PromptRatingSectionProps {
   targetType: 'library_prompt' | 'note';
@@ -23,6 +24,7 @@ interface PromptRatingSectionProps {
   isAdmin: boolean;
   onRequireAuth: () => void;
   onToast: (message: string) => void;
+  profileRevision?: string;
 }
 
 function formatRatingTime(iso: string): string {
@@ -45,6 +47,7 @@ export function PromptRatingSection({
   isAdmin,
   onRequireAuth,
   onToast,
+  profileRevision,
 }: PromptRatingSectionProps) {
   const [summary, setSummary] = useState<PromptRatingSummary>({
     average: 0,
@@ -95,7 +98,7 @@ export function PromptRatingSection({
   useEffect(() => {
     loadRatings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [targetType, item.ownerId, item.id, item.isPublic, item.isSystem, currentUserId]);
+  }, [targetType, item.ownerId, item.id, item.isPublic, item.isSystem, currentUserId, profileRevision]);
 
   const handleSubmitRating = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -293,6 +296,11 @@ export function PromptRatingSection({
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                          <AuthorAvatar
+                            name={rating.authorDisplayName}
+                            avatarUrl={rating.authorAvatarUrl}
+                            size="sm"
+                          />
                           <span className="text-xs font-bold text-[#1E3B2E] dark:text-[#E4E1D8] truncate">
                             {rating.authorDisplayName}
                           </span>

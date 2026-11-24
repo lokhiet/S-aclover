@@ -277,6 +277,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } else {
           setAuthError(null);
         }
+      } else if (event === 'USER_UPDATED') {
+        setAuthError(null);
       } else if (event === 'INITIAL_SESSION') {
         if (nextUser) {
           hadAuthenticatedUserRef.current = true;

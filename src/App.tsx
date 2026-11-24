@@ -40,6 +40,8 @@ import { CharacterForm, NoteForm, IdeaForm, LibraryPromptForm } from './componen
 import Toast from './components/Toast';
 import AccountButton from './components/auth/AccountButton';
 import AuthModal from './components/auth/AuthModal';
+import ProfileEditModal from './components/auth/ProfileEditModal';
+import MyContentVaultModal from './components/auth/MyContentVaultModal';
 import LocalDataMigrationModal from './components/auth/LocalDataMigrationModal';
 import ConflictResolutionModal from './components/auth/ConflictResolutionModal';
 import {
@@ -61,7 +63,7 @@ import {
   OtegamiPostmark,
 } from './components/PixelIcons';
 import { useAuth } from './contexts/AuthContext';
-import type { AuthModalMode } from './types/auth';
+import type { AuthModalMode, UserProfile } from './types/auth';
 import { initialCharacters, initialIdeas } from './initialData';
 import { defaultLibraryPrompts } from './promptsData';
 import { authorsList } from './authorsData';
@@ -595,15 +597,19 @@ export default function App() {
   const {
     user,
     userId,
+    profile,
     isAuthenticated,
     isAdmin,
     isAuthReady,
     isRecoveryMode,
     authError,
     clearAuthError,
+    refreshProfile,
   } = useAuth();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authModalMode, setAuthModalMode] = useState<AuthModalMode>('login');
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isMyVaultOpen, setIsMyVaultOpen] = useState(false);
 
   // Cloud synchronization state
   const [isSyncingCloud, setIsSyncingCloud] = useState(false);
@@ -645,6 +651,7 @@ export default function App() {
       isSavingItem ||
       isTogglingPublic ||
       isMigrationModalOpen ||
+      isProfileModalOpen ||
       Boolean(activeConflict);
   }, [
     isCreating,
@@ -654,6 +661,7 @@ export default function App() {
     isSavingItem,
     isTogglingPublic,
     isMigrationModalOpen,
+    isProfileModalOpen,
     activeConflict,
   ]);
 
@@ -755,6 +763,7 @@ export default function App() {
         setCloudSnapshot(snapshot);
         setSyncedVersions((prev) => ({ ...prev, ...snapshot.versions }));
         lastFocusSyncAtRef.current = Date.now();
+        void refreshProfile();
         void refreshPublicSnapshot();
         void refreshAnnouncements();
 
@@ -789,7 +798,7 @@ export default function App() {
         }
       }
     },
-    [showToast, refreshPublicSnapshot, refreshAnnouncements],
+    [showToast, refreshProfile, refreshPublicSnapshot, refreshAnnouncements],
   );
 
   // Chuyển đổi an toàn giữa chế độ Khách (localStorage) và Tài khoản (Supabase),
@@ -807,6 +816,8 @@ export default function App() {
         setIsEditingLibraryPrompt(false);
         setActiveConflict(null);
         setIsMigrationModalOpen(false);
+        setIsProfileModalOpen(false);
+        setIsMyVaultOpen(false);
         setSelectedNoteId(null);
         setSelectedIdeaId(null);
         setSelectedCharId(null);
@@ -832,6 +843,8 @@ export default function App() {
       setIsEditingLibraryPrompt(false);
       setActiveConflict(null);
       setIsMigrationModalOpen(false);
+      setIsProfileModalOpen(false);
+      setIsMyVaultOpen(false);
       setCloudSnapshot(null);
       setSyncedVersions({});
       setHasLocalDataToImport(false);
@@ -2157,6 +2170,123 @@ export default function App() {
     setShowDetailOnMobile(true); // Jump to detail on mobile
   };
 
+  // Profile personalization update: reflect new display_name & avatar_url across local items and community snapshots
+  const handleProfileSaved = (updatedProfile: UserProfile) => {
+    const nextName = updatedProfile.display_name?.trim() || undefined;
+    const nextAvatar = updatedProfile.avatar_url ?? null;
+
+    setCharacters((prev) =>
+      prev.map((c) =>
+        c.ownerId === updatedProfile.id
+          ? { ...c, authorDisplayName: nextName, authorAvatarUrl: nextAvatar }
+          : c,
+      ),
+    );
+    setNotes((prev) =>
+      prev.map((n) =>
+        n.ownerId === updatedProfile.id
+          ? { ...n, authorDisplayName: nextName, authorAvatarUrl: nextAvatar }
+          : n,
+      ),
+    );
+    setIdeas((prev) =>
+      prev.map((i) =>
+        i.ownerId === updatedProfile.id
+          ? { ...i, authorDisplayName: nextName, authorAvatarUrl: nextAvatar }
+          : i,
+      ),
+    );
+    setLibraryPrompts((prev) =>
+      prev.map((p) =>
+        p.ownerId === updatedProfile.id
+          ? { ...p, authorDisplayName: nextName, authorAvatarUrl: nextAvatar }
+          : p,
+      ),
+    );
+    setPublicSnapshot((prev) => {
+      if (!prev) return prev;
+      const patch = <T extends { ownerId?: string; authorDisplayName?: string; authorAvatarUrl?: string | null }>(
+        list: T[],
+      ) =>
+        list.map((item) =>
+          item.ownerId === updatedProfile.id
+            ? { ...item, authorDisplayName: nextName, authorAvatarUrl: nextAvatar }
+            : item,
+        );
+      return {
+        ...prev,
+        characters: patch(prev.characters),
+        notes: patch(prev.notes),
+        ideas: patch(prev.ideas),
+        libraryPrompts: patch(prev.libraryPrompts),
+      };
+    });
+
+    void refreshPublicSnapshot();
+    void refreshAnnouncements();
+  };
+
+  // Direct navigation & edit actions from My Content Vault modal
+  const handleVaultNavigateItem = (
+    kind: DataEntityKind,
+    item: Character | Note | Idea | LibraryPrompt,
+    mode: 'view' | 'edit',
+  ) => {
+    setIsMyVaultOpen(false);
+    setSearchQuery('');
+    setSourceFilter('all');
+    setSelectedLibTopicId('all');
+    setSelectedLibTag(null);
+    setSelectedTopicId('all');
+    setSelectedFilterTag(null);
+    setSelectedFilterAuthor(null);
+    setIsCreating(false);
+    setIsCreatingLibraryPrompt(false);
+    setVisibleSteps({});
+
+    const itemKey = getItemKey(item);
+    if (kind === 'character') {
+      setActiveTab('characters');
+      setSelectedCharId(itemKey);
+      setIsEditingLibraryPrompt(false);
+      setIsEditing(mode === 'edit');
+    } else if (kind === 'note') {
+      setActiveTab('notes');
+      setSelectedNoteId(itemKey);
+      setSelectedLibraryPromptId(null);
+      setIsEditingLibraryPrompt(false);
+      setIsEditing(mode === 'edit');
+    } else if (kind === 'library_prompt') {
+      setActiveTab('notes');
+      setSelectedLibraryPromptId(itemKey);
+      setSelectedNoteId(null);
+      setIsEditing(false);
+      setIsEditingLibraryPrompt(mode === 'edit');
+    } else {
+      setActiveTab('ideas');
+      setSelectedIdeaId(itemKey);
+      setIsEditingLibraryPrompt(false);
+      setIsEditing(mode === 'edit');
+    }
+
+    setShowDetailOnMobile(true);
+  };
+
+  const handleVaultDeleteItem = async (
+    kind: DataEntityKind,
+    item: Character | Note | Idea | LibraryPrompt,
+  ) => {
+    if (kind === 'character') {
+      await handleDeleteCharacter(item as Character);
+    } else if (kind === 'note') {
+      await handleDeleteNote(item as Note);
+    } else if (kind === 'idea') {
+      await handleDeleteIdea(item as Idea);
+    } else {
+      await handleDeleteLibraryPrompt(item as LibraryPrompt);
+    }
+  };
+
   return (
     <div className="h-[100dvh] w-full overflow-hidden flex flex-col bg-[#ECF5EF] dark:bg-[#202423] text-[#20372D] dark:text-[#E4E1D8] transition-theme relative">
 
@@ -2231,6 +2361,8 @@ export default function App() {
             hasPendingImportJob={Boolean(pendingResumableJob)}
             onSyncNow={handleManualSyncNow}
             onOpenLocalMigration={handleOpenLocalMigrationManually}
+            onOpenProfile={() => setIsProfileModalOpen(true)}
+            onOpenMyVault={() => setIsMyVaultOpen(true)}
           />
         </div>
       </header>
@@ -3361,6 +3493,7 @@ export default function App() {
                         isAdmin={isAdmin}
                         onRequireAuth={() => openAuthModal('login')}
                         onToast={(msg) => showToast(msg, 'info')}
+                        profileRevision={profile?.updated_at}
                       />
                     </article>
                   )}
@@ -3622,6 +3755,7 @@ export default function App() {
                         isAdmin={isAdmin}
                         onRequireAuth={() => openAuthModal('login')}
                         onToast={(msg) => showToast(msg, 'info')}
+                        profileRevision={profile?.updated_at}
                       />
                     </article>
                   )}
@@ -3981,6 +4115,7 @@ export default function App() {
                         isAdmin={isAdmin}
                         onRequireAuth={() => openAuthModal('login')}
                         onToast={(msg) => showToast(msg, 'info')}
+                        profileRevision={profile?.updated_at}
                       />
                     </article>
                   )}
@@ -4439,6 +4574,36 @@ export default function App() {
         }}
         onCancel={() => setActiveConflict(null)}
       />
+
+      {/* PROFILE EDIT MODAL */}
+      {isAuthenticated && userId && (
+        <ProfileEditModal
+          isOpen={isProfileModalOpen}
+          onClose={() => setIsProfileModalOpen(false)}
+          onSaved={handleProfileSaved}
+          onToast={showToast}
+        />
+      )}
+
+      {/* MY CONTENT VAULT MODAL */}
+      {isAuthenticated && userId && (
+        <MyContentVaultModal
+          isOpen={isMyVaultOpen}
+          onClose={() => setIsMyVaultOpen(false)}
+          userId={userId}
+          isAdmin={isAdmin}
+          characters={displayCharacters}
+          notes={displayNotes}
+          ideas={displayIdeas}
+          libraryPrompts={displayLibraryPrompts}
+          isTogglingPublic={isTogglingPublic}
+          isSavingItem={isSavingItem}
+          onViewItem={(kind, item) => handleVaultNavigateItem(kind, item, 'view')}
+          onEditItem={(kind, item) => handleVaultNavigateItem(kind, item, 'edit')}
+          onDeleteItem={handleVaultDeleteItem}
+          onTogglePublic={handleTogglePublic}
+        />
+      )}
 
       {/* SYSTEM ANNOUNCEMENTS MODAL */}
       <SystemAnnouncementsModal

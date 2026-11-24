@@ -4,6 +4,7 @@ export interface CloudContentMeta {
   isSystem?: boolean;
   publishedAt?: string;
   authorDisplayName?: string;
+  authorAvatarUrl?: string | null;
   authorRole?: 'user' | 'admin';
   cloudKey?: string;
 }
@@ -100,6 +101,7 @@ export interface SystemAnnouncement {
   isActive: boolean;
   authorId: string;
   authorDisplayName: string;
+  authorAvatarUrl?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -110,6 +112,7 @@ export interface CharacterComment {
   characterItemId: string;
   userId: string;
   authorDisplayName: string;
+  authorAvatarUrl?: string | null;
   authorRole: 'user' | 'admin';
   content: string;
   isHidden: boolean;
@@ -128,6 +131,7 @@ export interface PromptRating {
   targetItemId: string;
   userId: string;
   authorDisplayName: string;
+  authorAvatarUrl?: string | null;
   authorRole: 'user' | 'admin';
   score: number;
   review: string | null;

@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import type { CloudContentMeta, ContentTargetType } from '../../types';
 import { fetchContentLikes, toggleContentLike } from '../../services/communityService';
+import { AuthorAvatar } from '../common/AuthorAvatar';
 
 interface ContentInteractionBarProps {
   targetType: ContentTargetType;
@@ -158,8 +159,12 @@ export function ContentInteractionBar({
           </span>
         )}
 
-        <span className="inline-flex items-center gap-1 text-[#2E4F41] dark:text-[#E4E1D8] font-medium truncate max-w-[220px]">
-          <User className="w-3.5 h-3.5 text-[#587568] dark:text-[#B8BDB5] shrink-0" />
+        <span className="inline-flex items-center gap-1.5 text-[#2E4F41] dark:text-[#E4E1D8] font-medium truncate max-w-[240px]">
+          {item.ownerId ? (
+            <AuthorAvatar name={authorName} avatarUrl={item.authorAvatarUrl} size="xs" />
+          ) : (
+            <User className="w-3.5 h-3.5 text-[#587568] dark:text-[#B8BDB5] shrink-0" />
+          )}
           <span className="truncate">{authorName}</span>
           {item.authorRole === 'admin' && !isSystem && (
             <span className="px-1 py-0.2 rounded text-[10px] font-bold bg-[#E2F3E8] dark:bg-[#343D37] text-[#2B5A47] dark:text-[#A3BDA8]">
