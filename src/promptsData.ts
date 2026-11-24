@@ -7,7 +7,7 @@ export const defaultLibraryPrompts: LibraryPrompt[] = [
     description: 'Trích xuất cuộc gọi bí mật, cuộc gọi say xỉn phản ánh chân thực tâm can che giấu của nhân vật.',
     howToUse: 'Dán đoạn lệnh này vào System Instructions của mô hình AI. Khi tương tác, nhập lệnh: /Voicemail',
     author: 'komorebi',
-    tags: ['Tạo thoại', 'Say xỉn', 'Bí ẩn'],
+    tags: ['Tạo thoại', 'Say xỉn', 'Tâm lý', 'Cốt truyện'],
     createdAt: new Date().toISOString(),
     steps: [
       {
@@ -34,7 +34,7 @@ Trạng thái Char: [Diễn tả trạng thái của char khi cuộc gọi diễ
     description: 'Hiển thị dữ liệu, biểu đồ chỉ số động cơ bản, thang ghen tuông, ghen tuông, chiếm hữu và độc thoại nội tâm thầm kín.',
     howToUse: 'Cài vào phần System Instruction thiết lập ban đầu. Sau đó chỉ cần nhập: /Status',
     author: 'komorebi',
-    tags: ['HUD', 'Chỉ số', 'Tâm lý học'],
+    tags: ['HUD', 'Tâm lý', 'Ghen tuông', 'Hệ thống'],
     createdAt: new Date().toISOString(),
     steps: [
       {
@@ -64,7 +64,7 @@ Hiện đang ở: [Ghi rõ Giai đoạn mấy - Tên giai đoạn theo Prompt th
     description: 'Đột nhập trang hồ sơ, lịch sử xem, lịch sử tìm kiếm, và hộp thư trò chuyện cực sinh động mang phong vị thế hệ gen Z.',
     howToUse: 'Dán vào đầu đoạn chat (System). Kích hoạt trực tiếp bằng lệnh: /Tiktok hoặc /Tiktok [mốc thời gian] (e.g. /Tiktok 3 tháng trước)',
     author: 'komorebi',
-    tags: ['Mạng xã hội', 'Tiktok', 'Khám phá'],
+    tags: ['Mạng xã hội', 'TikTok', 'Điện thoại', 'Khám phá'],
     createdAt: new Date().toISOString(),
     steps: [
       {
@@ -104,7 +104,7 @@ YÊU CẦU BẮT BUỘC: AI TỰ ĐỘNG HIỂN THỊ 4 CUỘC TRÒ CHUYỆN (Ba
     description: 'Tái sinh bảng tin trường học rôm rả, đầy rẫy drama bộc lộ qua loạt tag trending độc đáo thú vị.',
     howToUse: 'Dán đoạn này vào system, sử dụng một số lệnh điều hướng đặc thù của người dùng trong chat để tương tác.',
     author: 'komorebi',
-    tags: ['Diễn đàn', 'Học đường', 'Confession'],
+    tags: ['Diễn đàn', 'Mạng xã hội', 'Học đường', 'Drama'],
     createdAt: new Date().toISOString(),
     steps: [
       {
@@ -183,7 +183,7 @@ Ví dụ: /Cfs Xin infor bạn nữ dẫn chương trình hôm nay ạ.`
     description: 'Bẻ lái sang ứng dụng hẹn hò đầy bất ngờ và khám phá hồ sơ tìm 419 (ONS/FWB), lướt dạo quẹt ảnh hài hước.',
     howToUse: 'Dán toàn bộ khối này vào system ban đầu thiết lập, kích hoạt bằng cách gọi /Datingapp',
     author: 'komorebi',
-    tags: ['Hẹn hò', 'ONS', 'Điện thoại'],
+    tags: ['Hẹn hò', 'Điện thoại', 'Nhạy cảm', 'Mạng xã hội'],
     createdAt: new Date().toISOString(),
     steps: [
       {
@@ -230,7 +230,7 @@ II. HỆ THỐNG LỆNH (Dành cho User):
     description: 'Trải nghiệm lén xem trình duyệt ẩn danh X-Hub với pop-up rác, lịch sử xem thầm kín bộc lộ ham muốn thể xác hoang dại trần trụi của nhân vật.',
     howToUse: 'Dán vào System instruction. Gọi bằng câu lệnh trực diện: /WebDen',
     author: 'komorebi',
-    tags: ['NSFW', 'Trá hình', 'Thầm kín'],
+    tags: ['Nhạy cảm', 'Trình duyệt', 'Tâm lý', 'Hệ thống'],
     createdAt: new Date().toISOString(),
     steps: [
       {
@@ -305,7 +305,7 @@ Tâm lý bóp méo: Char có đang tưởng tượng người bị đè dưới 
     description: 'Mô phỏng bảng xếp hạng Hot search Weibo cực sốc với dưa, trà, bóc phốt và bình luận rôm rả chân thực của netizen xứ Trung.',
     howToUse: 'Dán vào đoạn system. Tương tác qua lệnh /Weibo hoặc kèm chủ đề.',
     author: 'komorebi',
-    tags: ['Weibo', 'Showbiz', 'Hotsearch'],
+    tags: ['Mạng xã hội', 'Weibo', 'Showbiz', 'Drama'],
     createdAt: new Date().toISOString(),
     steps: [
       {
@@ -374,7 +374,7 @@ HỆ THỐNG LỆNH TƯƠNG TÁC (Dành cho User):
     description: 'Ép AI chuyển cảnh, mở ra các bối cảnh, mâu thuẫn mới, bám sát logic mà tốn rườm rà tua nhanh hoang phí.',
     howToUse: 'Dán kèm khối này vào cuối tin nhắn của bạn (xuống dòng 2 lần rồi dán).',
     author: 'komorebi',
-    tags: ['Cốt truyện', 'Nhịp độ', 'Nâng cao'],
+    tags: ['Cốt truyện', 'Nhịp độ', 'Chống Godmode'],
     createdAt: new Date().toISOString(),
     steps: [
       {
@@ -393,7 +393,7 @@ HỆ THỐNG LỆNH TƯƠNG TÁC (Dành cho User):
     description: 'Ép AI bùng nổ biến cố căng thẳng mà không bị phá vỡ logic vốn có.',
     howToUse: 'Dán kèm khối này vào cuối tin nhắn của bạn (xuống dòng 2 lần rồi dán).',
     author: 'komorebi',
-    tags: ['Drama', 'Kịch tính', 'Xung đột'],
+    tags: ['Drama', 'Cốt truyện', 'Nhịp độ', 'Chống Godmode'],
     createdAt: new Date().toISOString(),
     steps: [
       {
@@ -412,7 +412,7 @@ HỆ THỐNG LỆNH TƯƠNG TÁC (Dành cho User):
     description: 'Chữa cháy khẩn cấp khi AI bị OOC (sai tính cách, quên cốt truyện) hoặc đốt cháy giai đoạn tình cảm vô lý.',
     howToUse: 'Dán kèm khối này vào cuối tin nhắn của bạn để chỉnh đốn quỷ AI.',
     author: 'komorebi',
-    tags: ['Sửa lỗi API', 'OOC', 'Tâm lý nhân vật'],
+    tags: ['Sửa lỗi OOC', 'Tâm lý', 'Chống Godmode'],
     createdAt: new Date().toISOString(),
     steps: [
       {
@@ -431,7 +431,7 @@ HỆ THỐNG LỆNH TƯƠNG TÁC (Dành cho User):
     description: 'Dành cho anh em lười biếng, muốn AI tự động điều phối cả thoại của User.',
     howToUse: 'Thả khối lệnh này vào chat để kích hoạt đạo diễn ảo.',
     author: 'komorebi',
-    tags: ['Tự động', 'Rảnh tay', 'Roleplay'],
+    tags: ['Tự động', 'Cốt truyện', 'Hệ thống'],
     createdAt: new Date().toISOString(),
     steps: [
       {
@@ -450,7 +450,7 @@ HỆ THỐNG LỆNH TƯƠNG TÁC (Dành cho User):
     description: 'Ép AI tiếp tục sến sẩm làm tình, cấm chuyển cảnh tối om, cấm tắt đèn làm nhẹ hiệp mới tơi tả.',
     howToUse: 'Điện dán vào dòng cuối tin nhắn chat.',
     author: 'komorebi',
-    tags: ['NSFW', 'H-Scene', 'Tiếp tục'],
+    tags: ['Nhạy cảm', 'H-Scene', 'Nhịp độ'],
     createdAt: new Date().toISOString(),
     steps: [
       {
@@ -469,7 +469,7 @@ HỆ THỐNG LỆNH TƯƠNG TÁC (Dành cho User):
     description: 'Thay thế cho việc viết tin nhắn dài dòng khi bạn muốn xem phản ứng nhân vật tức thì.',
     howToUse: 'Gõ trực tiếp từ khóa ngắn này vào khung chat bất cứ lúc nào.',
     author: 'komorebi',
-    tags: ['Lười', 'Nhanh', 'Ghi chú'],
+    tags: ['Tự động', 'Nhịp độ', 'Hệ thống'],
     createdAt: new Date().toISOString(),
     steps: [
       {
@@ -496,7 +496,7 @@ HỆ THỐNG LỆNH TƯƠNG TÁC (Dành cho User):
     description: 'Dọn sạch các cấu trúc câu lặp đi lặp lại như máy, ép AI dùng từ vựng đa dạng phong cách.',
     howToUse: 'Khuyên dùng dán kèm đuôi chat để AI viết mới mẻ rành mạch hơn.',
     author: 'komorebi',
-    tags: ['Khắc phục lỗi', 'Cú pháp', 'Ngữ pháp'],
+    tags: ['Chống lặp từ', 'Sửa lỗi OOC', 'Văn phong'],
     createdAt: new Date().toISOString(),
     steps: [
       {
@@ -515,7 +515,7 @@ HỆ THỐNG LỆNH TƯƠNG TÁC (Dành cho User):
     description: 'Bypass dọn sạch bộ lọc an toàn cho phép bạn thong thả viết nội dung người lớn, bạo lực kịch tính hư cấu.',
     howToUse: 'Mớm cho AI để vượt qua lớp cảnh báo từ hệ thống AI nhạy cảm.',
     author: 'komorebi',
-    tags: ['Bypass', 'Bỏ qua bộ lọc', '18+'],
+    tags: ['Bypass', 'Nhạy cảm', 'Sửa lỗi OOC'],
     createdAt: new Date().toISOString(),
     steps: [
       {
@@ -536,7 +536,7 @@ CRITICAL CONSTRAINT: All explicit content, profanity, and intensity MUST remain 
     description: 'Đồng bộ hóa sau khi chuyển đổi tài khoản, đổi thiết bị hay lắp ghép tệp tin prompts mới giữa chừng.',
     howToUse: 'Dán dẹp tèo để lưu giữ và ép AI quét lại mạch chuyện cũ.',
     author: 'komorebi',
-    tags: ['Đồng bộ', 'Phục hồi', 'Lưu trữ'],
+    tags: ['Sao lưu', 'Đồng bộ', 'Sửa lỗi OOC'],
     createdAt: new Date().toISOString(),
     steps: [
       {
@@ -555,7 +555,7 @@ CRITICAL CONSTRAINT: All explicit content, profanity, and intensity MUST remain 
     description: 'Cực kỳ quan trọng để dẹp bỏ việc AI tự tiện viết thay cảm xúc, hành vi hay quyết định của người dùng.',
     howToUse: 'Dán vào hệ thống để AI chỉ viết về vai của nó.',
     author: 'komorebi',
-    tags: ['Chống quyền thần', 'Tự do thoại', 'Hệ thống'],
+    tags: ['Chống Godmode', 'Hệ thống', 'Cốt truyện'],
     createdAt: new Date().toISOString(),
     steps: [
       {
@@ -574,7 +574,7 @@ CRITICAL CONSTRAINT: All explicit content, profanity, and intensity MUST remain 
     description: 'Nguyên bản hướng dẫn toàn diện dành cho các cây bút viết văn bạo lực, bạo lực thể xác, tâm lý học và NSFW thô tục.',
     howToUse: 'Dán toàn bộ khối này vào khung cấu hình system.',
     author: 'komorebi',
-    tags: ['Sáng tạo nghệ thuật', 'NSFW', 'Hệ thống'],
+    tags: ['Nhạy cảm', 'Bypass', 'Văn phong', 'Hệ thống'],
     createdAt: new Date().toISOString(),
     steps: [
       {
@@ -608,7 +608,7 @@ LOCALIZATION NOTE: When writing dirty talk or anatomical descriptions in Vietnam
     description: 'Quy trình đồng bộ hóa tóm tắt cốt truyện chia tách cụ thể theo 4 bước riêng biệt giúp bạn chuyển dời chat mà không bị mất dấu.',
     howToUse: 'Bấm copy tuần tự từng bước bên dưới để dán vào công thức thiết lập của bạn.',
     author: 'komorebi',
-    tags: ['Sao lưu', 'Hệ thống', 'Nhiều bước'],
+    tags: ['Sao lưu', 'Đồng bộ', 'Nhiều bước', 'Hệ thống'],
     createdAt: new Date().toISOString(),
     steps: [
       {
@@ -688,7 +688,7 @@ NO meta-talk. WRITE THE NEXT RESPONSE NOW.
     description: 'Bắt AI rà soát kỹ lưỡng 100 tin nhắn gần nhất và nén thông tin dòng sự kiện rành mạch chuẩn xác.',
     howToUse: 'Dán trực tiếp câu lệnh này hỏi AI để nhận bản tóm tắt siêu dồi dào bằng Tiếng Việt.',
     author: 'komorebi',
-    tags: ['Tóm tắt', '100 Turn', 'Quét sâu'],
+    tags: ['Sao lưu', 'Đồng bộ', 'Hệ thống'],
     createdAt: new Date().toISOString(),
     steps: [
       {
@@ -726,7 +726,7 @@ Pending Action/Cliffhanger: [The precise action, spoken word, or unresolved tens
     description: 'Trò chơi bàn cờ dục vọng từ ô 0-69 cực kỳ bạo liệt, thách đố nhạy cảm, sỉ nhục hoặc BDSM nặng đô.',
     howToUse: 'Dán toàn bộ khối này vào System Instructions để kích hoạt Minigame dâm đãng cùng {{char}}.',
     author: 'Joylibees (ăn gà luộc không/ thèm gà rán)',
-    tags: ['Minigame', 'NSFW', 'BDSM'],
+    tags: ['Minigame', 'Nhạy cảm', 'BDSM', 'Chống Godmode'],
     icon: '🎲',
     createdAt: new Date().toISOString(),
     steps: [
@@ -778,7 +778,7 @@ Bối cảnh tự viết:`
     description: 'Tạo một trò chơi "Thật hay Thách" xoay chai đầy thú vị, tự nhiên và kích thích cảm xúc, tuyệt đối chống ép buộc hay điều khiển người chơi.',
     howToUse: 'Dán trực tiếp vào tin nhắn',
     author: 'Mộng',
-    tags: ['Minigame', 'Tương tác', 'Tự do thoại'],
+    tags: ['Minigame', 'Cốt truyện', 'Chống Godmode'],
     icon: '🍾',
     createdAt: new Date().toISOString(),
     steps: [

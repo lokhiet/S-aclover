@@ -29,6 +29,7 @@ export interface Character extends CloudContentMeta {
   id: string;
   name: string;
   role: string;
+  tags?: string[];
   avatar: string; // Emoji or short code
   description?: string;
   createdAt: string;
@@ -81,11 +82,21 @@ export interface Note extends CloudContentMeta {
   description?: string; // Optional overview description for flexible block posts
   blocks?: PromptBlock[]; // Flexible ordered blocks
   autoNumberSteps?: boolean; // Auto step numbering toggle
+  tags?: string[]; // Flexible semantic tags (serialized safely in NOTE_V2 payload)
   characterId: string; // References Character.id
   categoryOffline?: string; // Optional tagging / serialized V2 block payload
   icon?: string; // Specific emoji icon for each note
   createdAt: string;
   updatedAt: string;
+}
+
+export interface SharedTag {
+  slug: string;
+  label: string;
+  aliases: string[];
+  description: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Idea extends CloudContentMeta {

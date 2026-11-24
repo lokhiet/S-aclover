@@ -33,7 +33,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import CloverClickBurst from './components/CloverClickBurst';
-import { Note, Idea, Character, AppState, LibraryPrompt, SystemAnnouncement } from './types';
+import { Note, Idea, Character, AppState, LibraryPrompt, SystemAnnouncement, SharedTag } from './types';
 import { CharacterForm, NoteForm, IdeaForm, LibraryPromptForm } from './components/RepositoryForms';
 import Toast from './components/Toast';
 import AccountButton from './components/auth/AccountButton';
@@ -51,6 +51,8 @@ import { CharacterCommentsSection } from './components/community/CharacterCommen
 import { PromptRatingSection } from './components/community/PromptRatingSection';
 import { SocialPlatformIcon } from './components/common/SocialPlatformIcon';
 import { PromptBlocksView } from './components/prompts/PromptBlocksView';
+import { TagFilterBar } from './components/tags/TagFilterBar';
+import { AllTagsModal } from './components/tags/AllTagsModal';
 import {
   extractPromptStoragePaths,
   getCharacterSocialLinks,
@@ -59,6 +61,16 @@ import {
   getSocialPlatformLabel,
   isSafeExternalHttpUrl,
 } from './utils/contentBlocks';
+import {
+  buildTagCatalogFromTagLists,
+  getCharacterTags,
+  getIdeaTags,
+  getLibraryPromptTags,
+  getNoteTags,
+  itemMatchesSelectedTags,
+  toTagComparisonKey,
+} from './utils/tagSystem';
+import { fetchSharedTags } from './services/tagAdminService';
 import { deletePromptIllustrationPaths } from './services/mediaService';
 import {
   PixelCloverIcon,
@@ -218,92 +230,9 @@ export function buildCharacterRoleplayPrompt(char: Character): string {
   return p;
 }
 
-interface Topic {
-  id: string;
-  name: string;
-  icon: string;
-  match: (idea: Idea) => boolean;
-}
-
-const TOPICS: Topic[] = [
-  {
-    id: 'all',
-    name: 'Tất cả ý tưởng',
-    icon: '✨',
-    match: () => true
-  },
-  {
-    id: 'cooking',
-    name: 'Nấu Ăn & Gian Bếp',
-    icon: '🍳',
-    match: (idea) => {
-      const keywords = ['ăn uống', 'nấu', 'bếp', 'món ăn', 'đồ ăn', 'làm bánh', 'ẩm thực'];
-      const title = idea.title.toLowerCase();
-      const content = idea.content.toLowerCase();
-      return keywords.some(k => title.includes(k) || content.includes(k));
-    }
-  },
-  {
-    id: 'sweet',
-    name: 'Ngọt Ngào & Hẹn Hò',
-    icon: '❤️',
-    match: (idea) => {
-      const keywords = ['ngọt ngào', 'hẹn hò', 'tình cảm', 'lãng mạn', 'tỏ tình', 'kết hôn', 'yêu', 'ôm', 'hôn', 'bám người', 'đỏ mặt', 'nuông chiều'];
-      const title = idea.title.toLowerCase();
-      const content = idea.content.toLowerCase();
-      return keywords.some(k => title.includes(k) || content.includes(k));
-    }
-  },
-  {
-    id: 'sexy',
-    name: 'Nhạy Cảm & Quyến Rũ',
-    icon: '🔥',
-    match: (idea) => {
-      const keywords = ['nhạy cảm', 'quyến rũ', 'ân ái', 'nude', 'khỏa thân', 'tắm', 'lẳng lơ', 'quần áo', 'giường', 'đồ lót', 'áo lót', 'cosplay', 'bdsm'];
-      const title = idea.title.toLowerCase();
-      const content = idea.content.toLowerCase();
-      return keywords.some(k => title.includes(k) || content.includes(k));
-    }
-  },
-  {
-    id: 'drama',
-    name: 'Drama & Máu Chó',
-    icon: '⚡',
-    match: (idea) => {
-      const keywords = ['drama', 'máu chó', 'giận dỗi', 'ghen tuông', 'chiếm hữu', 'ngược', 'tâm lý', 'rắc rối', 'sợ hãi', 'nguy hiểm', 'thử thách', 'cãi nhau', 'tai nạn', 'hối hận', 'lạnh lùng'];
-      const title = idea.title.toLowerCase();
-      const content = idea.content.toLowerCase();
-      return keywords.some(k => title.includes(k) || content.includes(k));
-    }
-  },
-  {
-    id: 'funny',
-    name: 'Troll & Hài Hước',
-    icon: '🎭',
-    match: (idea) => {
-      const keywords = ['troll', 'hài hước', 'chọc phá', 'bất ngờ', 'vui nhộn', 'ngốc', 'hài', 'chọc'];
-      const title = idea.title.toLowerCase();
-      const content = idea.content.toLowerCase();
-      return keywords.some(k => title.includes(k) || content.includes(k));
-    }
-  },
-  {
-    id: 'daily',
-    name: 'Đời Thường & Sức Khỏe',
-    icon: '🐾',
-    match: (idea) => {
-      const keywords = ['đời thường', 'thú cưng', 'gia đình', 'ngủ nghê', 'sức khỏe', 'trẻ con', 'sinh lý', 'tài năng', 'bệnh', 'chăm sóc', 'ốm', 'mệt', 'tẩy trang', 'ngày đèn đỏ', 'ngủ'];
-      const title = idea.title.toLowerCase();
-      const content = idea.content.toLowerCase();
-      return keywords.some(k => title.includes(k) || content.includes(k));
-    }
-  }
-];
-
 export const getIdeaIcon = (idea: Idea): string => {
   const title = (idea.title || '').toLowerCase();
-  const content = (idea.content || '').toLowerCase();
-  
+
   if (title.includes('nấu') || title.includes('bếp') || title.includes('ăn') || title.includes('bánh') || title.includes('ẩm thực')) return '🍳';
   if (title.includes('yêu') || title.includes('tình') || title.includes('lãng mạn') || title.includes('ôm') || title.includes('ngọt')) return '💖';
   if (title.includes('nhạy cảm') || title.includes('ân ái') || title.includes('khỏa thân') || title.includes('bed') || title.includes('quyến rũ')) return '🔞';
@@ -316,7 +245,7 @@ export const getIdeaIcon = (idea: Idea): string => {
   if (title.includes('nhạc') || title.includes('hát') || title.includes('ca')) return '🎵';
   if (title.includes('ảnh') || title.includes('quay') || title.includes('video')) return '📸';
   if (title.includes('ngủ') || title.includes('mệt') || title.includes('sức khỏe') || title.includes('ốm')) return '🛌';
-  
+
   const emojiPalette = ['💡', '⭐', '🌈', '🍀', '🧩', '🚀', '🔮', '🧸', '🍿', '🌍', '🍁', '🥑', '🧁', '🍦', '💎', '🔑', '🎨', '🔥', '🐾', '⏰'];
   let charSum = 0;
   for (let i = 0; i < title.length; i++) {
@@ -324,159 +253,6 @@ export const getIdeaIcon = (idea: Idea): string => {
   }
   return emojiPalette[charSum % emojiPalette.length];
 };
-
-export const getIdeaTopicInfo = (idea: Idea) => {
-  const matchedTopic = TOPICS.find(t => t.id !== 'all' && t.match(idea));
-  const customIcon = getIdeaIcon(idea);
-  
-  if (!matchedTopic) {
-    return {
-      name: 'Khác',
-      icon: customIcon,
-      colorClass: 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20 dark:bg-[#343D37] dark:text-[#A3BDA8] dark:border-[#49554D]'
-    };
-  }
-  
-  let colorClass = 'bg-zinc-100 text-zinc-700 border-zinc-200 dark:bg-[#343D37] dark:text-[#B8BDB5] dark:border-[#49554D]';
-  switch (matchedTopic.id) {
-    case 'cooking':
-      colorClass = 'bg-amber-500/10 text-amber-700 border-amber-500/20 dark:bg-[#343D37] dark:text-[#D5B97A] dark:border-[#49554D]';
-      break;
-    case 'sweet':
-      colorClass = 'bg-rose-500/10 text-rose-700 border-rose-500/20 dark:bg-[#343D37] dark:text-[#D9A7B8] dark:border-[#49554D]';
-      break;
-    case 'sexy':
-      colorClass = 'bg-red-500/10 text-red-700 border-red-500/20 dark:bg-[#343D37] dark:text-[#E4A6AA] dark:border-[#49554D]';
-      break;
-    case 'drama':
-      colorClass = 'bg-purple-500/10 text-purple-700 border-purple-500/20 dark:bg-[#343D37] dark:text-[#D9A7B8] dark:border-[#49554D]';
-      break;
-    case 'funny':
-      colorClass = 'bg-amber-500/10 text-amber-700 border-amber-500/20 dark:bg-[#343D37] dark:text-[#D5B97A] dark:border-[#49554D]';
-      break;
-    case 'daily':
-      colorClass = 'bg-blue-500/10 text-blue-700 border-blue-500/20 dark:bg-[#343D37] dark:text-[#A3BDA8] dark:border-[#49554D]';
-      break;
-  }
-  
-  return {
-    name: matchedTopic.name,
-    icon: customIcon,
-    colorClass
-  };
-};
-
-interface LibTopic {
-  id: string;
-  name: string;
-  icon: string;
-  match: (prompt: LibraryPrompt) => boolean;
-}
-
-function getPromptCategory(p: LibraryPrompt): string {
-  const title = p.title.toLowerCase();
-  const desc = p.description.toLowerCase();
-  const tags = p.tags.map(t => t.toLowerCase());
-
-  const hasKeyword = (words: string[]) => {
-    return words.some(w => title.includes(w) || desc.includes(w) || tags.some(t => t.includes(w)));
-  };
-
-  // 1. Minigame (highest priority)
-  if (hasKeyword(['minigame', 'truth or dare', 't or d', 'thật hay thách', 'xoay chai'])) {
-    return 'minigame';
-  }
-
-  // 1.5. Web & Browser
-  if (hasKeyword(['web', 'browser', 'trình duyệt', 'forum', 'diễn đàn', 'lướt web'])) {
-    return 'web';
-  }
-
-  // 2. NSFW
-  if (hasKeyword(['nsfw', 'trá hình', 'thầm kín', 'h-scene', 'tiếp tục', 'sáng tạo nghệ thuật', 'bypass', 'bỏ qua bộ lọc', '18+', 'ons', 'dating app', 'hẹn hò', 'bad bed', 'giường', 'yêu dã ngoại'])) {
-    return 'nsfw';
-  }
-
-  // 3. Autoplay & Lazy
-  if (hasKeyword(['tự động', 'rảnh tay', 'auto-play', 'lười', 'nhanh', 'ghi chú', 'siêu tốc'])) {
-    return 'autoplay';
-  }
-
-  // 4. Control / Anti-Godmode
-  if (hasKeyword(['chống quyền thần', 'tự do thoại', 'anti-godmode', 'strict', 'khống chế'])) {
-    return 'control';
-  }
-
-  // 5. Sync, Restore & Fixes
-  if (hasKeyword(['đồng bộ', 'phục hồi', 'lưu trữ', 'hệ thống', 'nhiều bước', 'sao lưu', 'tóm tắt', '100 turn', 'quét sâu', 'sửa lỗi api', 'ooc', 'khắc phục', 'cú pháp', 'ngữ pháp', 'chuyển sinh'])) {
-    return 'sync_fix';
-  }
-
-  // 6. Social & HUD (Excluding keywords matched by web)
-  if (hasKeyword(['hud', 'chỉ số', 'tâm lý', 'mạng xã hội', 'tiktok', 'khám phá', 'weibo', 'showbiz', 'hotsearch', 'điện thoại'])) {
-    return 'hud_social';
-  }
-
-  // 7. Story & Drama (Default)
-  return 'story';
-}
-
-const LIB_TOPICS: LibTopic[] = [
-  {
-    id: 'all',
-    name: 'Tất cả lệnh',
-    icon: '✨',
-    match: () => true
-  },
-  {
-    id: 'story',
-    name: 'Cốt truyện & Drama',
-    icon: '🚀',
-    match: (p) => getPromptCategory(p) === 'story'
-  },
-  {
-    id: 'hud_social',
-    name: 'Social & HUD',
-    icon: '📱',
-    match: (p) => getPromptCategory(p) === 'hud_social'
-  },
-  {
-    id: 'web',
-    name: 'Trình duyệt & Web',
-    icon: '🌐',
-    match: (p) => getPromptCategory(p) === 'web'
-  },
-  {
-    id: 'nsfw',
-    name: 'Cảnh nóng 18+',
-    icon: '🔞',
-    match: (p) => getPromptCategory(p) === 'nsfw'
-  },
-  {
-    id: 'sync_fix',
-    name: 'Sao lưu & Sửa lỗi',
-    icon: '🔄',
-    match: (p) => getPromptCategory(p) === 'sync_fix'
-  },
-  {
-    id: 'control',
-    name: 'Chống Godmode',
-    icon: '🛡️',
-    match: (p) => getPromptCategory(p) === 'control'
-  },
-  {
-    id: 'autoplay',
-    name: 'Tự động & Lười',
-    icon: '⏱️',
-    match: (p) => getPromptCategory(p) === 'autoplay'
-  },
-  {
-    id: 'minigame',
-    name: 'Minigame',
-    icon: '🎮',
-    match: (p) => getPromptCategory(p) === 'minigame'
-  }
-];
 
 // Official Brand Logos for Social Links
 const BrandFacebookLogo = ({ className = "w-5 h-5" }: { className?: string }) => (
@@ -574,20 +350,12 @@ export default function App() {
   const [selectedLibraryPromptId, setSelectedLibraryPromptId] = useState<string | null>(null);
   const [selectedAuthorId, setSelectedAuthorId] = useState<string | null>(null);
 
-  // Filter tag for the prompt library
-  const [selectedLibTag, setSelectedLibTag] = useState<string | null>(null);
-
-  // Selected topic for Ideas Tab classification
-  const [selectedTopicId, setSelectedTopicId] = useState<string>('all');
-
-  // Selected topic for Prompt Library Tab classification
-  const [selectedLibTopicId, setSelectedLibTopicId] = useState<string>('all');
-
-  // Advanced character filters
-  const [selectedFilterAuthor, setSelectedFilterAuthor] = useState<string | null>(null);
-  const [selectedFilterTag, setSelectedFilterTag] = useState<string | null>(null);
-  const [characterFilterType, setCharacterFilterType] = useState<'author' | 'tag' | null>(null);
-  const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
+  // Flexible multi-tag filters (per tab) & Shared Tag catalog
+  const [selectedNoteTags, setSelectedNoteTags] = useState<string[]>([]);
+  const [selectedIdeaTags, setSelectedIdeaTags] = useState<string[]>([]);
+  const [selectedCharTags, setSelectedCharTags] = useState<string[]>([]);
+  const [isAllTagsModalOpen, setIsAllTagsModalOpen] = useState(false);
+  const [sharedTags, setSharedTags] = useState<SharedTag[]>([]);
 
   // Form toggles
   const [isCreating, setIsCreating] = useState(false);
@@ -601,6 +369,7 @@ export default function App() {
   // Auth & Cloud Sync state (delegating all auth logic to AuthContext)
   const {
     user,
+    session,
     userId,
     profile,
     isAuthenticated,
@@ -727,9 +496,18 @@ export default function App() {
     }
   }, [isAdmin]);
 
+  // Tải danh mục tag chung chuẩn hóa (Admin quản lý, cộng đồng xem)
+  const refreshSharedTags = useCallback(async () => {
+    const res = await fetchSharedTags();
+    if (res.ok && res.data) {
+      setSharedTags(res.data);
+    }
+  }, []);
+
   useEffect(() => {
     void refreshPublicSnapshot();
-  }, [refreshPublicSnapshot]);
+    void refreshSharedTags();
+  }, [refreshPublicSnapshot, refreshSharedTags]);
 
   useEffect(() => {
     if (!isAuthReady) return;
@@ -771,6 +549,7 @@ export default function App() {
         void refreshProfile();
         void refreshPublicSnapshot();
         void refreshAnnouncements();
+        void refreshSharedTags();
 
         // Kiểm tra thuần (read-only) xem localStorage có dữ liệu cá nhân hoặc phiên nhập bị gián đoạn không
         const personalLocal = extractPersonalLocalData();
@@ -803,8 +582,15 @@ export default function App() {
         }
       }
     },
-    [showToast, refreshProfile, refreshPublicSnapshot, refreshAnnouncements],
+    [showToast, refreshProfile, refreshPublicSnapshot, refreshAnnouncements, refreshSharedTags],
   );
+
+  const handleRefreshTagsAndData = useCallback(async () => {
+    await Promise.all([refreshSharedTags(), refreshPublicSnapshot()]);
+    if (isAuthenticated && userId) {
+      await syncFromSupabase(userId, { silent: true, checkLocalPrompt: false });
+    }
+  }, [refreshSharedTags, refreshPublicSnapshot, isAuthenticated, userId, syncFromSupabase]);
 
   // Chuyển đổi an toàn giữa chế độ Khách (localStorage) và Tài khoản (Supabase),
   // bảo đảm cô lập 100%, không rò rỉ dữ liệu giữa các tài khoản khi đổi tài khoản/đăng xuất.
@@ -976,17 +762,12 @@ export default function App() {
   const handleTabChange = (tab: 'notes' | 'ideas' | 'characters' | 'authors') => {
     setActiveTab(tab);
     setSearchQuery('');
-    setSelectedLibTag(null);
     setSourceFilter('all');
     setIsCreating(false);
     setIsEditing(false);
     setIsCreatingLibraryPrompt(false);
     setIsEditingLibraryPrompt(false);
-    setSelectedTopicId('all');
-    setSelectedFilterAuthor(null);
-    setSelectedFilterTag(null);
-    setCharacterFilterType(null);
-    setIsFilterModalOpen(false);
+    setIsAllTagsModalOpen(false);
     setShowDetailOnMobile(false); // Reset to list view on tab switches for mobile
   };
 
@@ -1393,6 +1174,7 @@ export default function App() {
             description: data.description,
             blocks: data.blocks,
             autoNumberSteps: data.autoNumberSteps,
+            tags: data.tags,
             categoryOffline: data.categoryOffline,
             characterId: data.characterId,
             icon: data.icon,
@@ -1442,6 +1224,7 @@ export default function App() {
             description: data.description,
             blocks: data.blocks,
             autoNumberSteps: data.autoNumberSteps,
+            tags: data.tags,
             categoryOffline: data.categoryOffline,
             characterId: data.characterId,
             icon: data.icon || '☘️',
@@ -1488,6 +1271,7 @@ export default function App() {
               description: data.description,
               blocks: data.blocks,
               autoNumberSteps: data.autoNumberSteps,
+              tags: data.tags,
               categoryOffline: data.categoryOffline,
               characterId: data.characterId,
               icon: data.icon,
@@ -1506,6 +1290,7 @@ export default function App() {
         description: data.description,
         blocks: data.blocks,
         autoNumberSteps: data.autoNumberSteps,
+        tags: data.tags,
         categoryOffline: data.categoryOffline,
         characterId: data.characterId,
         icon: data.icon || '☘️',
@@ -2101,57 +1886,145 @@ export default function App() {
     return true;
   };
 
-  // Filtration logic for active left lists
+  // Danh mục tag xây dựng CHỈ từ dữ liệu hợp lệ đang hiển thị cho người xem hiện tại
+  const charTagCatalog = useMemo(
+    () =>
+      buildTagCatalogFromTagLists(
+        displayCharacters.map((c) => getCharacterTags(c)),
+        sharedTags,
+      ),
+    [displayCharacters, sharedTags],
+  );
+
+  const noteTagCatalog = useMemo(
+    () =>
+      buildTagCatalogFromTagLists(
+        [
+          ...displayNotes.map((n) => getNoteTags(n)),
+          ...displayLibraryPrompts.map((p) => getLibraryPromptTags(p)),
+        ],
+        sharedTags,
+      ),
+    [displayNotes, displayLibraryPrompts, sharedTags],
+  );
+
+  const ideaTagCatalog = useMemo(
+    () =>
+      buildTagCatalogFromTagLists(
+        displayIdeas.map((i) => getIdeaTags(i)),
+        sharedTags,
+      ),
+    [displayIdeas, sharedTags],
+  );
+
+  const formCharTagCatalog = useMemo(
+    () =>
+      buildTagCatalogFromTagLists(
+        displayCharacters.map((c) => getCharacterTags(c)),
+        sharedTags,
+        { includeZeroShared: true },
+      ),
+    [displayCharacters, sharedTags],
+  );
+
+  const formNoteTagCatalog = useMemo(
+    () =>
+      buildTagCatalogFromTagLists(
+        [
+          ...displayNotes.map((n) => getNoteTags(n)),
+          ...displayLibraryPrompts.map((p) => getLibraryPromptTags(p)),
+        ],
+        sharedTags,
+        { includeZeroShared: true },
+      ),
+    [displayNotes, displayLibraryPrompts, sharedTags],
+  );
+
+  const formIdeaTagCatalog = useMemo(
+    () =>
+      buildTagCatalogFromTagLists(
+        displayIdeas.map((i) => getIdeaTags(i)),
+        sharedTags,
+        { includeZeroShared: true },
+      ),
+    [displayIdeas, sharedTags],
+  );
+
+  const toggleTagInList = (
+    setter: React.Dispatch<React.SetStateAction<string[]>>,
+    tag: string,
+  ) => {
+    const key = toTagComparisonKey(tag);
+    if (!key) return;
+    setter((prev) =>
+      prev.some((t) => toTagComparisonKey(t) === key)
+        ? prev.filter((t) => toTagComparisonKey(t) !== key)
+        : [...prev, tag],
+    );
+  };
+
+  const removeTagFromList = (
+    setter: React.Dispatch<React.SetStateAction<string[]>>,
+    tag: string,
+  ) => {
+    const key = toTagComparisonKey(tag);
+    setter((prev) => prev.filter((t) => toTagComparisonKey(t) !== key));
+  };
+
+  // Filtration logic for active left lists (multi-tag AND + source + text)
   const queryLower = searchQuery.toLowerCase();
 
-  const filteredNotes = selectedLibTopicId === 'all' ? displayNotes.filter((n) => {
+  const filteredNotes = displayNotes.filter((n) => {
     if (!matchesSourceFilter(n)) return false;
+    const nTags = getNoteTags(n);
+    if (!itemMatchesSelectedTags(nTags, selectedNoteTags, sharedTags)) return false;
+    if (!queryLower) return true;
     return (
       n.title.toLowerCase().includes(queryLower) ||
       n.command.toLowerCase().includes(queryLower) ||
       n.content.toLowerCase().includes(queryLower) ||
-      (n.description && n.description.toLowerCase().includes(queryLower))
+      (n.description && n.description.toLowerCase().includes(queryLower)) ||
+      nTags.some((t) => t.toLowerCase().includes(queryLower))
     );
-  }) : [];
-
-  const activeTopic = TOPICS.find(t => t.id === selectedTopicId) || TOPICS[0];
-  const filteredIdeas = displayIdeas
-    .filter(matchesSourceFilter)
-    .filter(activeTopic.match)
-    .filter(i => 
-      i.title.toLowerCase().includes(queryLower) ||
-      i.content.toLowerCase().includes(queryLower) ||
-      (i.tags && i.tags.some(t => t.toLowerCase().includes(queryLower)))
-    );
-
-  const filteredCharacters = displayCharacters.filter(c => {
-    if (!matchesSourceFilter(c)) return false;
-    const matchesText = searchQuery === '' || 
-      c.name.toLowerCase().includes(queryLower) ||
-      c.role.toLowerCase().includes(queryLower) || 
-      (c.description && c.description.toLowerCase().includes(queryLower));
-    
-    const matchesAuthor = !selectedFilterAuthor || c.author === selectedFilterAuthor;
-    
-    const matchesTag = !selectedFilterTag || 
-      c.role.split('/').map(r => r.trim().toLowerCase()).includes(selectedFilterTag.toLowerCase());
-      
-    return matchesText && matchesAuthor && matchesTag;
   });
 
-  const activeLibTopic = LIB_TOPICS.find(t => t.id === selectedLibTopicId) || LIB_TOPICS[0];
-  const filteredLibraryPrompts = displayLibraryPrompts
-    .filter(matchesSourceFilter)
-    .filter(activeLibTopic.match)
-    .filter(p => {
-      const matchesQuery = p.title.toLowerCase().includes(queryLower) ||
-        p.description.toLowerCase().includes(queryLower) ||
-        p.author.toLowerCase().includes(queryLower) ||
-        p.tags.some(t => t.toLowerCase().includes(queryLower));
+  const filteredIdeas = displayIdeas.filter((i) => {
+    if (!matchesSourceFilter(i)) return false;
+    const iTags = getIdeaTags(i);
+    if (!itemMatchesSelectedTags(iTags, selectedIdeaTags, sharedTags)) return false;
+    if (!queryLower) return true;
+    return (
+      i.title.toLowerCase().includes(queryLower) ||
+      i.content.toLowerCase().includes(queryLower) ||
+      iTags.some((t) => t.toLowerCase().includes(queryLower))
+    );
+  });
 
-      const matchesTag = selectedLibTag ? p.tags.includes(selectedLibTag) : true;
-      return matchesQuery && matchesTag;
-    });
+  const filteredCharacters = displayCharacters.filter((c) => {
+    if (!matchesSourceFilter(c)) return false;
+    const cTags = getCharacterTags(c);
+    if (!itemMatchesSelectedTags(cTags, selectedCharTags, sharedTags)) return false;
+    if (!queryLower) return true;
+    return (
+      c.name.toLowerCase().includes(queryLower) ||
+      c.role.toLowerCase().includes(queryLower) ||
+      (c.description && c.description.toLowerCase().includes(queryLower)) ||
+      cTags.some((t) => t.toLowerCase().includes(queryLower))
+    );
+  });
+
+  const filteredLibraryPrompts = displayLibraryPrompts.filter((p) => {
+    if (!matchesSourceFilter(p)) return false;
+    const pTags = getLibraryPromptTags(p);
+    if (!itemMatchesSelectedTags(pTags, selectedNoteTags, sharedTags)) return false;
+    if (!queryLower) return true;
+    return (
+      p.title.toLowerCase().includes(queryLower) ||
+      p.description.toLowerCase().includes(queryLower) ||
+      p.author.toLowerCase().includes(queryLower) ||
+      pTags.some((t) => t.toLowerCase().includes(queryLower))
+    );
+  });
 
   // Filtered authors based on search query
   const filteredAuthors = authorsList.filter(author => {
@@ -2265,11 +2138,10 @@ export default function App() {
     setIsMyVaultOpen(false);
     setSearchQuery('');
     setSourceFilter('all');
-    setSelectedLibTopicId('all');
-    setSelectedLibTag(null);
-    setSelectedTopicId('all');
-    setSelectedFilterTag(null);
-    setSelectedFilterAuthor(null);
+    setSelectedNoteTags([]);
+    setSelectedIdeaTags([]);
+    setSelectedCharTags([]);
+    setIsAllTagsModalOpen(false);
     setIsCreating(false);
     setIsCreatingLibraryPrompt(false);
 
@@ -2513,56 +2385,6 @@ export default function App() {
               />
             </div>
 
-            {/* Advanced Tag Filter for Characters */}
-            {activeTab === 'characters' && (
-              <div className="mt-2 space-y-1.5">
-                <div className="flex gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsFilterModalOpen(true);
-                      setCharacterFilterType('tag');
-                    }}
-                    className={`retro-btn flex-1 py-1.5 px-2.5 text-[11px] font-semibold flex items-center justify-center gap-1.5 cursor-pointer ${
-                      selectedFilterTag ? 'retro-btn-active' : ''
-                    }`}
-                  >
-                    <PixelTagIcon className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
-                    <span>{selectedFilterTag ? `Tag: #${selectedFilterTag}` : 'Tìm theo Tag'}</span>
-                  </button>
-
-                  {selectedFilterTag && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedFilterAuthor(null);
-                        setSelectedFilterTag(null);
-                        setCharacterFilterType(null);
-                        showToast('Xóa bộ lọc nhân vật', 'info');
-                      }}
-                      className="retro-btn px-2.5 text-red-700 dark:text-[#E4A6AA] cursor-pointer"
-                      title="Xóa bộ lọc"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-
-                {/* Active search filter badge indicator */}
-                {selectedFilterTag && (
-                  <div className="flex flex-wrap items-center gap-1.5 px-2 py-1 bg-[#FFF9EA] dark:bg-[#292E2B] rounded border border-[#D4E4DA] dark:border-[#49554D] text-[10px] text-[#527062] dark:text-[#B8BDB5]">
-                    <span className="font-medium">Đang lọc:</span>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedFilterTag(null)}
-                      className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-[#F2CDDA]/45 dark:bg-[#343D37] text-[#6B374B] dark:text-[#D9A7B8] rounded border border-[#E5B6C6] dark:border-[#49554D] hover:opacity-85 cursor-pointer transition font-semibold"
-                    >
-                      #{selectedFilterTag} ×
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
             {/* Source Filter Bar (All / System / Community / Mine) */}
             {activeTab !== 'authors' && (
               <div className="mt-2 flex items-center gap-1 flex-wrap">
@@ -2589,90 +2411,41 @@ export default function App() {
             )}
           </div>
 
-          {/* Categories / Topics Horizontal Scroll Bar specifically for Prompt Library (Notes Tab) */}
-          {activeTab === 'notes' && (
-            <div className="px-2.5 py-2 border-b border-[#E3EFE7] dark:border-[#49554D] flex items-center gap-1.5 overflow-x-auto snap-x snap-mandatory scrollbar-none">
-              {LIB_TOPICS.map((topic) => {
-                const isActive = selectedLibTopicId === topic.id;
-                const count =
-                  displayLibraryPrompts.filter(matchesSourceFilter).filter(topic.match).length +
-                  (topic.id === 'all' ? displayNotes.filter(matchesSourceFilter).length : 0);
-                
-                const renderLucideIcon = () => {
-                  const css = `w-3 h-3 flex-shrink-0 ${isActive ? 'text-[#39755D] dark:text-[#A3BDA8]' : 'text-[#5A786A] dark:text-[#B8BDB5]'}`;
-                  switch (topic.id) {
-                    case 'all': return <Sparkles className={css} />;
-                    case 'story': return <BookOpen className={css} />;
-                    case 'hud_social': return <Terminal className={css} />;
-                    case 'web': return <Globe className={css} />;
-                    case 'nsfw': return <Flame className={css} />;
-                    case 'sync_fix': return <RefreshCw className={css} />;
-                    case 'control': return <User className={css} />;
-                    case 'autoplay': return <Zap className={css} />;
-                    case 'minigame': return <Activity className={css} />;
-                    default: return <Sparkles className={css} />;
-                  }
-                };
-
-                return (
-                  <button
-                    key={topic.id}
-                    type="button"
-                    onClick={() => setSelectedLibTopicId(topic.id)}
-                    className={`flex items-center gap-1 px-2.5 py-1 rounded-md border text-[11px] font-semibold whitespace-nowrap snap-start transition-all cursor-pointer active:translate-y-px ${
-                      isActive
-                        ? 'border-[#39755D] bg-[#E2F3E8] text-[#224C3B] dark:bg-[#343D37] dark:text-[#E4E1D8] dark:border-[#A3BDA8]'
-                        : 'border-[#CFE2D6] dark:border-[#49554D] bg-[#FFF9EA] dark:bg-[#292E2B] text-[#4C6A5C] dark:text-[#B8BDB5] hover:bg-[#E2F3E8]/55 dark:hover:bg-[#343D37]'
-                    }`}
-                  >
-                    {renderLucideIcon()}
-                    <span>{topic.name}</span>
-                    <span className="text-[10px] opacity-75 tabular-nums-mono">({count})</span>
-                  </button>
-                );
-              })}
-            </div>
+          {/* Dynamic Multi-Tag Filter Bar across Characters, Notes/Library, and Ideas */}
+          {activeTab === 'characters' && (
+            <TagFilterBar
+              catalog={charTagCatalog}
+              selectedTags={selectedCharTags}
+              onToggleTag={(t) => toggleTagInList(setSelectedCharTags, t)}
+              onRemoveTag={(t) => removeTagFromList(setSelectedCharTags, t)}
+              onClearAll={() => setSelectedCharTags([])}
+              onOpenAllTags={() => setIsAllTagsModalOpen(true)}
+              isAdmin={isAdmin}
+            />
           )}
 
-          {/* Categories / Topics Horizontal Scroll Bar specifically for Ideas Tab */}
-          {activeTab === 'ideas' && (
-            <div className="px-2.5 py-2 border-b border-[#E3EFE7] dark:border-[#49554D] flex items-center gap-1.5 overflow-x-auto snap-x snap-mandatory scrollbar-none">
-              {TOPICS.map((topic) => {
-                const isActive = selectedTopicId === topic.id;
-                const count = displayIdeas.filter(matchesSourceFilter).filter(topic.match).length;
-                
-                const renderLucideIcon = () => {
-                  const css = `w-3 h-3 flex-shrink-0 ${isActive ? 'text-[#39755D] dark:text-[#A3BDA8]' : 'text-[#5A786A] dark:text-[#B8BDB5]'}`;
-                  switch (topic.id) {
-                    case 'all': return <Sparkles className={css} />;
-                    case 'cooking': return <Utensils className={css} />;
-                    case 'sweet': return <Heart className={css} />;
-                    case 'sexy': return <Flame className={css} />;
-                    case 'drama': return <Zap className={css} />;
-                    case 'funny': return <Smile className={css} />;
-                    case 'daily': return <Activity className={css} />;
-                    default: return <Sparkles className={css} />;
-                  }
-                };
+          {activeTab === 'notes' && (
+            <TagFilterBar
+              catalog={noteTagCatalog}
+              selectedTags={selectedNoteTags}
+              onToggleTag={(t) => toggleTagInList(setSelectedNoteTags, t)}
+              onRemoveTag={(t) => removeTagFromList(setSelectedNoteTags, t)}
+              onClearAll={() => setSelectedNoteTags([])}
+              onOpenAllTags={() => setIsAllTagsModalOpen(true)}
+              isAdmin={isAdmin}
+            />
+          )}
 
-                return (
-                  <button
-                    key={topic.id}
-                    type="button"
-                    onClick={() => setSelectedTopicId(topic.id)}
-                    className={`flex items-center gap-1 px-2.5 py-1 rounded-md border text-[11px] font-semibold whitespace-nowrap snap-start transition-all cursor-pointer active:translate-y-px ${
-                      isActive
-                        ? 'border-[#39755D] bg-[#E2F3E8] text-[#224C3B] dark:bg-[#343D37] dark:text-[#E4E1D8] dark:border-[#A3BDA8]'
-                        : 'border-[#CFE2D6] dark:border-[#49554D] bg-[#FFF9EA] dark:bg-[#292E2B] text-[#4C6A5C] dark:text-[#B8BDB5] hover:bg-[#E2F3E8]/55 dark:hover:bg-[#343D37]'
-                    }`}
-                  >
-                    {renderLucideIcon()}
-                    <span>{topic.name}</span>
-                    <span className="text-[10px] opacity-75 tabular-nums-mono">({count})</span>
-                  </button>
-                );
-              })}
-            </div>
+          {activeTab === 'ideas' && (
+            <TagFilterBar
+              catalog={ideaTagCatalog}
+              selectedTags={selectedIdeaTags}
+              onToggleTag={(t) => toggleTagInList(setSelectedIdeaTags, t)}
+              onRemoveTag={(t) => removeTagFromList(setSelectedIdeaTags, t)}
+              onClearAll={() => setSelectedIdeaTags([])}
+              onOpenAllTags={() => setIsAllTagsModalOpen(true)}
+              isAdmin={isAdmin}
+            />
           )}
 
           {/* Unified Item Listings inside Folder Browser */}
@@ -2827,7 +2600,8 @@ export default function App() {
                   <div className="space-y-2.5 pt-0.5">
                     {filteredIdeas.map((idea) => {
                       const ideaKey = getItemKey(idea);
-                      const topicInfo = getIdeaTopicInfo(idea);
+                      const ideaIcon = getIdeaIcon(idea);
+                      const ideaTags = getIdeaTags(idea);
                       const isActive = selectedIdeaId === ideaKey && !isCreating;
                       const canMutate = canEditOrDeleteItem('idea', idea);
                       
@@ -2846,13 +2620,29 @@ export default function App() {
                               : 'bg-[#FFF9EA] dark:bg-[#292E2B] border-[#CFE2D6] dark:border-[#49554D] hover:border-[#8AB69F] dark:hover:border-[#A3BDA8]'
                           }`}
                         >
-                          {/* Card Header (Icon, Topic & Actions) */}
+                          {/* Card Header (Icon, Tags & Actions) */}
                           <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
-                              <span className="text-base leading-none flex-shrink-0">{topicInfo.icon}</span>
-                              <span className={`px-2 py-0.5 text-[9px] font-bold rounded border truncate select-none ${topicInfo.colorClass}`}>
-                                {topicInfo.name}
-                              </span>
+                            <div className="flex items-center gap-1 min-w-0 flex-wrap">
+                              <span className="text-base leading-none flex-shrink-0 mr-0.5">{ideaIcon}</span>
+                              {ideaTags.slice(0, 3).map((tag) => (
+                                <button
+                                  key={tag}
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleTagInList(setSelectedIdeaTags, tag);
+                                  }}
+                                  className="px-1.5 py-0.5 text-[9.5px] font-semibold rounded bg-[#E2F3E8] dark:bg-[#343D37] text-[#285B47] dark:text-[#A3BDA8] border border-[#C3DEC9] dark:border-[#49554D] hover:border-[#39755D] cursor-pointer"
+                                  title={`Lọc theo tag #${tag}`}
+                                >
+                                  #{tag}
+                                </button>
+                              ))}
+                              {ideaTags.length > 3 && (
+                                <span className="text-[9.5px] font-mono text-[#587568] dark:text-[#B8BDB5]">
+                                  +{ideaTags.length - 3}
+                                </span>
+                              )}
                               {idea.isSystem ? (
                                 <span className="px-1.5 py-0.5 text-[9px] font-bold rounded bg-[#E2F3E8] dark:bg-[#343D37] text-[#285B47] dark:text-[#A3BDA8] border border-[#9FC4AF] dark:border-[#49554D]">
                                   Hệ thống
@@ -3108,6 +2898,8 @@ export default function App() {
                       isAdmin={isAdmin}
                       isAuthenticated={isAuthenticated}
                       userId={userId}
+                      availableCatalog={formNoteTagCatalog}
+                      sharedTags={sharedTags}
                       onToast={showToast}
                     />
                   )}
@@ -3118,6 +2910,9 @@ export default function App() {
                       isSaving={isSavingItem}
                       canPublish={isAuthenticated}
                       isAdmin={isAdmin}
+                      availableCatalog={formIdeaTagCatalog}
+                      sharedTags={sharedTags}
+                      onToast={showToast}
                     />
                   )}
                   {activeTab === 'characters' && (
@@ -3127,6 +2922,9 @@ export default function App() {
                       isSaving={isSavingItem}
                       canPublish={isAuthenticated}
                       isAdmin={isAdmin}
+                      availableCatalog={formCharTagCatalog}
+                      sharedTags={sharedTags}
+                      onToast={showToast}
                     />
                   )}
                 </div>
@@ -3146,6 +2944,8 @@ export default function App() {
                     isAdmin={isAdmin}
                     isAuthenticated={isAuthenticated}
                     userId={userId}
+                    availableCatalog={formNoteTagCatalog}
+                    sharedTags={sharedTags}
                     onToast={showToast}
                   />
                 </div>
@@ -3165,6 +2965,8 @@ export default function App() {
                       isAdmin={isAdmin}
                       isAuthenticated={isAuthenticated}
                       userId={userId}
+                      availableCatalog={formNoteTagCatalog}
+                      sharedTags={sharedTags}
                       onToast={showToast}
                     />
                   )}
@@ -3176,6 +2978,9 @@ export default function App() {
                       isSaving={isSavingItem}
                       canPublish={isAuthenticated}
                       isAdmin={isAdmin}
+                      availableCatalog={formIdeaTagCatalog}
+                      sharedTags={sharedTags}
+                      onToast={showToast}
                     />
                   )}
                   {activeTab === 'characters' && activeChar && (
@@ -3186,6 +2991,9 @@ export default function App() {
                       isSaving={isSavingItem}
                       canPublish={isAuthenticated}
                       isAdmin={isAdmin}
+                      availableCatalog={formCharTagCatalog}
+                      sharedTags={sharedTags}
+                      onToast={showToast}
                     />
                   )}
                 </div>
@@ -3397,6 +3205,24 @@ export default function App() {
                               <span>{activeNote.icon || '☘️'}</span>
                               <span>{activeNote.title}</span>
                             </h2>
+                            {getNoteTags(activeNote).length > 0 && (
+                              <div className="flex flex-wrap gap-1.5 mt-2">
+                                {getNoteTags(activeNote).map((tag) => (
+                                  <button
+                                    key={tag}
+                                    type="button"
+                                    onClick={() => {
+                                      toggleTagInList(setSelectedNoteTags, tag);
+                                      setShowDetailOnMobile(false);
+                                    }}
+                                    className="px-2 py-0.5 bg-[#E2F3E8] dark:bg-[#202423] text-[#285B47] dark:text-[#A3BDA8] hover:bg-[#39755D] hover:text-[#FFF9EA] dark:hover:bg-[#343D37] dark:hover:text-[#E4E1D8] font-semibold text-[11px] rounded border border-[#B3D5C1] dark:border-[#49554D] transition cursor-pointer"
+                                    title={`Lọc Kho Lệnh theo #${tag}`}
+                                  >
+                                    #{tag}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                           </div>
                           {canEditOrDeleteItem('note', activeNote) && (
                             <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end flex-shrink-0">
@@ -3528,10 +3354,30 @@ export default function App() {
                         </div>
 
                         <div className="px-4 py-3.5 flex flex-col sm:flex-row justify-between items-start gap-3">
-                          <h2 className="text-lg sm:text-xl font-bold text-[#224C3B] dark:text-[#E4E1D8] leading-snug flex items-start gap-2.5 flex-1 min-w-0">
-                            <span className="text-xl leading-none mt-0.5 flex-shrink-0">{getLibraryPromptIcon(activeLibraryPrompt)}</span>
-                            <span className="min-w-0 break-words">{activeLibraryPrompt.title}</span>
-                          </h2>
+                          <div className="flex-1 min-w-0">
+                            <h2 className="text-lg sm:text-xl font-bold text-[#224C3B] dark:text-[#E4E1D8] leading-snug flex items-start gap-2.5">
+                              <span className="text-xl leading-none mt-0.5 flex-shrink-0">{getLibraryPromptIcon(activeLibraryPrompt)}</span>
+                              <span className="min-w-0 break-words">{activeLibraryPrompt.title}</span>
+                            </h2>
+                            {getLibraryPromptTags(activeLibraryPrompt).length > 0 && (
+                              <div className="flex flex-wrap gap-1.5 mt-2">
+                                {getLibraryPromptTags(activeLibraryPrompt).map((tag) => (
+                                  <button
+                                    key={tag}
+                                    type="button"
+                                    onClick={() => {
+                                      toggleTagInList(setSelectedNoteTags, tag);
+                                      setShowDetailOnMobile(false);
+                                    }}
+                                    className="px-2 py-0.5 bg-[#E2F3E8] dark:bg-[#202423] text-[#285B47] dark:text-[#A3BDA8] hover:bg-[#39755D] hover:text-[#FFF9EA] dark:hover:bg-[#343D37] dark:hover:text-[#E4E1D8] font-semibold text-[11px] rounded border border-[#B3D5C1] dark:border-[#49554D] transition cursor-pointer"
+                                    title={`Lọc Kho Lệnh theo #${tag}`}
+                                  >
+                                    #{tag}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
 
                           {canEditOrDeleteLibraryPrompt(activeLibraryPrompt) && (
                             <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end flex-shrink-0">
@@ -3612,9 +3458,29 @@ export default function App() {
                         </div>
 
                         <div className="p-4 flex flex-col sm:flex-row justify-between items-start gap-3 border-b border-[#D8E7DD] dark:border-[#49554D]">
-                          <h2 className="text-lg sm:text-xl font-bold text-[#224C3B] dark:text-[#E4E1D8] leading-snug break-words flex-1 min-w-0">
-                            {activeIdea.title}
-                          </h2>
+                          <div className="flex-1 min-w-0">
+                            <h2 className="text-lg sm:text-xl font-bold text-[#224C3B] dark:text-[#E4E1D8] leading-snug break-words">
+                              {activeIdea.title}
+                            </h2>
+                            {getIdeaTags(activeIdea).length > 0 && (
+                              <div className="flex flex-wrap gap-1.5 mt-2">
+                                {getIdeaTags(activeIdea).map((tag) => (
+                                  <button
+                                    key={tag}
+                                    type="button"
+                                    onClick={() => {
+                                      toggleTagInList(setSelectedIdeaTags, tag);
+                                      setShowDetailOnMobile(false);
+                                    }}
+                                    className="px-2 py-0.5 bg-[#E2F3E8] dark:bg-[#202423] text-[#285B47] dark:text-[#A3BDA8] hover:bg-[#39755D] hover:text-[#FFF9EA] dark:hover:bg-[#343D37] dark:hover:text-[#E4E1D8] font-semibold text-[11px] rounded border border-[#B3D5C1] dark:border-[#49554D] transition cursor-pointer"
+                                    title={`Lọc Kho Idea theo #${tag}`}
+                                  >
+                                    #{tag}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                           {canEditOrDeleteItem('idea', activeIdea) && (
                             <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end flex-shrink-0">
                               <button
@@ -3685,25 +3551,21 @@ export default function App() {
                                   {activeChar.name}
                                 </h2>
                                 <div className="flex flex-wrap gap-1.5 mt-2">
-                                  {activeChar.role.split('/').map((tag, idx) => {
-                                    const trimmed = tag.trim();
-                                    if (!trimmed) return null;
-                                    return (
-                                      <button
-                                        key={idx}
-                                        type="button"
-                                        onClick={() => {
-                                          setSelectedFilterTag(trimmed);
-                                          setShowDetailOnMobile(false);
-                                          showToast(`Đang lọc nhân vật theo tag: ${trimmed}`, 'info');
-                                        }}
-                                        className="px-2 py-0.5 bg-[#E2F3E8] dark:bg-[#202423] text-[#285B47] dark:text-[#A3BDA8] hover:bg-[#39755D] hover:text-[#FFF9EA] dark:hover:bg-[#343D37] dark:hover:text-[#E4E1D8] dark:hover:border-[#A3BDA8] font-semibold text-[11px] rounded border border-[#B3D5C1] dark:border-[#49554D] transition cursor-pointer"
-                                        title={`Lọc theo tag #${trimmed}`}
-                                      >
-                                        #{trimmed}
-                                      </button>
-                                    );
-                                  })}
+                                  {getCharacterTags(activeChar).map((trimmed, idx) => (
+                                    <button
+                                      key={`${trimmed}-${idx}`}
+                                      type="button"
+                                      onClick={() => {
+                                        toggleTagInList(setSelectedCharTags, trimmed);
+                                        setShowDetailOnMobile(false);
+                                        showToast(`Đang lọc nhân vật theo tag: #${trimmed}`, 'info');
+                                      }}
+                                      className="px-2 py-0.5 bg-[#E2F3E8] dark:bg-[#202423] text-[#285B47] dark:text-[#A3BDA8] hover:bg-[#39755D] hover:text-[#FFF9EA] dark:hover:bg-[#343D37] dark:hover:text-[#E4E1D8] dark:hover:border-[#A3BDA8] font-semibold text-[11px] rounded border border-[#B3D5C1] dark:border-[#49554D] transition cursor-pointer"
+                                      title={`Lọc theo tag #${trimmed}`}
+                                    >
+                                      #{trimmed}
+                                    </button>
+                                  ))}
                                 </div>
                               </div>
                             </div>
@@ -4146,181 +4008,46 @@ export default function App() {
         </main>
       </div>
 
-      {/* CHARACTER SEARCH & FILTER MODAL */}
-      {isFilterModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          {/* Backdrop overlay */}
-          <div 
-            className="absolute inset-0 bg-stone-900/60 dark:bg-[#141716]/75 backdrop-blur-xs transition-opacity"
-            onClick={() => setIsFilterModalOpen(false)}
-          />
-          
-          {/* Modal content container */}
-          <div className="bg-[#FFF9EA] dark:bg-[#292E2B] rounded-lg border border-[#9FC4AF] dark:border-[#49554D] w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden shadow-lg dark:shadow-none relative z-10 animate-fade-in">
-            {/* Modal Header */}
-            <div className="retro-titlebar px-5 py-3 flex justify-between items-center">
-              <div className="flex items-center gap-2.5">
-                <PixelTagIcon className="w-4 h-4 text-[#39755D] dark:text-[#A3BDA8]" />
-                <div>
-                  <h3 className="text-sm font-bold text-[#224C3B] dark:text-[#E4E1D8]">Tìm kiếm & Lọc nhân vật</h3>
-                  <p className="text-[10px] text-[#527062] dark:text-[#B8BDB5]">Phân loại nhân vật theo từng Tag mong muốn</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsFilterModalOpen(false)}
-                className="retro-btn p-1.5 text-[#39755D] dark:text-[#A3BDA8] cursor-pointer"
-                aria-label="Đóng"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            {/* Modal Body */}
-            <div className="flex-1 overflow-y-auto p-5 space-y-5">
-              {/* List of Tags */}
-              <div className="space-y-3 animate-fade-in">
-                <div className="flex items-center justify-between border-b border-[#D5E6DC] dark:border-[#49554D] pb-2">
-                  <h4 className="text-xs font-bold text-[#224C3B] dark:text-[#E4E1D8] flex items-center gap-1.5">
-                    <PixelTagIcon className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
-                    <span>Danh sách Tag / Thể loại</span>
-                  </h4>
-                  <span className="text-[10px] tabular-nums-mono text-[#5B7A6C] dark:text-[#B8BDB5]">
-                    Tất cả ({Array.from(new Set(displayCharacters.flatMap(c => c.role.split('/').map(r => r.trim())).filter(Boolean))).length})
-                  </span>
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  {(Array.from(new Set(displayCharacters.flatMap(c => c.role.split('/').map(r => r.trim())).filter(Boolean))) as string[]).map((tag) => {
-                    const isChosen = selectedFilterTag === tag;
-                    const matchingCount = displayCharacters.filter(c => 
-                      c.role.split('/').map(r => r.trim().toLowerCase()).includes(tag.toLowerCase())
-                    ).length;
-
-                    return (
-                      <button
-                        key={tag}
-                        type="button"
-                        onClick={() => {
-                          const nextTag = isChosen ? null : tag;
-                          setSelectedFilterTag(nextTag);
-                          setSelectedFilterAuthor(null);
-                          setIsFilterModalOpen(false);
-                          if (nextTag) {
-                            showToast(`Đã lọc nhân vật theo tag: #${nextTag}`, 'success');
-                          } else {
-                            showToast('Đã dừng lọc theo tag', 'info');
-                          }
-                        }}
-                        className={`retro-btn py-1.5 px-2.5 text-xs flex items-center gap-1.5 font-semibold cursor-pointer ${
-                          isChosen ? 'retro-btn-active' : ''
-                        }`}
-                      >
-                        <span>#{tag}</span>
-                        <span className="text-[10px] tabular-nums-mono opacity-80 bg-[#E2F3E8] dark:bg-[#343D37] px-1.5 py-0.5 rounded">
-                          {matchingCount}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* List of matching characters */}
-              {selectedFilterTag && (
-                <div className="border-t border-[#D5E6DC] dark:border-[#49554D] pt-4 space-y-3">
-                  <div className="retro-callout-mint px-3 py-2 flex justify-between items-center">
-                    <div className="text-xs font-bold text-[#224C3B] dark:text-[#E4E1D8]">
-                      Đang chọn: <span className="text-[#39755D] dark:text-[#A3BDA8]">#{selectedFilterTag}</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedFilterTag(null);
-                      }}
-                      className="text-[11px] text-red-700 dark:text-[#E4A6AA] hover:underline font-semibold cursor-pointer"
-                    >
-                      Bỏ chọn lọc
-                    </button>
-                  </div>
-
-                  <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
-                    {displayCharacters.filter(c => {
-                      const matchesTag = !selectedFilterTag || c.role.split('/').map(r => r.trim().toLowerCase()).includes(selectedFilterTag.toLowerCase());
-                      return matchesTag;
-                    }).map((char) => {
-                      const charKey = getItemKey(char);
-                      const isCurrentlySelected = selectedCharId === charKey;
-                      return (
-                        <div
-                           key={charKey}
-                           onClick={() => {
-                             setSelectedCharId(charKey);
-                             setIsFilterModalOpen(false);
-                             showToast(`Đã chọn nhân vật: ${char.name}`, 'success');
-                           }}
-                           className={`p-2.5 rounded-md border transition cursor-pointer flex items-center justify-between gap-3 group ${
-                             isCurrentlySelected
-                               ? 'border-[#39755D] bg-[#E2F3E8] dark:border-[#A3BDA8] dark:bg-[#343D37]'
-                               : 'border-[#CFE2D6] dark:border-[#49554D] bg-[#FAF6EA] dark:bg-[#292E2B] hover:border-[#39755D] dark:hover:border-[#A3BDA8]'
-                           }`}
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <div className="w-8 h-8 rounded-md bg-[#FFF9EA] dark:bg-[#202423] border border-[#B8D7C5] dark:border-[#49554D] flex items-center justify-center text-lg flex-shrink-0">
-                              {char.avatar}
-                            </div>
-                            <div className="min-w-0">
-                              <h5 className="text-xs font-bold text-[#20372D] dark:text-[#E4E1D8] truncate">
-                                {char.name}
-                              </h5>
-                              <p className="text-[10px] text-[#587568] dark:text-[#B8BDB5] mt-0.5 line-clamp-1">
-                                {char.role}
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-2 flex-shrink-0">
-                            {(char.authorDisplayName || char.author) && (
-                              <span className="text-[10px] bg-[#E2F3E8] dark:bg-[#343D37] px-1.5 py-0.5 rounded text-[#2F634E] dark:text-[#A3BDA8] font-medium">
-                                {char.authorDisplayName || char.author}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Modal Footer */}
-            <div className="px-5 py-3 bg-[#F1F8F3] dark:bg-[#202423] border-t border-[#CBE0D3] dark:border-[#49554D] flex justify-between items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedFilterAuthor(null);
-                  setSelectedFilterTag(null);
-                  setCharacterFilterType('tag');
-                  showToast('Đã đặt lại bộ lọc', 'info');
-                }}
-                className="retro-btn px-3 py-1.5 text-xs font-semibold cursor-pointer"
-              >
-                Đặt lại
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsFilterModalOpen(false)}
-                className="retro-btn-primary px-4 py-1.5 font-semibold text-xs cursor-pointer"
-              >
-                Đóng
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ALL TAGS & ADMIN TAG MANAGEMENT MODAL */}
+      <AllTagsModal
+        isOpen={isAllTagsModalOpen}
+        onClose={() => setIsAllTagsModalOpen(false)}
+        catalog={
+          activeTab === 'notes'
+            ? noteTagCatalog
+            : activeTab === 'ideas'
+              ? ideaTagCatalog
+              : charTagCatalog
+        }
+        sharedTags={sharedTags}
+        selectedTags={
+          activeTab === 'notes'
+            ? selectedNoteTags
+            : activeTab === 'ideas'
+              ? selectedIdeaTags
+              : selectedCharTags
+        }
+        onToggleTag={(tag) => {
+          if (activeTab === 'notes') toggleTagInList(setSelectedNoteTags, tag);
+          else if (activeTab === 'ideas') toggleTagInList(setSelectedIdeaTags, tag);
+          else toggleTagInList(setSelectedCharTags, tag);
+        }}
+        onClearSelected={() => {
+          if (activeTab === 'notes') setSelectedNoteTags([]);
+          else if (activeTab === 'ideas') setSelectedIdeaTags([]);
+          else setSelectedCharTags([]);
+        }}
+        isAdmin={isAdmin}
+        tabLabel={
+          activeTab === 'notes'
+            ? 'Kho Lệnh'
+            : activeTab === 'ideas'
+              ? 'Kho Idea'
+              : 'Nhân Vật'
+        }
+        onRefreshTagsAndData={handleRefreshTagsAndData}
+        onToast={showToast}
+      />
 
       {/* AUTHENTICATION MODAL */}
       <AuthModal

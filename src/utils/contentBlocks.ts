@@ -489,7 +489,24 @@ interface SerializedNotePayloadV2 {
   description?: string;
   autoNumberSteps?: boolean;
   blocks?: unknown[];
+  tags?: string[];
   legacyCategory?: string;
+}
+
+function cleanSerializedNoteTags(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of raw) {
+    if (typeof item !== 'string') continue;
+    const trimmed = item.replace(/^#+/, '').replace(/\s+/g, ' ').trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(trimmed);
+  }
+  return out;
 }
 
 export function parseNoteV2CategoryField(categoryOffline?: string | null): SerializedNotePayloadV2 | null {
@@ -509,6 +526,7 @@ export function getNoteDescriptionAndBlocks(note?: Partial<Note> | null): {
   description: string;
   blocks: PromptBlock[];
   autoNumberSteps: boolean;
+  tags: string[];
   legacyCategory?: string;
 } {
   if (!note) {
@@ -516,12 +534,17 @@ export function getNoteDescriptionAndBlocks(note?: Partial<Note> | null): {
       description: '',
       blocks: [createEmptyPromptBlock('prompt')],
       autoNumberSteps: false,
+      tags: [],
     };
   }
 
+  const parsedV2 = parseNoteV2CategoryField(note.categoryOffline);
+  const directTags = cleanSerializedNoteTags(note.tags);
+  const v2Tags = cleanSerializedNoteTags(parsedV2?.tags);
+  const resolvedTags = directTags.length > 0 ? directTags : v2Tags;
+
   if (Array.isArray(note.blocks) && note.blocks.length > 0) {
     const blocks = note.blocks.map((b, idx) => normalizePromptBlock(b, idx));
-    const parsedV2 = parseNoteV2CategoryField(note.categoryOffline);
     return {
       description:
         typeof note.description === 'string'
@@ -534,17 +557,18 @@ export function getNoteDescriptionAndBlocks(note?: Partial<Note> | null): {
         typeof note.autoNumberSteps === 'boolean'
           ? note.autoNumberSteps
           : Boolean(parsedV2?.autoNumberSteps),
+      tags: resolvedTags,
       legacyCategory: parsedV2?.legacyCategory,
     };
   }
 
-  const parsedV2 = parseNoteV2CategoryField(note.categoryOffline);
   if (parsedV2 && Array.isArray(parsedV2.blocks)) {
     const blocks = parsedV2.blocks.map((b, idx) => normalizePromptBlock(b, idx));
     return {
       description: typeof parsedV2.description === 'string' ? parsedV2.description : '',
       blocks: blocks.length > 0 ? blocks : [createEmptyPromptBlock('prompt')],
       autoNumberSteps: Boolean(parsedV2.autoNumberSteps),
+      tags: resolvedTags,
       legacyCategory:
         typeof parsedV2.legacyCategory === 'string' ? parsedV2.legacyCategory : undefined,
     };
@@ -571,10 +595,20 @@ export function getNoteDescriptionAndBlocks(note?: Partial<Note> | null): {
     });
   }
 
+  const legacyCatTags =
+    resolvedTags.length > 0
+      ? resolvedTags
+      : note.categoryOffline &&
+          !note.categoryOffline.startsWith(NOTE_V2_PREFIX) &&
+          note.categoryOffline.trim()
+        ? cleanSerializedNoteTags(note.categoryOffline.split(/[,/]/))
+        : [];
+
   return {
     description: '',
     blocks: fallbackBlocks.length > 0 ? fallbackBlocks : [createEmptyPromptBlock('prompt')],
     autoNumberSteps: false,
+    tags: legacyCatTags,
     legacyCategory: note.categoryOffline,
   };
 }
@@ -583,13 +617,15 @@ export function buildNoteFieldsFromBlocks(params: {
   description: string;
   blocks: PromptBlock[];
   autoNumberSteps: boolean;
+  tags?: string[];
   legacyCategory?: string;
 }): Pick<
   Note,
-  'command' | 'content' | 'description' | 'blocks' | 'autoNumberSteps' | 'categoryOffline'
+  'command' | 'content' | 'description' | 'blocks' | 'autoNumberSteps' | 'tags' | 'categoryOffline'
 > {
   const cleanBlocks = sanitizePromptBlocks(params.blocks, params.autoNumberSteps);
   const cleanDescription = params.description.trim();
+  const cleanTags = cleanSerializedNoteTags(params.tags);
 
   const promptTexts = cleanBlocks
     .filter((b) => (b.type || 'prompt') === 'prompt' && b.content.trim())
@@ -621,6 +657,7 @@ export function buildNoteFieldsFromBlocks(params: {
     description: cleanDescription,
     autoNumberSteps: params.autoNumberSteps,
     blocks: cleanBlocks,
+    ...(cleanTags.length > 0 ? { tags: cleanTags } : {}),
     ...(params.legacyCategory && !params.legacyCategory.startsWith(NOTE_V2_PREFIX)
       ? { legacyCategory: params.legacyCategory }
       : {}),
@@ -630,6 +667,7 @@ export function buildNoteFieldsFromBlocks(params: {
     description: cleanDescription,
     blocks: cleanBlocks,
     autoNumberSteps: params.autoNumberSteps,
+    tags: cleanTags,
     command: fallbackCommand,
     content: textParts.join('\n\n') || fallbackCommand,
     categoryOffline: `${NOTE_V2_PREFIX}${JSON.stringify(v2Payload)}`,

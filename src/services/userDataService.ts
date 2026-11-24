@@ -346,6 +346,10 @@ function rowToCharacter(
     id: row.item_id,
     name: row.name,
     role: row.role ?? '',
+    tags: (row.role ?? '')
+      .split(/[/,|]/)
+      .map((t) => t.trim())
+      .filter(Boolean),
     avatar: row.avatar || '🍀',
     description: nullToUndefined(row.description),
     createdAt: row.item_created_at || row.created_at,
@@ -375,18 +379,21 @@ function noteToRowPayload(
   isDeleted = false,
   visibility?: { isPublic?: boolean; isSystem?: boolean; omitVisibility?: boolean },
 ) {
-  const syncedNote =
-    Array.isArray(note.blocks) && note.blocks.length > 0
-      ? {
-          ...note,
-          ...buildNoteFieldsFromBlocks({
-            description: note.description ?? '',
-            blocks: note.blocks,
-            autoNumberSteps: Boolean(note.autoNumberSteps),
-            legacyCategory: note.categoryOffline,
-          }),
-        }
-      : note;
+  const hasBlocksOrTags =
+    (Array.isArray(note.blocks) && note.blocks.length > 0) ||
+    (Array.isArray(note.tags) && note.tags.length > 0);
+  const syncedNote = hasBlocksOrTags
+    ? {
+        ...note,
+        ...buildNoteFieldsFromBlocks({
+          description: note.description ?? '',
+          blocks: note.blocks ?? getNoteDescriptionAndBlocks(note).blocks,
+          autoNumberSteps: Boolean(note.autoNumberSteps),
+          tags: note.tags,
+          legacyCategory: note.categoryOffline,
+        }),
+      }
+    : note;
 
   const base: Record<string, unknown> = {
     user_id: userId,
@@ -432,6 +439,9 @@ function rowToNote(row: NoteRow, profilesMap?: Record<string, PublicProfile>): N
     baseNote.description = hydrated.description;
     baseNote.blocks = hydrated.blocks;
     baseNote.autoNumberSteps = hydrated.autoNumberSteps;
+  }
+  if (hydrated.tags.length > 0) {
+    baseNote.tags = hydrated.tags;
   }
 
   return baseNote;

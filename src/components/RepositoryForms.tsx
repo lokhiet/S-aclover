@@ -6,6 +6,7 @@ import {
   Idea,
   LibraryPrompt,
   PromptBlock,
+  SharedTag,
 } from '../types';
 import {
   Check,
@@ -15,9 +16,12 @@ import {
   Lock,
   Globe,
   ShieldCheck,
+  Wand2,
 } from 'lucide-react';
 import { SocialLinksEditor } from './forms/SocialLinksEditor';
 import { PromptBlockEditor } from './forms/PromptBlockEditor';
+import { SmartImportPanel } from './forms/SmartImportPanel';
+import { TagInputEditor } from './tags/TagInputEditor';
 import {
   applySocialLinksToCharacter,
   blocksToLibraryPromptSteps,
@@ -30,6 +34,15 @@ import {
   isSafeImageUrl,
   sanitizePromptBlocks,
 } from '../utils/contentBlocks';
+import {
+  applyTagsToCharacterFields,
+  dedupeTags,
+  getCharacterTags,
+  getNoteTags,
+  type TagCatalogEntry,
+} from '../utils/tagSystem';
+import { analyzeSmartTagsClient } from '../utils/smartTagEngine';
+import type { SmartParsedDraft } from '../utils/smartContentParser';
 import { deletePromptIllustrationPaths } from '../services/mediaService';
 
 type VisibilityMode = 'private' | 'public' | 'system';
@@ -123,6 +136,9 @@ interface CharacterFormProps {
   isSaving?: boolean;
   canPublish?: boolean;
   isAdmin?: boolean;
+  availableCatalog?: TagCatalogEntry[];
+  sharedTags?: SharedTag[];
+  onToast?: (message: string, type?: 'success' | 'info' | 'error') => void;
 }
 
 const CHARACTER_EMOJI_GROUPS: Array<{ id: string; label: string; emojis: string[] }> = [
@@ -192,9 +208,12 @@ export function CharacterForm({
   isSaving = false,
   canPublish = false,
   isAdmin = false,
+  availableCatalog = [],
+  sharedTags = [],
+  onToast,
 }: CharacterFormProps) {
   const [name, setName] = useState(initialData?.name || '');
-  const [role, setRole] = useState(initialData?.role || '');
+  const [charTags, setCharTags] = useState<string[]>(() => getCharacterTags(initialData));
   const [avatar, setAvatar] = useState(initialData?.avatar || '🍀');
   const [emojiCategory, setEmojiCategory] = useState(CHARACTER_EMOJI_GROUPS[0].id);
   const [description, setDescription] = useState(initialData?.description || '');
@@ -219,22 +238,41 @@ export function CharacterForm({
 
   const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSaving) return;
-    if (!name.trim()) return setError('Vui lòng nhập tên nhân vật');
+    if (!name.trim()) {
+      setError('Vui lòng nhập tên nhân vật');
+      return;
+    }
 
     const invalidLink = socialLinks.find(
       (link) => link.url.trim().length > 0 && !isSafeExternalHttpUrl(link.url),
     );
     if (invalidLink) {
-      return setError('Liên kết mạng xã hội cần bắt đầu bằng https:// hoặc http://');
+      setError('Liên kết mạng xã hội cần bắt đầu bằng https:// hoặc http://');
+      return;
     }
 
-    let finalRole = role.trim();
-    if (!finalRole) {
-      finalRole = 'Độc lập / Tự do thoại / Nhập vai';
+    let finalTags = dedupeTags(charTags);
+    if (finalTags.length === 0) {
+      const autoAnalysis = analyzeSmartTagsClient({
+        title: name.trim(),
+        description: description.trim(),
+        content: [backstoryUser, backstoryChar, prompt].filter(Boolean).join('\n\n'),
+        targetType: 'character',
+        availableCatalog,
+        sharedTags,
+        maxTags: 5,
+      });
+      if (autoAnalysis.hasEnoughEvidence && autoAnalysis.suggestedTags.length > 0) {
+        finalTags = autoAnalysis.suggestedTags;
+        setCharTags(finalTags);
+      }
     }
+
+    const syncedTagFields = applyTagsToCharacterFields(finalTags);
+    const finalRole = syncedTagFields.role || 'Độc lập / Tự do thoại / Nhập vai';
 
     let finalDescription = description.trim();
     if (!finalDescription) {
@@ -248,6 +286,7 @@ export function CharacterForm({
       id: initialData?.id,
       name: name.trim(),
       role: finalRole,
+      tags: syncedTagFields.tags,
       avatar,
       description: finalDescription,
       author: author.trim() || undefined,
@@ -266,7 +305,7 @@ export function CharacterForm({
     });
 
     setError('');
-    onSave(payload);
+    await onSave(payload);
   };
 
   return (
@@ -293,29 +332,32 @@ export function CharacterForm({
           </p>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className={LABEL_CLASS}>Tên Nhân Vật *</label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Ví dụ: Cố Kình Thương, Cố vấn Tài chính..."
-              className={INPUT_CLASS}
-            />
-          </div>
-
-          <div>
-            <label className={LABEL_CLASS}>Tag (Chủ đề / Vai trò)</label>
-            <input
-              type="text"
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              placeholder="Ví dụ: Papa, Thao túng, Chiều chuộng... (Để trống sẽ tự định dạng)"
-              className={INPUT_CLASS}
-            />
-          </div>
+        <div>
+          <label className={LABEL_CLASS}>Tên Nhân Vật *</label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Ví dụ: Cố Kình Thương, Cố vấn Tài chính..."
+            className={INPUT_CLASS}
+          />
         </div>
+
+        <TagInputEditor
+          tags={charTags}
+          onChange={setCharTags}
+          availableCatalog={availableCatalog}
+          sharedTags={sharedTags}
+          label="Tag (Chủ đề / Tính cách / Bối cảnh)"
+          placeholder="Ví dụ: Tổng tài, Chiếm hữu, Ngọt ngào... (Enter để thêm)"
+          aiContext={{
+            targetType: 'character',
+            title: name,
+            description,
+            content: [backstoryUser, backstoryChar, prompt].filter(Boolean).join('\n\n'),
+          }}
+          onToast={onToast}
+        />
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
@@ -534,6 +576,8 @@ interface NoteFormProps {
   isAdmin?: boolean;
   isAuthenticated?: boolean;
   userId?: string;
+  availableCatalog?: TagCatalogEntry[];
+  sharedTags?: SharedTag[];
   onToast?: (message: string, type?: 'success' | 'info' | 'error') => void;
 }
 
@@ -547,12 +591,16 @@ export function NoteForm({
   isAdmin = false,
   isAuthenticated = false,
   userId,
+  availableCatalog = [],
+  sharedTags = [],
   onToast,
 }: NoteFormProps) {
   const [draftId] = useState(() => initialData?.id || `note-${Date.now()}`);
   const initialParsed = getNoteDescriptionAndBlocks(initialData);
+  const [inputMode, setInputMode] = useState<'manual' | 'smart'>('manual');
   const [title, setTitle] = useState(initialData?.title || '');
   const [description, setDescription] = useState(initialParsed.description);
+  const [noteTags, setNoteTags] = useState<string[]>(() => getNoteTags(initialData));
   const [blocks, setBlocks] = useState<PromptBlock[]>(() => initialParsed.blocks);
   const [autoNumberSteps, setAutoNumberSteps] = useState<boolean>(
     initialParsed.autoNumberSteps,
@@ -585,10 +633,31 @@ export function NoteForm({
     onCancel();
   };
 
+  const handleApplySmartDraft = (draft: SmartParsedDraft) => {
+    if (draft.title.trim()) setTitle(draft.title.trim());
+    if (draft.description.trim()) {
+      setDescription(draft.description.trim());
+    } else if (draft.howToUse.trim()) {
+      setDescription(draft.howToUse.trim());
+    }
+    if (draft.blocks.length > 0) {
+      setBlocks(draft.blocks);
+      setAutoNumberSteps(draft.autoNumberSteps);
+    }
+    if (draft.suggestedTags.length > 0) {
+      setNoteTags((prev) => dedupeTags([...prev, ...draft.suggestedTags]));
+    }
+    setInputMode('manual');
+    onToast?.('Đã đưa bản nháp vào trình soạn thảo. Hãy kiểm tra trước khi lưu!', 'success');
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSaving) return;
-    if (!title.trim()) return setError('Vui lòng nhập tiêu đề bài đăng');
+    if (!title.trim()) {
+      setError('Vui lòng nhập tiêu đề bài đăng');
+      return;
+    }
 
     const invalidImageBlock = blocks.find(
       (b) =>
@@ -597,12 +666,34 @@ export function NoteForm({
         !isSafeImageUrl(b.imageUrl),
     );
     if (invalidImageBlock) {
-      return setError('URL hình ảnh minh họa phải bắt đầu bằng https://');
+      setError('URL hình ảnh minh họa phải bắt đầu bằng https://');
+      return;
     }
 
     const cleanBlocks = sanitizePromptBlocks(blocks, autoNumberSteps);
     if (cleanBlocks.length === 0) {
-      return setError('Vui lòng thêm ít nhất 1 khối nội dung có dữ liệu trước khi lưu');
+      setError('Vui lòng thêm ít nhất 1 khối nội dung có dữ liệu trước khi lưu');
+      return;
+    }
+
+    let cleanTags = dedupeTags(noteTags);
+    if (cleanTags.length === 0) {
+      const autoAnalysis = analyzeSmartTagsClient({
+        title: title.trim(),
+        description: description.trim(),
+        content: cleanBlocks
+          .map((b) => [b.label, b.content].filter(Boolean).join('\n'))
+          .filter(Boolean)
+          .join('\n\n'),
+        targetType: 'note',
+        availableCatalog,
+        sharedTags,
+        maxTags: 5,
+      });
+      if (autoAnalysis.hasEnoughEvidence && autoAnalysis.suggestedTags.length > 0) {
+        cleanTags = autoAnalysis.suggestedTags;
+        setNoteTags(cleanTags);
+      }
     }
 
     const effectiveVisibility: VisibilityMode =
@@ -613,6 +704,7 @@ export function NoteForm({
       blocks: cleanBlocks,
       autoNumberSteps,
       legacyCategory: initialParsed.legacyCategory,
+      tags: cleanTags,
     });
 
     setError('');
@@ -621,6 +713,7 @@ export function NoteForm({
       draftId,
       title: title.trim(),
       ...noteFields,
+      tags: cleanTags,
       characterId: characterId || '',
       icon,
       isSystem: canPublish ? effectiveVisibility === 'system' : undefined,
@@ -658,6 +751,33 @@ export function NoteForm({
         </button>
       </div>
 
+      {/* Mode Switcher: Manual vs Smart Import */}
+      <div className="px-4 sm:px-5 pt-3.5 pb-1 flex flex-wrap items-center gap-2 border-b border-[#E3EFE7] dark:border-[#49554D] bg-[#FAF6EA]/60 dark:bg-[#202423]/60">
+        <button
+          type="button"
+          onClick={() => setInputMode('manual')}
+          className={`px-3 py-1.5 rounded-t-md border-x border-t text-xs font-semibold cursor-pointer transition ${
+            inputMode === 'manual'
+              ? 'bg-[#FFF9EA] dark:bg-[#292E2B] border-[#9FC4AF] dark:border-[#49554D] text-[#224C3B] dark:text-[#E4E1D8] -mb-px pb-2'
+              : 'bg-transparent border-transparent text-[#587568] dark:text-[#B8BDB5] hover:text-[#224C3B] dark:hover:text-[#E4E1D8]'
+          }`}
+        >
+          Soạn thủ công
+        </button>
+        <button
+          type="button"
+          onClick={() => setInputMode('smart')}
+          className={`px-3 py-1.5 rounded-t-md border-x border-t text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition ${
+            inputMode === 'smart'
+              ? 'bg-[#FFF9EA] dark:bg-[#292E2B] border-[#9FC4AF] dark:border-[#49554D] text-[#224C3B] dark:text-[#E4E1D8] -mb-px pb-2'
+              : 'bg-transparent border-transparent text-[#587568] dark:text-[#B8BDB5] hover:text-[#224C3B] dark:hover:text-[#E4E1D8]'
+          }`}
+        >
+          <Wand2 className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
+          Nhập thông minh
+        </button>
+      </div>
+
       <div className="p-4 sm:p-5 space-y-4">
         {error && (
           <p className="px-3 py-2 rounded-md border border-[#dfb4bd] bg-[#fff3f5] dark:bg-[#292E2B] dark:border-[#6B4A4D] text-red-700 dark:text-[#E4A6AA] text-xs font-semibold">
@@ -665,153 +785,180 @@ export function NoteForm({
           </p>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className={LABEL_CLASS}>Tên / Tiêu Đề Bài Đăng *</label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Ví dụ: Bộ lệnh nhập vai tổng tài, Prompt sửa lỗi HUD..."
-              className={INPUT_CLASS}
-            />
-          </div>
-
-          <div>
-            <label className={LABEL_CLASS}>Nhân Vật Liên Kết (Tùy chọn)</label>
-            <select
-              value={characterId}
-              onChange={(e) => setCharacterId(e.target.value)}
-              className={INPUT_CLASS}
-            >
-              <option value="">-- Không gắn nhân vật cụ thể (Dùng chung) --</option>
-              {characters.map((char) => (
-                <option key={char.cloudKey || char.id} value={char.id}>
-                  {char.avatar} {char.name} ({char.role})
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div>
-          <label className={LABEL_CLASS}>Mô Tả Tổng Quan (Không bắt buộc)</label>
-          <textarea
-            rows={2}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Tóm tắt ngắn gọn công dụng hoặc bối cảnh áp dụng cho bài đăng này..."
-            className="retro-input w-full px-3 py-2 text-xs sm:text-sm leading-relaxed resize-y"
-          />
-        </div>
-
-        <div>
-          <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
-            <label className="block text-xs font-bold text-[#2B5A47] dark:text-[#A3BDA8]">
-              Icon / Emoji Đại Diện
-            </label>
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] text-[#587568] dark:text-[#B8BDB5]">Đang chọn:</span>
-              <span className="w-7 h-7 rounded-md bg-[#E2F3E8] dark:bg-[#343D37] border border-[#9FC4AF] dark:border-[#49554D] flex items-center justify-center text-base">
-                {icon || '☘️'}
-              </span>
-            </div>
-          </div>
-
-          <div className="retro-callout-mint p-3 space-y-2.5">
-            <div className="flex flex-wrap gap-1.5 pb-2 border-b border-[#CBE0D3] dark:border-[#49554D]">
-              {NOTE_EMOJI_GROUPS.map((group) => (
-                <button
-                  key={group.id}
-                  type="button"
-                  onClick={() => setNoteEmojiCategory(group.id)}
-                  className={`px-2.5 py-1 rounded-md border text-[11px] font-semibold transition cursor-pointer ${
-                    noteEmojiCategory === group.id
-                      ? 'bg-[#E2F3E8] dark:bg-[#343D37] border-[#39755D] dark:border-[#A3BDA8] text-[#214C3B] dark:text-[#E4E1D8]'
-                      : 'bg-[#FFF9EA] dark:bg-[#292E2B] border-[#C9DFD1] dark:border-[#49554D] text-[#4E6E60] dark:text-[#B8BDB5] hover:bg-[#E2F3E8]/60 dark:hover:bg-[#343D37]'
-                  }`}
-                >
-                  {group.label}
-                </button>
-              ))}
-            </div>
-
-            <div className="flex flex-wrap items-center gap-1.5">
-              {(NOTE_EMOJI_GROUPS.find((g) => g.id === noteEmojiCategory) ?? NOTE_EMOJI_GROUPS[0]).emojis.map((emoji) => (
-                <button
-                  key={emoji}
-                  type="button"
-                  onClick={() => setIcon(emoji)}
-                  className={`text-xl w-9 h-9 flex items-center justify-center rounded-md border transition cursor-pointer ${
-                    icon === emoji
-                      ? 'bg-[#39755D] border-[#2B5A47] text-white'
-                      : 'border-transparent hover:border-[#9FC4AF] hover:bg-[#FFF9EA] dark:hover:bg-[#343D37]'
-                  }`}
-                >
-                  {emoji}
-                </button>
-              ))}
-              <input
-                type="text"
-                value={icon}
-                onChange={(e) => setIcon(limitEmojiInput(e.target.value))}
-                placeholder="Tự nhập"
-                className="retro-input w-20 h-9 px-2 text-center text-base"
-                title="Nhập hoặc dán bất kỳ emoji nào bạn muốn"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <label className="block text-xs font-bold text-[#2B5A47] dark:text-[#A3BDA8]">
-            Nội Dung Theo Khối Linh Hoạt *
-          </label>
-          <PromptBlockEditor
-            postTitle={title}
-            description={description}
-            blocks={blocks}
-            autoNumberSteps={autoNumberSteps}
-            onChangeBlocks={setBlocks}
-            onChangeAutoNumberSteps={setAutoNumberSteps}
-            onTrackSessionUpload={(path) => {
-              sessionUploadedPathsRef.current.push(path);
-            }}
-            isAuthenticated={isAuthenticated}
-            userId={userId}
+        {inputMode === 'smart' ? (
+          <SmartImportPanel
             targetType="note"
-            draftItemId={draftId}
+            availableCatalog={availableCatalog}
+            sharedTags={sharedTags}
+            onApplyDraft={handleApplySmartDraft}
+            onSwitchToManual={() => setInputMode('manual')}
             onToast={onToast}
           />
-        </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className={LABEL_CLASS}>Tên / Tiêu Đề Bài Đăng *</label>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="Ví dụ: Bộ lệnh nhập vai tổng tài, Prompt sửa lỗi HUD..."
+                  className={INPUT_CLASS}
+                />
+              </div>
 
-        {canPublish && (
-          <VisibilitySelector
-            mode={visibility}
-            onChange={setVisibility}
-            isAdmin={isAdmin}
-            isEditingSystem={Boolean(initialData?.isSystem)}
-          />
+              <div>
+                <label className={LABEL_CLASS}>Nhân Vật Liên Kết (Tùy chọn)</label>
+                <select
+                  value={characterId}
+                  onChange={(e) => setCharacterId(e.target.value)}
+                  className={INPUT_CLASS}
+                >
+                  <option value="">-- Không gắn nhân vật cụ thể (Dùng chung) --</option>
+                  {characters.map((char) => (
+                    <option key={char.cloudKey || char.id} value={char.id}>
+                      {char.avatar} {char.name} ({char.role})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className={LABEL_CLASS}>Mô Tả Tổng Quan (Không bắt buộc)</label>
+              <textarea
+                rows={2}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Tóm tắt ngắn gọn công dụng hoặc bối cảnh áp dụng cho bài đăng này..."
+                className="retro-input w-full px-3 py-2 text-xs sm:text-sm leading-relaxed resize-y"
+              />
+            </div>
+
+            <TagInputEditor
+              tags={noteTags}
+              onChange={setNoteTags}
+              availableCatalog={availableCatalog}
+              sharedTags={sharedTags}
+              aiContext={{
+                targetType: 'note',
+                title,
+                description,
+                content: blocks.map((b) => `${b.label}\n${b.content || ''}`).join('\n\n'),
+              }}
+              onToast={onToast}
+            />
+
+            <div>
+              <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+                <label className="block text-xs font-bold text-[#2B5A47] dark:text-[#A3BDA8]">
+                  Icon / Emoji Đại Diện
+                </label>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-[#587568] dark:text-[#B8BDB5]">Đang chọn:</span>
+                  <span className="w-7 h-7 rounded-md bg-[#E2F3E8] dark:bg-[#343D37] border border-[#9FC4AF] dark:border-[#49554D] flex items-center justify-center text-base">
+                    {icon || '☘️'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="retro-callout-mint p-3 space-y-2.5">
+                <div className="flex flex-wrap gap-1.5 pb-2 border-b border-[#CBE0D3] dark:border-[#49554D]">
+                  {NOTE_EMOJI_GROUPS.map((group) => (
+                    <button
+                      key={group.id}
+                      type="button"
+                      onClick={() => setNoteEmojiCategory(group.id)}
+                      className={`px-2.5 py-1 rounded-md border text-[11px] font-semibold transition cursor-pointer ${
+                        noteEmojiCategory === group.id
+                          ? 'bg-[#E2F3E8] dark:bg-[#343D37] border-[#39755D] dark:border-[#A3BDA8] text-[#214C3B] dark:text-[#E4E1D8]'
+                          : 'bg-[#FFF9EA] dark:bg-[#292E2B] border-[#C9DFD1] dark:border-[#49554D] text-[#4E6E60] dark:text-[#B8BDB5] hover:bg-[#E2F3E8]/60 dark:hover:bg-[#343D37]'
+                      }`}
+                    >
+                      {group.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {(NOTE_EMOJI_GROUPS.find((g) => g.id === noteEmojiCategory) ?? NOTE_EMOJI_GROUPS[0]).emojis.map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      onClick={() => setIcon(emoji)}
+                      className={`text-xl w-9 h-9 flex items-center justify-center rounded-md border transition cursor-pointer ${
+                        icon === emoji
+                          ? 'bg-[#39755D] border-[#2B5A47] text-white'
+                          : 'border-transparent hover:border-[#9FC4AF] hover:bg-[#FFF9EA] dark:hover:bg-[#343D37]'
+                      }`}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                  <input
+                    type="text"
+                    value={icon}
+                    onChange={(e) => setIcon(limitEmojiInput(e.target.value))}
+                    placeholder="Tự nhập"
+                    className="retro-input w-20 h-9 px-2 text-center text-base"
+                    title="Nhập hoặc dán bất kỳ emoji nào bạn muốn"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-[#2B5A47] dark:text-[#A3BDA8]">
+                Nội Dung Theo Khối Linh Hoạt *
+              </label>
+              <PromptBlockEditor
+                postTitle={title}
+                description={description}
+                blocks={blocks}
+                autoNumberSteps={autoNumberSteps}
+                onChangeBlocks={setBlocks}
+                onChangeAutoNumberSteps={setAutoNumberSteps}
+                onTrackSessionUpload={(path) => {
+                  sessionUploadedPathsRef.current.push(path);
+                }}
+                isAuthenticated={isAuthenticated}
+                userId={userId}
+                targetType="note"
+                draftItemId={draftId}
+                onToast={onToast}
+              />
+            </div>
+
+            {canPublish && (
+              <VisibilitySelector
+                mode={visibility}
+                onChange={setVisibility}
+                isAdmin={isAdmin}
+                isEditingSystem={Boolean(initialData?.isSystem)}
+              />
+            )}
+
+            <div className="flex gap-2.5 justify-end pt-3 border-t border-[#D4E5DA] dark:border-[#49554D]">
+              <button
+                type="button"
+                disabled={isSaving}
+                onClick={handleCancelWithCleanup}
+                className="retro-btn px-4 py-1.5 text-xs font-semibold cursor-pointer disabled:opacity-50"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="submit"
+                disabled={isSaving}
+                className="retro-btn-primary px-4 py-1.5 text-xs font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+              >
+                {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                {isSaving ? 'Đang lưu...' : 'Lưu Lại'}
+              </button>
+            </div>
+          </>
         )}
-
-        <div className="flex gap-2.5 justify-end pt-3 border-t border-[#D4E5DA] dark:border-[#49554D]">
-          <button
-            type="button"
-            disabled={isSaving}
-            onClick={handleCancelWithCleanup}
-            className="retro-btn px-4 py-1.5 text-xs font-semibold cursor-pointer disabled:opacity-50"
-          >
-            Hủy bỏ
-          </button>
-          <button
-            type="submit"
-            disabled={isSaving}
-            className="retro-btn-primary px-4 py-1.5 text-xs font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
-          >
-            {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-            {isSaving ? 'Đang lưu...' : 'Lưu Lại'}
-          </button>
-        </div>
       </div>
     </form>
   );
@@ -826,6 +973,9 @@ interface IdeaFormProps {
   isSaving?: boolean;
   canPublish?: boolean;
   isAdmin?: boolean;
+  availableCatalog?: TagCatalogEntry[];
+  sharedTags?: SharedTag[];
+  onToast?: (message: string, type?: 'success' | 'info' | 'error') => void;
 }
 
 export function IdeaForm({
@@ -835,9 +985,13 @@ export function IdeaForm({
   isSaving = false,
   canPublish = false,
   isAdmin = false,
+  availableCatalog = [],
+  sharedTags = [],
+  onToast,
 }: IdeaFormProps) {
   const [title, setTitle] = useState(initialData?.title || '');
   const [content, setContent] = useState(initialData?.content || '');
+  const [ideaTags, setIdeaTags] = useState<string[]>(() => dedupeTags(initialData?.tags || []));
   const [visibility, setVisibility] = useState<VisibilityMode>(() => {
     if (initialData?.isSystem) return 'system';
     if (initialData?.isPublic) return 'public';
@@ -845,20 +999,43 @@ export function IdeaForm({
   });
   const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSaving) return;
-    if (!title.trim()) return setError('Vui lòng cung cấp tiêu đề ý tưởng');
-    if (!content.trim()) return setError('Vui lòng viết chi tiết ý tưởng');
+    if (!title.trim()) {
+      setError('Vui lòng cung cấp tiêu đề ý tưởng');
+      return;
+    }
+    if (!content.trim()) {
+      setError('Vui lòng viết chi tiết ý tưởng');
+      return;
+    }
+
+    let finalTags = dedupeTags(ideaTags);
+    if (finalTags.length === 0) {
+      const autoAnalysis = analyzeSmartTagsClient({
+        title: title.trim(),
+        content: content.trim(),
+        targetType: 'idea',
+        availableCatalog,
+        sharedTags,
+        maxTags: 5,
+      });
+      if (autoAnalysis.hasEnoughEvidence && autoAnalysis.suggestedTags.length > 0) {
+        finalTags = autoAnalysis.suggestedTags;
+        setIdeaTags(finalTags);
+      }
+    }
 
     const effectiveVisibility: VisibilityMode =
       visibility === 'system' && !isAdmin ? 'private' : visibility;
 
-    onSave({
+    setError('');
+    await onSave({
       id: initialData?.id,
       title: title.trim(),
       content: content.trim(),
-      tags: initialData?.tags || [],
+      tags: finalTags,
       isSystem: canPublish ? effectiveVisibility === 'system' : undefined,
       isPublic: canPublish
         ? effectiveVisibility === 'public' || effectiveVisibility === 'system'
@@ -912,6 +1089,19 @@ export function IdeaForm({
           />
         </div>
 
+        <TagInputEditor
+          tags={ideaTags}
+          onChange={setIdeaTags}
+          availableCatalog={availableCatalog}
+          sharedTags={sharedTags}
+          aiContext={{
+            targetType: 'idea',
+            title,
+            content,
+          }}
+          onToast={onToast}
+        />
+
         {canPublish && (
           <VisibilitySelector
             mode={visibility}
@@ -956,6 +1146,8 @@ interface LibraryPromptFormProps {
   isAdmin?: boolean;
   isAuthenticated?: boolean;
   userId?: string;
+  availableCatalog?: TagCatalogEntry[];
+  sharedTags?: SharedTag[];
   onToast?: (message: string, type?: 'success' | 'info' | 'error') => void;
 }
 
@@ -967,17 +1159,22 @@ export function LibraryPromptForm({
   isAdmin = false,
   isAuthenticated = false,
   userId,
+  availableCatalog = [],
+  sharedTags = [],
   onToast,
 }: LibraryPromptFormProps) {
   const [draftId] = useState(() => initialData?.id || `sys-lib-${Date.now()}`);
   const initialParsed = getLibraryPromptBlocks(initialData);
 
+  const [inputMode, setInputMode] = useState<'manual' | 'smart'>('manual');
   const [title, setTitle] = useState(initialData?.title || '');
   const [icon, setIcon] = useState(initialData?.icon || '📚');
   const [author, setAuthor] = useState(initialData?.author || 'Admin SéaClover');
   const [description, setDescription] = useState(initialData?.description || '');
   const [howToUse, setHowToUse] = useState(initialData?.howToUse || '');
-  const [tagsInput, setTagsInput] = useState((initialData?.tags || []).join(', '));
+  const [promptTags, setPromptTags] = useState<string[]>(() =>
+    dedupeTags(initialData?.tags || []),
+  );
   const [blocks, setBlocks] = useState<PromptBlock[]>(() => initialParsed.blocks);
   const [autoNumberSteps, setAutoNumberSteps] = useState<boolean>(
     initialParsed.autoNumberSteps,
@@ -1001,10 +1198,28 @@ export function LibraryPromptForm({
     onCancel();
   };
 
+  const handleApplySmartDraft = (draft: SmartParsedDraft) => {
+    if (draft.title.trim()) setTitle(draft.title.trim());
+    if (draft.description.trim()) setDescription(draft.description.trim());
+    if (draft.howToUse.trim()) setHowToUse(draft.howToUse.trim());
+    if (draft.blocks.length > 0) {
+      setBlocks(draft.blocks);
+      setAutoNumberSteps(draft.autoNumberSteps);
+    }
+    if (draft.suggestedTags.length > 0) {
+      setPromptTags((prev) => dedupeTags([...prev, ...draft.suggestedTags]));
+    }
+    setInputMode('manual');
+    onToast?.('Đã đưa bản nháp vào trình soạn thảo. Hãy kiểm tra trước khi lưu!', 'success');
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSaving) return;
-    if (!title.trim()) return setError('Vui lòng nhập tiêu đề bài đăng Kho Lệnh');
+    if (!title.trim()) {
+      setError('Vui lòng nhập tiêu đề bài đăng Kho Lệnh');
+      return;
+    }
 
     const invalidImageBlock = blocks.find(
       (b) =>
@@ -1013,18 +1228,35 @@ export function LibraryPromptForm({
         !isSafeImageUrl(b.imageUrl),
     );
     if (invalidImageBlock) {
-      return setError('URL hình ảnh minh họa phải bắt đầu bằng https://');
+      setError('URL hình ảnh minh họa phải bắt đầu bằng https://');
+      return;
     }
 
     const cleanSteps = blocksToLibraryPromptSteps(blocks, autoNumberSteps);
     if (cleanSteps.length === 0) {
-      return setError('Vui lòng thêm ít nhất 1 khối nội dung có dữ liệu trước khi lưu');
+      setError('Vui lòng thêm ít nhất 1 khối nội dung có dữ liệu trước khi lưu');
+      return;
     }
 
-    const tags = tagsInput
-      .split(',')
-      .map((t) => t.trim())
-      .filter(Boolean);
+    let tags = dedupeTags(promptTags);
+    if (tags.length === 0) {
+      const autoAnalysis = analyzeSmartTagsClient({
+        title: title.trim(),
+        description: [description.trim(), howToUse.trim()].filter(Boolean).join('\n'),
+        content: cleanSteps
+          .map((b) => [b.label, b.content].filter(Boolean).join('\n'))
+          .filter(Boolean)
+          .join('\n\n'),
+        targetType: 'library_prompt',
+        availableCatalog,
+        sharedTags,
+        maxTags: 5,
+      });
+      if (autoAnalysis.hasEnoughEvidence && autoAnalysis.suggestedTags.length > 0) {
+        tags = autoAnalysis.suggestedTags;
+        setPromptTags(tags);
+      }
+    }
 
     const effectiveVisibility: VisibilityMode =
       visibility === 'system' && !isAdmin ? 'private' : visibility;
@@ -1074,6 +1306,33 @@ export function LibraryPromptForm({
         </button>
       </div>
 
+      {/* Mode Switcher: Manual vs Smart Import */}
+      <div className="px-4 sm:px-5 pt-3.5 pb-1 flex flex-wrap items-center gap-2 border-b border-[#E3EFE7] dark:border-[#49554D] bg-[#FAF6EA]/60 dark:bg-[#202423]/60">
+        <button
+          type="button"
+          onClick={() => setInputMode('manual')}
+          className={`px-3 py-1.5 rounded-t-md border-x border-t text-xs font-semibold cursor-pointer transition ${
+            inputMode === 'manual'
+              ? 'bg-[#FFF9EA] dark:bg-[#292E2B] border-[#9FC4AF] dark:border-[#49554D] text-[#224C3B] dark:text-[#E4E1D8] -mb-px pb-2'
+              : 'bg-transparent border-transparent text-[#587568] dark:text-[#B8BDB5] hover:text-[#224C3B] dark:hover:text-[#E4E1D8]'
+          }`}
+        >
+          Soạn thủ công
+        </button>
+        <button
+          type="button"
+          onClick={() => setInputMode('smart')}
+          className={`px-3 py-1.5 rounded-t-md border-x border-t text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition ${
+            inputMode === 'smart'
+              ? 'bg-[#FFF9EA] dark:bg-[#292E2B] border-[#9FC4AF] dark:border-[#49554D] text-[#224C3B] dark:text-[#E4E1D8] -mb-px pb-2'
+              : 'bg-transparent border-transparent text-[#587568] dark:text-[#B8BDB5] hover:text-[#224C3B] dark:hover:text-[#E4E1D8]'
+          }`}
+        >
+          <Wand2 className="w-3.5 h-3.5 text-[#39755D] dark:text-[#A3BDA8]" />
+          Nhập thông minh
+        </button>
+      </div>
+
       <div className="p-4 sm:p-5 space-y-4">
         {error && (
           <p className="px-3 py-2 rounded-md border border-[#dfb4bd] bg-[#fff3f5] dark:bg-[#292E2B] dark:border-[#6B4A4D] text-red-700 dark:text-[#E4A6AA] text-xs font-semibold">
@@ -1081,124 +1340,139 @@ export function LibraryPromptForm({
           </p>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="md:col-span-2">
-            <label className={LABEL_CLASS}>Tên / Tiêu Đề Bài Đăng *</label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Ví dụ: Lệnh Thúc Đẩy Cốt Truyện, Bộ Lệnh HUD..."
-              className={INPUT_CLASS}
-            />
-          </div>
-          <div>
-            <label className={LABEL_CLASS}>Icon Đại Diện</label>
-            <input
-              type="text"
-              value={icon}
-              onChange={(e) => setIcon(limitEmojiInput(e.target.value))}
-              placeholder="📚"
-              className={`${INPUT_CLASS} text-center`}
-            />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className={LABEL_CLASS}>Tác Giả / Nguồn</label>
-            <input
-              type="text"
-              value={author}
-              onChange={(e) => setAuthor(e.target.value)}
-              placeholder="Ví dụ: Nhi Séa / Admin SéaClover"
-              className={INPUT_CLASS}
-            />
-          </div>
-          <div>
-            <label className={LABEL_CLASS}>Tags (phân cách bởi dấu phẩy)</label>
-            <input
-              type="text"
-              value={tagsInput}
-              onChange={(e) => setTagsInput(e.target.value)}
-              placeholder="Ví dụ: cốt truyện, drama, hud"
-              className={INPUT_CLASS}
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className={LABEL_CLASS}>Mô Tả Tổng Quan (Không bắt buộc)</label>
-          <textarea
-            rows={2}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Mô tả ngắn gọn công dụng hoặc mục đích sử dụng của bài đăng..."
-            className="retro-input w-full px-3 py-2 text-xs sm:text-sm leading-relaxed resize-y"
-          />
-        </div>
-
-        {initialData?.howToUse && (
-          <div>
-            <label className={LABEL_CLASS}>Ghi Chú Hướng Dẫn Tổng Quát (Tùy chọn)</label>
-            <textarea
-              rows={2}
-              value={howToUse}
-              onChange={(e) => setHowToUse(e.target.value)}
-              placeholder="Có thể để trống nếu đã dùng các khối Hướng dẫn bên dưới..."
-              className="retro-input w-full px-3 py-2 text-xs sm:text-sm leading-relaxed resize-y"
-            />
-          </div>
-        )}
-
-        <div className="space-y-2">
-          <label className="block text-xs font-bold text-[#2B5A47] dark:text-[#A3BDA8]">
-            Nội Dung Theo Khối Linh Hoạt *
-          </label>
-          <PromptBlockEditor
-            postTitle={title}
-            description={description}
-            howToUse={howToUse}
-            blocks={blocks}
-            autoNumberSteps={autoNumberSteps}
-            onChangeBlocks={setBlocks}
-            onChangeAutoNumberSteps={setAutoNumberSteps}
-            onTrackSessionUpload={(path) => {
-              sessionUploadedPathsRef.current.push(path);
-            }}
-            isAuthenticated={isAuthenticated}
-            userId={userId}
+        {inputMode === 'smart' ? (
+          <SmartImportPanel
             targetType="library_prompt"
-            draftItemId={draftId}
+            availableCatalog={availableCatalog}
+            sharedTags={sharedTags}
+            onApplyDraft={handleApplySmartDraft}
+            onSwitchToManual={() => setInputMode('manual')}
             onToast={onToast}
           />
-        </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="md:col-span-2">
+                <label className={LABEL_CLASS}>Tên / Tiêu Đề Bài Đăng *</label>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="Ví dụ: Lệnh Thúc Đẩy Cốt Truyện, Bộ Lệnh HUD..."
+                  className={INPUT_CLASS}
+                />
+              </div>
+              <div>
+                <label className={LABEL_CLASS}>Icon Đại Diện</label>
+                <input
+                  type="text"
+                  value={icon}
+                  onChange={(e) => setIcon(limitEmojiInput(e.target.value))}
+                  placeholder="📚"
+                  className={`${INPUT_CLASS} text-center`}
+                />
+              </div>
+            </div>
 
-        <VisibilitySelector
-          mode={visibility}
-          onChange={setVisibility}
-          isAdmin={isAdmin}
-          isEditingSystem={Boolean(initialData?.isSystem)}
-        />
+            <div>
+              <label className={LABEL_CLASS}>Tác Giả / Nguồn</label>
+              <input
+                type="text"
+                value={author}
+                onChange={(e) => setAuthor(e.target.value)}
+                placeholder="Ví dụ: Nhi Séa / Admin SéaClover"
+                className={INPUT_CLASS}
+              />
+            </div>
 
-        <div className="flex gap-2.5 justify-end pt-3 border-t border-[#D4E5DA] dark:border-[#49554D]">
-          <button
-            type="button"
-            disabled={isSaving}
-            onClick={handleCancelWithCleanup}
-            className="retro-btn px-4 py-1.5 text-xs font-semibold cursor-pointer disabled:opacity-50"
-          >
-            Hủy bỏ
-          </button>
-          <button
-            type="submit"
-            disabled={isSaving}
-            className="retro-btn-primary px-4 py-1.5 text-xs font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
-          >
-            {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-            {isSaving ? 'Đang lưu...' : 'Lưu Câu Lệnh'}
-          </button>
-        </div>
+            <TagInputEditor
+              tags={promptTags}
+              onChange={setPromptTags}
+              availableCatalog={availableCatalog}
+              sharedTags={sharedTags}
+              aiContext={{
+                targetType: 'library_prompt',
+                title,
+                description: [description, howToUse].filter(Boolean).join('\n'),
+                content: blocks.map((b) => `${b.label}\n${b.content || ''}`).join('\n\n'),
+              }}
+              onToast={onToast}
+            />
+
+            <div>
+              <label className={LABEL_CLASS}>Mô Tả Tổng Quan (Không bắt buộc)</label>
+              <textarea
+                rows={2}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Mô tả ngắn gọn công dụng hoặc mục đích sử dụng của bài đăng..."
+                className="retro-input w-full px-3 py-2 text-xs sm:text-sm leading-relaxed resize-y"
+              />
+            </div>
+
+            {(initialData?.howToUse || howToUse) && (
+              <div>
+                <label className={LABEL_CLASS}>Ghi Chú Hướng Dẫn Tổng Quát (Tùy chọn)</label>
+                <textarea
+                  rows={2}
+                  value={howToUse}
+                  onChange={(e) => setHowToUse(e.target.value)}
+                  placeholder="Có thể để trống nếu đã dùng các khối Hướng dẫn bên dưới..."
+                  className="retro-input w-full px-3 py-2 text-xs sm:text-sm leading-relaxed resize-y"
+                />
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-[#2B5A47] dark:text-[#A3BDA8]">
+                Nội Dung Theo Khối Linh Hoạt *
+              </label>
+              <PromptBlockEditor
+                postTitle={title}
+                description={description}
+                howToUse={howToUse}
+                blocks={blocks}
+                autoNumberSteps={autoNumberSteps}
+                onChangeBlocks={setBlocks}
+                onChangeAutoNumberSteps={setAutoNumberSteps}
+                onTrackSessionUpload={(path) => {
+                  sessionUploadedPathsRef.current.push(path);
+                }}
+                isAuthenticated={isAuthenticated}
+                userId={userId}
+                targetType="library_prompt"
+                draftItemId={draftId}
+                onToast={onToast}
+              />
+            </div>
+
+            <VisibilitySelector
+              mode={visibility}
+              onChange={setVisibility}
+              isAdmin={isAdmin}
+              isEditingSystem={Boolean(initialData?.isSystem)}
+            />
+
+            <div className="flex gap-2.5 justify-end pt-3 border-t border-[#D4E5DA] dark:border-[#49554D]">
+              <button
+                type="button"
+                disabled={isSaving}
+                onClick={handleCancelWithCleanup}
+                className="retro-btn px-4 py-1.5 text-xs font-semibold cursor-pointer disabled:opacity-50"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="submit"
+                disabled={isSaving}
+                className="retro-btn-primary px-4 py-1.5 text-xs font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+              >
+                {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                {isSaving ? 'Đang lưu...' : 'Lưu Câu Lệnh'}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </form>
   );

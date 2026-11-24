@@ -190,7 +190,21 @@ export function loadState(): AppState {
       };
     }
     const parsed = JSON.parse(saved);
+    const customizedIdeaSet = new Set(guestMeta.customizedIdeaIds);
     let ideasList = Array.isArray(parsed.ideas) ? parsed.ideas.filter((i: any) => i.id !== 'idea-1' && i.id !== 'idea-2') : initialIdeas;
+
+    let hasUpdatedAnyIdea = false;
+    ideasList = ideasList.map((savedIdea: any) => {
+      if (customizedIdeaSet.has(savedIdea.id)) {
+        return savedIdea;
+      }
+      const initialIdea = initialIdeas.find((ii) => ii.id === savedIdea.id);
+      if (initialIdea && JSON.stringify(savedIdea.tags) !== JSON.stringify(initialIdea.tags)) {
+        hasUpdatedAnyIdea = true;
+        return { ...savedIdea, tags: initialIdea.tags };
+      }
+      return savedIdea;
+    });
 
     // Tự động đồng bộ các ý tưởng mới từ hệ thống vào kho ý tưởng hiện tại của người dùng
     // nhưng bỏ qua các mục mà khách đã chủ động xóa.
@@ -198,6 +212,10 @@ export function loadState(): AppState {
     const missingIdeas = initialIdeas.filter(i => !savedIds.has(i.id) && !deletedIdeaSet.has(i.id));
     if (missingIdeas.length > 0) {
       ideasList = [...ideasList, ...missingIdeas];
+      hasUpdatedAnyIdea = true;
+    }
+
+    if (hasUpdatedAnyIdea) {
       try {
         parsed.ideas = ideasList;
         localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(parsed));
